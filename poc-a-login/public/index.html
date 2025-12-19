@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Sign in</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <main class="card">
+    <h1>Sign in</h1>
+    <p class="sub">Continue to your account</p>
+
+    <form id="loginForm" action="http://127.0.0.1:3000/collect" method="POST" autocomplete="off">
+      <label>
+        Email
+        <input name="email" type="email" required placeholder="name@company.com" />
+      </label>
+
+      <label>
+        Password
+        <input name="password" type="password" required placeholder="••••••••" />
+      </label>
+
+      <input type="hidden" name="src" value="login-poc" />
+
+      <button type="submit" class="btn">Sign in</button>
+    </form>
+
+    <hr />
+
+    <h2>Demo triggers</h2>
+    <p class="hint">Buttons below intentionally generate suspicious client-side behaviors.</p>
+
+    <div class="grid">
+      <button id="btnScript" class="btn secondary" type="button">Inject script tag</button>
+      <button id="btnIframe" class="btn secondary" type="button">Inject hidden iframe</button>
+      <button id="btnEval" class="btn secondary" type="button">atob → Function pattern</button>
+    </div>
+
+    <p class="footer">© 2025 Example</p>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>
+
