@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "BRS Sensor v0",
+  "name": "Browser-Runtime-Security v0",
   "version": "0.1.0",
   "permissions": [],
   "host_permissions": ["http://localhost:3000/*", "http://127.0.0.1:3000/*"],
