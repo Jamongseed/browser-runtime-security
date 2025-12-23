@@ -8,7 +8,6 @@ const __dirname = path.dirname(__filename);
 const app = express();
 
 app.use(express.urlencoded({ extended: true }));
-
 app.use(express.static(path.join(__dirname, "public")));
 
 app.get("/health", (req, res) => res.send("ok"));
@@ -21,10 +20,17 @@ app.post("/collect", (req, res) => {
     keys: Object.keys(req.body || {}),
   });
 
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.send(`
-    <h1>Received</h1>
-    <p>PoC endpoint. No credentials are stored.</p>
-    <a href="/">Back</a>
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Received</title></head>
+<body>
+  <h1>Received</h1>
+  <p>PoC endpoint. No credentials are stored.</p>
+  <a href="/">Back</a>
+</body>
+</html>
   `);
 });
 
