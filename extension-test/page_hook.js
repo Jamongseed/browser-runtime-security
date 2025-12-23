@@ -6,7 +6,7 @@
   try {
     const _eval = window.eval;
     window.eval = function (code) {
-      send("SUSP_FUNCTION_CALL", { 
+      send("SUSP_EVAL_CALL", { 
         func: "eval", 
         payload: String(code || "").slice(0, 100) 
       });
@@ -32,7 +32,7 @@
   try {
     const _Function = window.Function;
     window.Function = function (...args) {
-      send("SUSP_FUNCTION_CALL", { 
+      send("SUSP_FUNCTION_CONSTRUCTOR_CALL", { 
         func: "Function", 
         payload: args.join(", ").slice(0, 100) 
       });

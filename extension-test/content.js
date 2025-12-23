@@ -58,7 +58,7 @@
                         const isCrossSite = targetOrigin && targetOrigin !== location.origin;
                         
                         sendLog("DYN_SCRIPT_INSERT", { src, abs, crossSite: isCrossSite }, {
-                            ruleId: isCrossSite ? "DYN_SCRIPT_CROSS_SITE" : "DYN_SCRIPT_SAME_SITE",
+                            ruleId: isCrossSite ? "DYN_SCRIPT_INSERT_CROSS_SITE" : "DYN_SCRIPT_INSERT_SAME_SITE",
                             scoreDelta: isCrossSite ? 20 : 0,
                             targetOrigin: targetOrigin
                         });
@@ -103,7 +103,7 @@
         const isMismatch = actionOrigin && actionOrigin !== location.origin;
 
         if (isMismatch) {
-            sendLog("FORM_SUBMIT_MISMATCH", {
+            sendLog("FORM_SUBMIT", {
                 trigger: triggerType,
                 actionAttr: action,
                 actionResolved: actionResolved
@@ -117,7 +117,10 @@
         }
     }
 
-    document.addEventListener("submit", (e) => handleFormRisk(e.target, "submit"), true);
+    document.addEventListener("submit", (e) => {
+        if (e.defaultPrevented) return;
+        handleFormRisk(e.target, "submit");
+    }, false);
     
     document.addEventListener("click", (e) => {
         const btn = e.target.closest("button[type='submit'], input[type='submit']");
@@ -126,7 +129,7 @@
         }
     }, true);
 
-    // age_hook.js에서 오는 메시지 수신
+    // page_hook.js에서 오는 메시지 수신
     window.addEventListener("message", (e) => {
         if (e.source !== window || !e.data.__BRS__) return;
         const { type, data } = e.data;
@@ -135,7 +138,8 @@
         let ruleId = type;
 
         if (type === "SUSP_ATOB_CALL") { score = 10; ruleId = "OBFUSCATION_ATOB"; }
-        else if (type === "SUSP_FUNCTION_CALL") { score = 25; ruleId = "DYNAMIC_CODE_EVAL"; }
+        else if (type === "SUSP_EVAL_CALL") { score = 25; ruleId = "DYNAMIC_CODE_EVAL"; }
+        else if (type === "SUSP_FUNCTION_CONSTRUCTOR_CALL") { score = 25; ruleId = "DYNAMIC_CODE_FUNCTION"; }
         else if (type === "SUSP_DOM_XSS") { score = 40; ruleId = "DOM_XSS_INJECTION"; } 
         else if (type === "SENSITIVE_DATA_ACCESS") { score = 50; ruleId = "COOKIE_THEFT"; } 
         else if (type === "SUSP_NETWORK_CALL") { score = 15; ruleId = "NETWORK_LEAK"; }
@@ -153,6 +157,6 @@
     injectHooks();
 
     // 세션 시작 알림
-    sendLog("SENSOR_READY", { ready: true }, { scoreDelta: 0, severity: "INFO" });
+    sendLog("SENSOR_READY", { ready: true }, { scoreDelta: 0, severity: "LOW" });
 
 })();
