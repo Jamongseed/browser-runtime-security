@@ -2,11 +2,14 @@
   "manifest_version": 3,
   "name": "Browser-Runtime-Security v0",
   "version": "0.1.0",
+  "description": "Real-time client-side threat detection and runtime behavior monitoring system.",
   "permissions": [
-    "storage",
-    "tabs"
+    "storage",   
+    "tabs" 
   ],
-  "host_permissions": ["http://localhost:3000/*", "http://127.0.0.1:3000/*"],
+  "host_permissions": [
+    "<all_urls>" 
+  ],
   "background": {
     "service_worker": "background.js"
   },
@@ -16,7 +19,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["http://localhost:3000/*", "http://127.0.0.1:3000/*"],
+      "matches": ["<all_urls>"],
       "js": ["content.js"],
       "run_at": "document_start"
     }
@@ -24,8 +27,7 @@
   "web_accessible_resources": [
     {
       "resources": ["page_hook.js"],
-      "matches": ["http://localhost:3000/*", "http://127.0.0.1:3000/*"]
+      "matches": ["<all_urls>"]
     }
   ]
 }
-
