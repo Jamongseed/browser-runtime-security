@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PoC B2 - Invisible Click Layer</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">SO-SO WEBTOON</div>
+      <div class="meta">EP. 28 · 무료 감상</div>
+    </header>
+
+    <main class="container">
+      <section class="card">
+        <h1 class="title">[PoC] 투명 클릭 레이어 (Invisible Overlay)</h1>
+        <p class="desc">
+          이 페이지는 <b>처음 로드될 때부터</b> 화면 전체를 덮는 투명 레이어가 깔려있는 시나리오를 재현합니다.
+          아무 곳이나 클릭하면 “광고”로 이동하는 것처럼 보이게 됩니다.
+        </p>
+
+        <div class="comic">
+          <div class="panel">패널 1</div>
+          <div class="panel">패널 2</div>
+          <div class="panel">패널 3</div>
+          <div class="panel">패널 4</div>
+        </div>
+
+        <div class="actions">
+          <button class="btn" id="toggleOverlayBtn">투명 레이어 토글</button>
+          <a class="btn primary" href="/ad">광고 페이지(/ad) 직접 가기</a>
+        </div>
+
+        <p class="hint">
+          포인트:
+          <br/>- overlay가 <b>클릭 후 생성</b>되는 게 아니라 <b>처음부터 존재</b>
+          <br/>- 그래서 “click→mutation” 상관관계가 약함
+          <br/>- 사용자는 “빈 화면 클릭했는데 광고로 이동”처럼 느낀다
+        </p>
+      </section>
+    </main>
+
+    <!-- 투명 클릭 레이어는 JS에서 생성-->
+    <script src="app.js"></script>
+  </body>
+</html>
