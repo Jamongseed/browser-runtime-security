@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { width: 350px; padding: 15px; font-family: 'Segoe UI', sans-serif; margin: 0; background-color: #f9f9f9; }
+    header { display: flex; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+    h2 { margin: 0; color: #333; font-size: 18px; }
+    .badge { background-color: #d32f2f; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px; margin-left: 10px; }
+    #log-area { max-height: 400px; overflow-y: auto; }
+    .log-item { background: white; padding: 10px; border-radius: 8px; margin-bottom: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-left: 5px solid #ccc; font-size: 13px; }
+    .log-item.HIGH { border-left-color: #ff4444; }
+    .log-item.MEDIUM { border-left-color: #ffbb33; }
+    .log-item.LOW { border-left-color: #00C851; }
+    .log-header { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 5px; color: #555; }
+    .log-time { color: #999; font-size: 11px; }
+    .log-data { background-color: #f1f1f1; padding: 5px; border-radius: 4px; font-family: monospace; white-space: pre-wrap; word-break: break-all; font-size: 11px; color: #333; }
+    .empty-state { text-align: center; color: #999; padding: 20px 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <h2>🛡️ BRS 보안 센터</h2>
+    <span class="badge">Active</span>
+  </header>
+  <div id="log-area">
+    <div class="empty-state">로그를 불러오는 중...</div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

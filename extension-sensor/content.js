@@ -1,228 +1,212 @@
 (function () {
-  const sessionId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(16).slice(2);
+    // Session ID 생성
+    const sessionId = (crypto && crypto.randomUUID) 
+        ? crypto.randomUUID() 
+        : `sess-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-  function nowSeverityFromDelta(scoreDelta) {
-    if (scoreDelta >= 50) return "HIGH";
-    if (scoreDelta >= 25) return "MEDIUM";
-    return "LOW";
-  }
-
-  function sendEvent(payload) {
-    fetch("http://localhost:8080/events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }).catch(() => {});
-  }
-
-  function log(type, data, meta) {
-    const payload = {
-      type,
-      data: data || {},
-      sessionId,
-      ruleId: meta && meta.ruleId ? meta.ruleId : type,
-      evidence: meta && meta.evidence ? meta.evidence : {},
-      scoreDelta: meta && typeof meta.scoreDelta === "number" ? meta.scoreDelta : 0,
-      severity: meta && meta.severity ? meta.severity : nowSeverityFromDelta(meta && typeof meta.scoreDelta === "number" ? meta.scoreDelta : 0),
-      targetOrigin: meta && meta.targetOrigin ? meta.targetOrigin : "",
-      origin: location.origin,
-      page: location.href,
-      ua: navigator.userAgent,
-      ts: Date.now(),
-    };
-    console.log("[BRS]", type, payload);
-    sendEvent(payload);
-  }
-
-  function toAbsUrl(raw) {
-    if (!raw) return "";
-    try {
-      return new URL(raw, location.href).href;
-    } catch {
-      return raw;
-    }
-  }
-
-  function getOrigin(url) {
-    if (!url) return "";
-    try {
-      return new URL(url).origin;
-    } catch {
-      return "";
-    }
-  }
-
-  function isCrossSite(absUrl) {
-    const o = getOrigin(absUrl);
-    return !!o && o !== location.origin;
-  }
-
-  function injectPageHooks() {
-    const s = document.createElement("script");
-    s.src = chrome.runtime.getURL("page_hook.js");
-    s.async = false;
-    (document.documentElement || document.head).appendChild(s);
-  }
-
-  window.addEventListener("message", (e) => {
-    if (e.source !== window) return;
-    const d = e.data;
-    if (!d || d.__BRS__ !== true) return;
-
-    const t = d.type;
-    const info = d.data || {};
-
-    if (t === "SUSP_ATOB_CALL") {
-      log("SUSP_ATOB_CALL", info, {
-        ruleId: "OBFUSCATION_ATOB",
-        scoreDelta: 10,
-        evidence: { len: info.len },
-      });
-      return;
+    // 위험도 계산기
+    function getSeverity(scoreDelta) {
+        if (scoreDelta >= 50) return "HIGH";
+        if (scoreDelta >= 25) return "MEDIUM";
+        return "LOW";
     }
 
-    if (t === "SUSP_FUNCTION_CALL") {
-      log("SUSP_FUNCTION_CALL", info, {
-        ruleId: "DYNAMIC_CODE_FUNCTION",
-        scoreDelta: 25,
-        severity: "MEDIUM",
-        evidence: { argc: info.argc },
-      });
-      return;
+    // Background로 전송
+    function sendLog(type, data, meta = {}) {
+        const scoreDelta = meta.scoreDelta || 0;
+        
+        const payload = {
+            type,                                           // 위협 종류(ex. "DYN_SCRIPT_INSERT", "FORM_SUBMIT")
+            ruleId: meta.ruleId || type,
+            sessionId,
+            ts: Date.now(),
+
+            page: location.href,
+            origin: location.origin,
+            targetOrigin: meta.targetOrigin || "",                  // 목적지 주소
+            ua: navigator.userAgent,
+            
+            severity: meta.severity || getSeverity(scoreDelta),     // 위험 등급
+            scoreDelta,
+
+            data: data || {},
+            evidence: meta.evidence || {}
+        };
+
+        console.log(`[BRS] ${type}`, payload);
+        chrome.runtime.sendMessage({ action: "REPORT_THREAT", data: payload });
     }
 
-    if (t === "HOOK_ERROR") {
-      log("HOOK_ERROR", info, {
-        ruleId: "PAGE_HOOK_ERROR",
+    // 절대 주소로 변환
+    function toAbsUrl(raw) {
+        if (!raw) return "";
+        try { return new URL(raw, location.href).href; } catch { return raw; }
+    }
+    // 오리진 추출
+    function getOrigin(url) {
+        try { return new URL(url).origin; } catch { return ""; }
+    }
+
+    function isCrossSite(targetOrigin) {
+        return targetOrigin && targetOrigin !== location.origin;
+    }
+
+    // 스크립트 & 아이프레임 감시
+    const mo = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+            for (const n of m.addedNodes) {
+                if (!(n instanceof HTMLElement)) continue;
+
+                // 스크립트 감지
+                if (n.tagName === "SCRIPT") {
+                    const src = n.getAttribute("src");
+                    if (src) {
+                        const abs = toAbsUrl(src);
+                        const targetOrigin = getOrigin(abs);
+                        const crossSite = isCrossSite(targetOrigin);
+                        const scoreDelta = crossSite ? 20 : 5;
+                        
+                        sendLog("DYN_SCRIPT_INSERT", { src, abs, crossSite }, {
+                            ruleId: crossSite ? "DYN_SCRIPT_INSERT_CROSS_SITE" : "DYN_SCRIPT_INSERT_SAME_SITE",
+                            scoreDelta,
+                            targetOrigin,
+                            evidence: { src, abs, crossSite, targetOrigin }
+                        });
+                    }
+                }
+
+                // 아이프레임 감지
+                if (n.tagName === "IFRAME") {
+                    const src = n.src || n.getAttribute("src") || "";
+                    const abs = toAbsUrl(src);
+                    const targetOrigin = getOrigin(abs);
+                    const crossSite = isCrossSite(targetOrigin);
+                    const style = (n.getAttribute("style") || "").toLowerCase();
+                    const hidden = 
+                        n.hidden ||
+                        style.includes("display: none") || 
+                        style.includes("visibility: hidden") || 
+                        style.includes("opacity: 0") ||
+                        (n.width == 0 || n.height == 0) ||
+                        style.includes("left: -") || style.includes("top: -");
+                    const scoreDelta = (hidden ? 25 : 10) + (crossSite ? 10 : 0);
+
+
+
+                    sendLog("DYN_IFRAME_INSERT", { src, abs, crossSite, hidden }, {
+                        ruleId: hidden ? "HIDDEN_IFRAME_INSERT" : "IFRAME_INSERT",
+                        scoreDelta,
+                        severity: scoreDelta >= 35 ? "HIGH" : scoreDelta >= 20 ? "MEDIUM" : "LOW",
+                        targetOrigin,
+                        evidence: { src, abs, crossSite, hidden, targetOrigin }
+                    });
+                }
+            }
+        }
+    });
+    mo.observe(document.documentElement, { childList: true, subtree: true });
+
+    // 폼 전송 
+    function reportForm(form, via) {
+        if (!(form instanceof HTMLFormElement)) return;
+
+        const actionAttr = form.getAttribute("action") || "";
+        const actionResolved = form.action;
+        const actionOrigin = getOrigin(actionResolved);
+        const mismatch = actionOrigin && actionOrigin !== location.origin;
+
+        const ruleId = mismatch ? "PHISHING_FORM_MISMATCH" : "FORM_ACTION_MATCH";
+        const scoreDelta = mismatch ? 50 : 5;
+        const severity = mismatch ? "HIGH" : "LOW";
+
+        if (!actionOrigin) {
+            sendLog("FORM_SUBMIT", {
+                via,
+                actionAttr,
+                actionResolved,
+                parse: "fail"
+            }, {
+                ruleId: "FORM_ACTION_PARSE_FAIL", 
+                scoreDelta: 10,
+                severity: "MEDIUM",
+                targetOrigin: "UNKNOWN",
+                evidence: { 
+                    via,
+                    actionAttr,
+                    actionResolved
+                }
+            });
+            return;
+        }
+        sendLog("FORM_SUBMIT", {
+            via,
+            actionAttr,
+            actionResolved,
+            actionOrigin,
+            pageOrigin: location.origin,
+            mismatch
+        }, {
+            ruleId,
+            scoreDelta,
+            severity,
+            targetOrigin: actionOrigin,
+            evidence: { 
+                via,
+                actionAttr,
+                actionResolved,
+                actionOrigin,
+                pageOrigin: location.origin,
+                mismatch
+            }
+        });
+    }
+
+    document.addEventListener("submit", (e) => {
+        reportForm(e.target, "submit");
+    }, false);
+    
+    document.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[type='submit'], input[type='submit']");
+        if (btn && btn.form) {
+            reportForm(btn.form, "click");
+        }
+    }, true);
+
+    // page_hook.js에서 오는 메시지 수신
+    window.addEventListener("message", (e) => {
+        if (e.source !== window || !e.data.__BRS__) return;
+        const { type, data } = e.data;
+
+        let scoreDelta = 0;
+        let ruleId = type;
+
+        if (type === "SUSP_ATOB_CALL") { scoreDelta = 10; ruleId = "OBFUSCATION_ATOB"; }
+        else if (type === "SUSP_EVAL_CALL") { scoreDelta = 25; ruleId = "DYNAMIC_CODE_EVAL"; }
+        else if (type === "SUSP_FUNCTION_CONSTRUCTOR_CALL") { scoreDelta = 25; ruleId = "DYNAMIC_CODE_FUNCTION"; }
+        else if (type === "SUSP_DOM_XSS") { scoreDelta = 40; ruleId = "DOM_XSS_INJECTION"; } 
+        else if (type === "SENSITIVE_DATA_ACCESS") { scoreDelta = 50; ruleId = "COOKIE_THEFT"; } 
+        else if (type === "SUSP_NETWORK_CALL") { scoreDelta = 15; ruleId = "NETWORK_LEAK"; }
+
+        sendLog(type, data, { ruleId, scoreDelta});
+    });
+
+    // 훅 주입
+    function injectHooks() {
+        const s = document.createElement("script");
+        s.src = chrome.runtime.getURL("page_hook.js");
+        s.onload = function() { this.remove(); };
+        (document.head || document.documentElement).appendChild(s);
+    }
+    injectHooks();
+
+    // 세션 시작 알림
+    sendLog("SENSOR_READY", {
+        origin: location.origin,
+    }, { 
+        ruleId: "SENSOR_READY",
         scoreDelta: 0,
         severity: "LOW",
-        evidence: info,
-      });
-      return;
-    }
-
-    log(t, info, { ruleId: t, scoreDelta: 0, evidence: info });
-  });
-
-  injectPageHooks();
-
-  const mo = new MutationObserver((mutList) => {
-    for (const m of mutList) {
-      for (const n of m.addedNodes) {
-        if (!(n instanceof HTMLElement)) continue;
-
-        if (n.tagName === "SCRIPT") {
-          const src = n.getAttribute("src") || "";
-          const abs = toAbsUrl(src);
-          const crossSite = isCrossSite(abs);
-          const targetOrigin = getOrigin(abs);
-          const scoreDelta = crossSite ? 20 : 5;
-          log("DYN_SCRIPT_INSERT", { src, abs, crossSite }, {
-            ruleId: crossSite ? "DYN_SCRIPT_INSERT_CROSS_SITE" : "DYN_SCRIPT_INSERT_SAME_SITE",
-            scoreDelta,
-            severity: crossSite ? "MEDIUM" : "LOW",
-            targetOrigin,
-            evidence: { src, abs, crossSite, targetOrigin },
-          });
-        }
-
-        if (n.tagName === "IFRAME") {
-          const src = n.getAttribute("src") || "";
-          const abs = toAbsUrl(src);
-          const crossSite = isCrossSite(abs);
-          const targetOrigin = getOrigin(abs);
-          const style = (n.getAttribute("style") || "").toLowerCase();
-          const hidden =
-            style.includes("left: -9999") ||
-            style.includes("display: none") ||
-            style.includes("visibility: hidden");
-          const scoreDelta = (hidden ? 25 : 10) + (crossSite ? 10 : 0);
-          log("DYN_IFRAME_INSERT", { src, abs, crossSite, hidden }, {
-            ruleId: hidden ? "HIDDEN_IFRAME_INSERT" : "IFRAME_INSERT",
-            scoreDelta,
-            severity: scoreDelta >= 35 ? "HIGH" : scoreDelta >= 20 ? "MEDIUM" : "LOW",
-            targetOrigin,
-            evidence: { src, abs, crossSite, hidden, targetOrigin },
-          });
-        }
-      }
-    }
-  });
-
-  mo.observe(document.documentElement, { childList: true, subtree: true });
-
-  function reportForm(form, via) {
-    if (!(form instanceof HTMLFormElement)) return;
-
-    const actionAttr = form.getAttribute("action") || "";
-    const actionResolved = form.action || "";
-    const targetOrigin = getOrigin(actionResolved);
-
-    try {
-      const a = new URL(actionResolved);
-      const mismatch = a.origin !== location.origin;
-      const scoreDelta = mismatch ? 50 : 5;
-
-      log("FORM_SUBMIT", {
-        via,
-        actionAttr,
-        actionResolved,
-        actionOrigin: a.origin,
-        pageOrigin: location.origin,
-        mismatch,
-      }, {
-        ruleId: mismatch ? "FORM_ACTION_MISMATCH" : "FORM_ACTION_MATCH",
-        scoreDelta,
-        severity: mismatch ? "HIGH" : "LOW",
-        targetOrigin,
-        evidence: {
-          via,
-          actionAttr,
-          actionResolved,
-          actionOrigin: a.origin,
-          pageOrigin: location.origin,
-          mismatch,
-        },
-      });
-    } catch {
-      log("FORM_SUBMIT", { via, actionAttr, actionResolved, parse: "fail" }, {
-        ruleId: "FORM_ACTION_PARSE_FAIL",
-        scoreDelta: 10,
-        severity: "MEDIUM",
-        targetOrigin,
-        evidence: { via, actionAttr, actionResolved },
-      });
-    }
-  }
-
-  document.addEventListener(
-    "submit",
-    (e) => {
-      reportForm(e.target, "submit");
-    },
-    true
-  );
-
-  document.addEventListener(
-    "click",
-    (e) => {
-      const el = e.target;
-      if (!(el instanceof HTMLElement)) return;
-      const submitEl = el.closest('button[type="submit"], input[type="submit"]');
-      if (!submitEl) return;
-      const form = submitEl.closest("form");
-      if (!form) return;
-      reportForm(form, "click");
-    },
-    true
-  );
-
-  log("SENSOR_READY", { origin: location.origin }, {
-    ruleId: "SENSOR_READY",
-    scoreDelta: 0,
-    severity: "LOW",
-    evidence: { origin: location.origin, sessionId },
-    targetOrigin: location.origin,
-  });
+        targetOrigin: location.origin,
+        evidence: { origin: location.origin, sessionId }
+    });
 })();
-
