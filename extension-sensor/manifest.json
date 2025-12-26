@@ -20,13 +20,20 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "js": [
+        "engine/rule_engine.js",
+        "detectors/forms.js",
+        "content.js"
+      ],
       "run_at": "document_start"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["page_hook.js"],
+      "resources": [
+        "page_hook.js",
+        "rulesets/*"
+      ],
       "matches": ["<all_urls>"]
     }
   ]
