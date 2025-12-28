@@ -22,7 +22,9 @@
       "matches": ["<all_urls>"],
       "js": [
         "engine/rule_engine.js",
+        "engine/reporter.js",
         "detectors/forms.js",
+        "detectors/dom_mutation.js",
         "content.js"
       ],
       "run_at": "document_start"

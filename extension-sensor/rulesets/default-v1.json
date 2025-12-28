@@ -2,279 +2,176 @@
   "schemaVersion": "ruleset-v1",
   "rulesetId": "default-v1",
   "name": "기본 룰셋 (데모/PoC용)",
-  "description": "content.js에서 발생하는 이벤트(type/data/evidence)를 기준으로 ruleId, scoreDelta, severity를 정책(룰셋)으로 정의합니다. 데모 환경에서 설명 가능한 최소 룰 구성입니다.",
+  "description": "content.js에서 발생하는 이벤트(type/data)를 기준으로 ruleId/scoreDelta/severity를 정책(룰셋)으로 정의합니다.",
   "enabled": true,
   "updatedAt": "2025-12-26",
-  "_comment": "JSON은 표준 주석을 지원하지 않으므로 설명은 _comment/notes 필드로 남깁니다.",
-
-  "scoring": {
-    "_comment": "점수 기준으로 기본 severity를 산정하는 기준입니다. 단, rule에서 severity를 명시하면 그 값을 우선합니다.",
-    "severityThresholds": {
-      "LOW": { "minScore": 0, "maxScore": 24 },
-      "MEDIUM": { "minScore": 25, "maxScore": 49 },
-      "HIGH": { "minScore": 50, "maxScore": 9999 }
-    },
-    "badgePolicy": {
-      "_comment": "background에서 뱃지 텍스트/색상을 정책으로 들고 가고 싶을 때를 위한 기본값(현재 구현은 하드코딩).",
-      "HIGH": { "text": "!!!", "color": "#FF0000" },
-      "MEDIUM": { "text": "WARN", "color": "#FFA500" },
-      "LOW": { "text": "", "color": "#000000" }
-    }
-  },
-
-  "eventTypes": [
-    {
-      "type": "SENSOR_READY",
-      "notes": "content.js 로딩 후 세션 시작 이벤트"
-    },
-    {
-      "type": "DYN_SCRIPT_INSERT",
-      "notes": "DOM MutationObserver로 SCRIPT 삽입 감지 (src 기준, crossSite 여부 포함)"
-    },
-    {
-      "type": "DYN_IFRAME_INSERT",
-      "notes": "DOM MutationObserver로 IFRAME 삽입 감지 (hidden/crossSite 여부 포함)"
-    },
-    {
-      "type": "FORM_SUBMIT",
-      "notes": "submit/click 트리거에서 form.action 목적지를 평가하여 mismatch 여부 기록"
-    },
-    {
-      "type": "SUSP_ATOB_CALL",
-      "notes": "page_hook.js가 atob 호출 감지"
-    },
-    {
-      "type": "SUSP_EVAL_CALL",
-      "notes": "page_hook.js가 eval 호출 감지(구현 시)"
-    },
-    {
-      "type": "SUSP_FUNCTION_CONSTRUCTOR_CALL",
-      "notes": "page_hook.js가 Function 생성자 호출 감지(구현 시)"
-    },
-    {
-      "type": "SUSP_DOM_XSS",
-      "notes": "DOM XSS 의심 행위(구현 시)"
-    },
-    {
-      "type": "SENSITIVE_DATA_ACCESS",
-      "notes": "민감 정보 접근(쿠키/로컬스토리지 등) 의심(구현 시)"
-    },
-    {
-      "type": "SUSP_NETWORK_CALL",
-      "notes": "의심 네트워크 호출(구현 시)"
-    }
-  ],
 
   "rules": [
     {
       "id": "SENSOR_READY",
       "enabled": true,
-      "priority": 10,
-      "match": { "type": "SENSOR_READY" },
+      "when": { "type": "SENSOR_READY" },
       "action": {
         "ruleId": "SENSOR_READY",
         "scoreDelta": 0,
-        "severity": "LOW",
-        "notes": "세션 시작/정상 로딩 알림"
+        "severity": "LOW"
       }
     },
 
     {
       "id": "DYN_SCRIPT_INSERT_CROSS_SITE",
       "enabled": true,
-      "priority": 50,
-      "match": {
+      "when": {
         "type": "DYN_SCRIPT_INSERT",
-        "where": [
-          { "path": "data.crossSite", "op": "eq", "value": true }
-        ]
+        "equals": { "crossSite": true }
       },
       "action": {
         "ruleId": "DYN_SCRIPT_INSERT_CROSS_SITE",
         "scoreDelta": 20,
-        "severity": "MEDIUM",
-        "notes": "외부 오리진에서 스크립트를 동적 삽입. 항상 악성은 아니나 공격 체인에서 빈번하여 MEDIUM 부여"
+        "severity": "MEDIUM"
       }
     },
     {
       "id": "DYN_SCRIPT_INSERT_SAME_SITE",
       "enabled": true,
-      "priority": 40,
-      "match": {
+      "when": {
         "type": "DYN_SCRIPT_INSERT",
-        "where": [
-          { "path": "data.crossSite", "op": "eq", "value": false }
-        ]
+        "equals": { "crossSite": false }
       },
       "action": {
         "ruleId": "DYN_SCRIPT_INSERT_SAME_SITE",
         "scoreDelta": 5,
-        "severity": "LOW",
-        "notes": "동일 오리진 스크립트 삽입은 흔한 정상 동작이므로 낮은 점수"
+        "severity": "LOW"
       }
     },
 
     {
       "id": "HIDDEN_IFRAME_INSERT",
       "enabled": true,
-      "priority": 60,
-      "match": {
+      "when": {
         "type": "DYN_IFRAME_INSERT",
-        "where": [
-          { "path": "data.hidden", "op": "eq", "value": true }
-        ]
+        "equals": { "hidden": true }
       },
       "action": {
         "ruleId": "HIDDEN_IFRAME_INSERT",
         "scoreDelta": 35,
-        "severity": "HIGH",
-        "notes": "숨김 iframe 삽입은 피싱/비콘/리다이렉트 체인에서 흔하므로 강하게 경고(HIGH)"
+        "severity": "HIGH"
       }
     },
     {
       "id": "IFRAME_INSERT",
       "enabled": true,
-      "priority": 30,
-      "match": {
+      "when": {
         "type": "DYN_IFRAME_INSERT",
-        "where": [
-          { "path": "data.hidden", "op": "eq", "value": false }
-        ]
+        "equals": { "hidden": false }
       },
       "action": {
         "ruleId": "IFRAME_INSERT",
         "scoreDelta": 10,
-        "severity": "LOW",
-        "notes": "일반 iframe 삽입은 정상 범주도 많아 기본은 LOW"
+        "severity": "LOW"
       }
     },
 
     {
       "id": "PHISHING_FORM_MISMATCH",
       "enabled": true,
-      "priority": 70,
-      "match": {
+      "when": {
         "type": "FORM_SUBMIT",
-        "where": [
-          { "path": "data.mismatch", "op": "eq", "value": true }
-        ]
+        "equals": { "mismatch": true }
       },
       "action": {
         "ruleId": "PHISHING_FORM_MISMATCH",
         "scoreDelta": 50,
-        "severity": "HIGH",
-        "notes": "현재 페이지 오리진과 form action 오리진이 다르면 외부 전송(피싱/정보유출) 가능성이 높음"
+        "severity": "HIGH"
       }
     },
     {
       "id": "FORM_ACTION_MATCH",
       "enabled": true,
-      "priority": 20,
-      "match": {
+      "when": {
         "type": "FORM_SUBMIT",
-        "where": [
-          { "path": "data.mismatch", "op": "eq", "value": false }
-        ]
+        "equals": { "mismatch": false }
       },
       "action": {
         "ruleId": "FORM_ACTION_MATCH",
         "scoreDelta": 5,
-        "severity": "LOW",
-        "notes": "동일 오리진으로 submit: 일반적으로 정상"
+        "severity": "LOW"
       }
     },
     {
       "id": "FORM_ACTION_PARSE_FAIL",
       "enabled": true,
-      "priority": 55,
-      "match": {
+      "when": {
         "type": "FORM_SUBMIT",
-        "where": [
-          { "path": "data.parse", "op": "eq", "value": "fail" }
-        ]
+        "equals": { "parse": "fail" }
       },
       "action": {
         "ruleId": "FORM_ACTION_PARSE_FAIL",
         "scoreDelta": 10,
         "severity": "MEDIUM",
-        "notes": "action 오리진 파싱 실패. 특이 케이스/우회 가능성이 있어 MEDIUM"
+        "targetOrigin": "UNKNOWN"
       }
     },
 
     {
       "id": "OBFUSCATION_ATOB",
       "enabled": true,
-      "priority": 45,
-      "match": { "type": "SUSP_ATOB_CALL" },
+      "when": { "type": "SUSP_ATOB_CALL" },
       "action": {
         "ruleId": "OBFUSCATION_ATOB",
         "scoreDelta": 10,
-        "severity": "LOW",
-        "notes": "atob는 난독화/페이로드 디코드에 자주 쓰이므로 이벤트 기록"
+        "severity": "LOW"
       }
     },
-
     {
       "id": "DYNAMIC_CODE_EVAL",
       "enabled": true,
-      "priority": 65,
-      "match": { "type": "SUSP_EVAL_CALL" },
+      "when": { "type": "SUSP_EVAL_CALL" },
       "action": {
         "ruleId": "DYNAMIC_CODE_EVAL",
         "scoreDelta": 25,
-        "severity": "MEDIUM",
-        "notes": "eval은 동적 코드 실행. 악성에서 흔하므로 MEDIUM"
+        "severity": "MEDIUM"
       }
     },
     {
       "id": "DYNAMIC_CODE_FUNCTION",
       "enabled": true,
-      "priority": 65,
-      "match": { "type": "SUSP_FUNCTION_CONSTRUCTOR_CALL" },
+      "when": { "type": "SUSP_FUNCTION_CONSTRUCTOR_CALL" },
       "action": {
         "ruleId": "DYNAMIC_CODE_FUNCTION",
         "scoreDelta": 25,
-        "severity": "MEDIUM",
-        "notes": "Function 생성자는 eval과 유사한 동적 실행 경로"
+        "severity": "MEDIUM"
       }
     },
 
     {
       "id": "DOM_XSS_INJECTION",
       "enabled": true,
-      "priority": 80,
-      "match": { "type": "SUSP_DOM_XSS" },
+      "when": { "type": "SUSP_DOM_XSS" },
       "action": {
         "ruleId": "DOM_XSS_INJECTION",
         "scoreDelta": 40,
-        "severity": "HIGH",
-        "notes": "DOM 기반 XSS 징후. 실제 구현되면 HIGH로 강경 대응"
+        "severity": "HIGH"
       }
     },
-
     {
       "id": "COOKIE_THEFT",
       "enabled": true,
-      "priority": 90,
-      "match": { "type": "SENSITIVE_DATA_ACCESS" },
+      "when": { "type": "SENSITIVE_DATA_ACCESS" },
       "action": {
         "ruleId": "COOKIE_THEFT",
         "scoreDelta": 50,
-        "severity": "HIGH",
-        "notes": "민감 정보 접근은 탈취 가능성이 높으므로 HIGH"
+        "severity": "HIGH"
       }
     },
-
     {
       "id": "NETWORK_LEAK",
       "enabled": true,
-      "priority": 55,
-      "match": { "type": "SUSP_NETWORK_CALL" },
+      "when": { "type": "SUSP_NETWORK_CALL" },
       "action": {
         "ruleId": "NETWORK_LEAK",
         "scoreDelta": 15,
-        "severity": "LOW",
-        "notes": "의심 네트워크 호출(구현 시). 기본은 낮게 주되 로그로 남김"
+        "severity": "LOW"
       }
     }
   ]
