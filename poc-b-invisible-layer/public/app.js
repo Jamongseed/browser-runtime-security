@@ -27,8 +27,12 @@ function makeInvisibleLayer() {
       // 레이어가 계속 남아있으면 사용성이 너무 망가짐......이건 ㅇㅈ 너무 티난다
       layer.remove();
 
-      // 이동
-      window.location.href = "/ad"; //새 탭을 띄우는거면 window.open()으로 수정하면 될 것 같네요.
+      // 이동(한 프레임 쉬고 딜레이 추가)
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+            window.location.href = "/ad";
+        }, 250);
+      });
     },
     { capture: true } // 캡처 단계에서 먼저 먹기(더 악질) 일단 허용해두는거임
   );

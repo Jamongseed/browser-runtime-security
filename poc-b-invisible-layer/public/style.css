@@ -102,6 +102,11 @@ body {
 /* ===== Invisible Click Layer (핵심) ===== */
 #invisibleClickLayer {
   position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+
   inset: 0;
   width: 100vw;
   height: 100vh;
@@ -114,5 +119,5 @@ body {
   pointer-events: auto;
 
   /* 비정상적으로 높은 값 */
-  z-index: 999999; /*화면 제일 위에 있음*/
+  z-index: 2147483647; /*화면 제일 위에 있음*/
 }
