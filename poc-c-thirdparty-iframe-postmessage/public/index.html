@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Normal Site Login (PoC)</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main class="card">
+    <h1>Normal Site</h1>
+    <p class="desc">
+      이 페이지는 “정상 사이트(:3000)”로 가정합니다.<br/>
+      하지만 운영 편의를 위해 “서드파티 광고/위젯 SDK(:4000)”를 로드하는 상황을 재현합니다.
+    </p>
+
+    <form id="loginForm" action="/login" method="POST">
+      <label>
+        ID
+        <input name="id" autocomplete="username" required />
+      </label>
+
+      <label>
+        Password
+        <input name="pw" type="password" autocomplete="current-password" required />
+      </label>
+
+      <button id="loginBtn" type="submit">Login</button>
+    </form>
+
+    <div class="status" id="status">Ready. (main script loaded)</div>
+
+    <details class="hint">
+      <summary>PoC 설명(발표용)</summary>
+      <ul>
+        <li>정상이라면 폼 제출은 <code>:3000 /login</code>으로 갑니다.</li>
+        <li>오른쪽 아래 “광고 위젯(iframe)”을 클릭하면, iframe이 <code>postMessage</code>로 부모창(SDK)에 신호를 보냅니다.</li>
+        <li>그 신호를 받은 SDK는 submit 직전에 <code>form.action</code>을 <code>http://localhost:4000/collect</code>로 바꿉니다.</li>
+        <li>서버/WAF는 “submit 직전 DOM 변조(원인)”를 보지 못하지만, 브라우저 런타임(확장)은 관찰 가능합니다.</li>
+      </ul>
+    </details>
+  </main>
+
+  <!-- 정상 사이트의 스크립트(상태 표시 정도) -->
+  <script src="/app.js"></script>
+
+  <!-- 서드파티 SDK 스크립트: iframe 삽입 + postMessage 수신 + submit 훅 -->
+  <script src="http://localhost:4000/sdk.js"></script>
+</body>
+</html>

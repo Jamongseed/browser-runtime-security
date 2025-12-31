@@ -28,7 +28,6 @@
   function start(sendLog, ruleEngine) {
     // (추가) 초기 스캔: 이미 DOM에 존재하는 script/iframe도 1회 감지
     try {
-      // SCRIPT 초기 스캔
       document.querySelectorAll("script[src]").forEach((n) => {
         if (!(n instanceof HTMLElement)) return;
         if (n.tagName !== "SCRIPT") return;
@@ -57,7 +56,6 @@
         sendLog("DYN_SCRIPT_INSERT", { src, abs, crossSite }, meta);
       });
 
-      // IFRAME 초기 스캔
       document.querySelectorAll("iframe").forEach((n) => {
         if (!(n instanceof HTMLElement)) return;
         if (n.tagName !== "IFRAME") return;
@@ -101,7 +99,6 @@
         for (const n of m.addedNodes) {
           if (!(n instanceof HTMLElement)) continue;
 
-          // SCRIPT 감지
           if (n.tagName === "SCRIPT") {
             if (isInternalNode(n)) continue;
 
@@ -128,7 +125,6 @@
             sendLog("DYN_SCRIPT_INSERT", { src, abs, crossSite }, meta);
           }
 
-          // IFRAME 감지
           if (n.tagName === "IFRAME") {
             if (isInternalNode(n)) continue;
 
