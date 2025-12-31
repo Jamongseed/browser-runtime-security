@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>PoC-D: href swap</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main class="card">
+    <h1>PoC-D: href 바꿔치기</h1>
+
+    <p class="desc">
+      아래 링크 텍스트는 <b>www.example.com</b>처럼 보이지만,
+      실제로는 <code>/real</code>로 가도록 설정되어 있습니다.<br/>
+      그러나 클릭 직전에 JS가 <code>href</code>를 <code>/ad</code>로 바꿔치기합니다.
+      (안전하게 same-origin으로만 이동)
+    </p>
+
+    <div class="panel">
+      <div class="row">
+        <span class="label">표시 텍스트</span>
+        <span class="value">www.example.com</span>
+      </div>
+
+      <div class="row">
+        <span class="label">현재 href</span>
+        <span class="value"><code id="hrefView">/real</code></span>
+      </div>
+    </div>
+
+    <a
+      id="baitLink"
+      class="bait"
+      href="/real"
+      data-poc="href-swap"
+      rel="noopener"
+    >
+      www.example.com
+    </a>
+
+    <div class="note">
+      <b>PoC 관찰 포인트</b>
+      <ul>
+        <li>클릭 직전(pointerdown/mousedown capture)에 <code>a[href]</code>가 바뀜</li>
+        <li>MutationObserver로 <code>href</code> 속성 변경을 잡을 수 있음</li>
+      </ul>
+    </div>
+
+    <div class="controls">
+      <button id="toggleBtn" type="button">PoC: href-swap ON/OFF</button>
+      <span id="status">ON</span>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
