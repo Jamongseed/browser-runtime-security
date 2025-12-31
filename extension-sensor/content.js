@@ -1,111 +1,5 @@
 (function () {
-  // Session ID 생성
-  const sessionId = (crypto && crypto.randomUUID)
-    ? crypto.randomUUID()
-    : `sess-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-  // 위험도 계산기
-  function getSeverity(scoreDelta) {
-    if (scoreDelta >= 50) return "HIGH";
-    if (scoreDelta >= 25) return "MEDIUM";
-    return "LOW";
-  }
-
-  // Background로 전송
-  function sendLog(type, data, meta = {}) {
-    const scoreDelta = meta.scoreDelta || 0;
-
-    const payload = {
-      type,
-      ruleId: meta.ruleId || type,
-      sessionId,
-      ts: Date.now(),
-
-      page: location.href,
-      origin: location.origin,
-      targetOrigin: meta.targetOrigin || "",
-      ua: navigator.userAgent,
-
-      severity: meta.severity || getSeverity(scoreDelta),
-      scoreDelta,
-
-      data: data || {},
-      evidence: meta.evidence || {}
-    };
-
-    console.log(`[BRS] ${type}`, payload);
-    chrome.runtime.sendMessage({ action: "REPORT_THREAT", data: payload });
-  }
-
-  function toAbsUrl(raw) {
-    if (!raw) return "";
-    try { return new URL(raw, location.href).href; } catch { return raw; }
-  }
-
-  function getOrigin(url) {
-    try { return new URL(url).origin; } catch { return ""; }
-  }
-
-  function isCrossSite(targetOrigin) {
-    return targetOrigin && targetOrigin !== location.origin;
-  }
-
-  // 스크립트 & 아이프레임 감시
-  function startDomObservers() {
-    const mo = new MutationObserver((mutations) => {
-      for (const m of mutations) {
-        for (const n of m.addedNodes) {
-          if (!(n instanceof HTMLElement)) continue;
-
-          if (n.tagName === "SCRIPT") {
-            if (n.getAttribute("data-brs-internal") === "1") continue;
-            const src = n.getAttribute("src");
-            if (src) {
-              const abs = toAbsUrl(src);
-              const targetOrigin = getOrigin(abs);
-              const crossSite = isCrossSite(targetOrigin);
-              const scoreDelta = crossSite ? 20 : 5;
-
-              sendLog("DYN_SCRIPT_INSERT", { src, abs, crossSite }, {
-                ruleId: crossSite ? "DYN_SCRIPT_INSERT_CROSS_SITE" : "DYN_SCRIPT_INSERT_SAME_SITE",
-                scoreDelta,
-                targetOrigin,
-                evidence: { src, abs, crossSite, targetOrigin }
-              });
-            }
-          }
-
-          if (n.tagName === "IFRAME") {
-            const src = n.src || n.getAttribute("src") || "";
-            const abs = toAbsUrl(src);
-            const targetOrigin = getOrigin(abs);
-            const crossSite = isCrossSite(targetOrigin);
-            const style = (n.getAttribute("style") || "").toLowerCase();
-            const hidden =
-              n.hidden ||
-              style.includes("display: none") ||
-              style.includes("visibility: hidden") ||
-              style.includes("opacity: 0") ||
-              (n.width == 0 || n.height == 0) ||
-              style.includes("left: -") || style.includes("top: -");
-
-            const scoreDelta = (hidden ? 25 : 10) + (crossSite ? 10 : 0);
-
-            sendLog("DYN_IFRAME_INSERT", { src, abs, crossSite, hidden }, {
-              ruleId: hidden ? "HIDDEN_IFRAME_INSERT" : "IFRAME_INSERT",
-              scoreDelta,
-              severity: scoreDelta >= 35 ? "HIGH" : scoreDelta >= 20 ? "MEDIUM" : "LOW",
-              targetOrigin,
-              evidence: { src, abs, crossSite, hidden, targetOrigin }
-            });
-          }
-        }
-      }
-    });
-
-    mo.observe(document.documentElement, { childList: true, subtree: true });
-  }
-
+  // page_hook 주입
   function startHooks() {
     const s = document.createElement("script");
     s.src = chrome.runtime.getURL("page_hook.js");
@@ -114,10 +8,28 @@
     (document.head || document.documentElement).appendChild(s);
   }
 
-  function startPageHookBridge() {
+  // page_hook 브릿지 (window.postMessage 수신)
+  function startPageHookBridge(ruleEngine, reporter) {
     window.addEventListener("message", (e) => {
       if (e.source !== window || !e.data.__BRS__) return;
       const { type, data } = e.data;
+
+      // (추가) form.submit/requestSubmit 후킹 이벤트를 기존 FORM_SUBMIT 이벤트로 변환
+      if (type === "FORM_NATIVE_SUBMIT") {
+        const d = data || {};
+        const baseMeta = {
+          ruleId: d.mismatch ? "PHISHING_FORM_MISMATCH" : "FORM_ACTION_MATCH",
+          scoreDelta: d.mismatch ? 50 : 5,
+          severity: d.mismatch ? "HIGH" : "LOW",
+          targetOrigin: d.actionOrigin || ""
+        };
+
+        const matched2 = ruleEngine ? ruleEngine.match({ type: "FORM_SUBMIT", data: d, ctx: {} }) : null;
+        const meta2 = matched2 ? ruleEngine.apply(matched2, baseMeta) : baseMeta;
+
+        reporter.send("FORM_SUBMIT", d, meta2);
+        return;
+      }
 
       let scoreDelta = 0;
       let ruleId = type;
@@ -129,7 +41,13 @@
       else if (type === "SENSITIVE_DATA_ACCESS") { scoreDelta = 50; ruleId = "COOKIE_THEFT"; }
       else if (type === "SUSP_NETWORK_CALL") { scoreDelta = 15; ruleId = "NETWORK_LEAK"; }
 
-      sendLog(type, data, { ruleId, scoreDelta });
+      const eventData = data || {};
+      const baseMeta = { ruleId, scoreDelta };
+
+      const matched = ruleEngine ? ruleEngine.match({ type, data: eventData, ctx: {} }) : null;
+      const meta = matched ? ruleEngine.apply(matched, baseMeta) : baseMeta;
+
+      reporter.send(type, eventData, meta);
     });
   }
 
@@ -140,75 +58,55 @@
       try { await ruleEngine.load(); } catch (_) {}
     }
 
-    startDomObservers();
-    startPageHookBridge();
-    startHooks();
-
-    const formsDetector = window.BRS_Detectors && window.BRS_Detectors.forms;
-    if (formsDetector && typeof formsDetector.start === "function") {
-      formsDetector.start(sendLog, ruleEngine);
-    } else {
-      // fallback 유지(기존 동작)
-      function reportForm(form, via) {
-        if (!(form instanceof HTMLFormElement)) return;
-
-        const actionAttr = form.getAttribute("action") || "";
-        const actionResolved = form.action;
-        const actionOrigin = getOrigin(actionResolved);
-        const mismatch = actionOrigin && actionOrigin !== location.origin;
-
-        const ruleId = mismatch ? "PHISHING_FORM_MISMATCH" : "FORM_ACTION_MATCH";
-        const scoreDelta = mismatch ? 50 : 5;
-        const severity = mismatch ? "HIGH" : "LOW";
-
-        if (!actionOrigin) {
-          sendLog("FORM_SUBMIT", { via, actionAttr, actionResolved, parse: "fail" }, {
-            ruleId: "FORM_ACTION_PARSE_FAIL",
-            scoreDelta: 10,
-            severity: "MEDIUM",
-            targetOrigin: "UNKNOWN",
-            evidence: { via, actionAttr, actionResolved }
-          });
-          return;
-        }
-
-        sendLog("FORM_SUBMIT", {
-          via,
-          actionAttr,
-          actionResolved,
-          actionOrigin,
-          pageOrigin: location.origin,
-          mismatch
-        }, {
-          ruleId,
-          scoreDelta,
-          severity,
-          targetOrigin: actionOrigin,
-          evidence: {
-            via,
-            actionAttr,
-            actionResolved,
-            actionOrigin,
-            pageOrigin: location.origin,
-            mismatch
-          }
-        });
+    const reporterFactory = window.BRS_Reporter && window.BRS_Reporter.createReporter;
+    const reporter = reporterFactory ? reporterFactory() : {
+      sessionId: `sess-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      send: function (type, data, meta) {
+        try { chrome.runtime.sendMessage({ action: "REPORT_THREAT", data: { type, data, meta } }); } catch (_) {}
       }
+    };
 
-      document.addEventListener("submit", (e) => reportForm(e.target, "submit"), false);
-      document.addEventListener("click", (e) => {
-        const btn = e.target.closest("button[type='submit'], input[type='submit']");
-        if (btn && btn.form) reportForm(btn.form, "click");
-      }, true);
+    // detectors 호출 (탐지 로직은 detectors/* 로 이동)
+    const detectors = window.BRS_Detectors || {};
+
+    const domMutation = detectors.domMutation;
+    if (domMutation && typeof domMutation.start === "function") {
+      try { domMutation.start(reporter.send, ruleEngine); } catch (_) {}
     }
 
-    sendLog("SENSOR_READY", { origin: location.origin }, {
+    const formsDetector = detectors.forms;
+    if (formsDetector && typeof formsDetector.start === "function") {
+      try { formsDetector.start(reporter.send, ruleEngine); } catch (_) {}
+    }
+
+    const invisibleLayerDetector = detectors.invisibleLayer;
+    if (invisibleLayerDetector && typeof invisibleLayerDetector.start === "function") {
+      try { invisibleLayerDetector.start(reporter.send, ruleEngine); } catch (_) {}
+    }
+
+    const postMessageDetector = detectors.postMessage;
+    if (postMessageDetector && typeof postMessageDetector.start === "function") {
+      try { postMessageDetector.start(reporter.send, ruleEngine); } catch (_) {}
+    }
+
+    // page_hook 브릿지 + hook 주입
+    startPageHookBridge(ruleEngine, reporter);
+    startHooks();
+
+    // SENSOR_READY
+    const readyData = { origin: location.origin };
+    const readyBaseMeta = {
       ruleId: "SENSOR_READY",
       scoreDelta: 0,
       severity: "LOW",
       targetOrigin: location.origin,
-      evidence: { origin: location.origin, sessionId }
-    });
+      evidence: { origin: location.origin, sessionId: reporter.sessionId }
+    };
+
+    const readyMatched = ruleEngine ? ruleEngine.match({ type: "SENSOR_READY", data: readyData, ctx: {} }) : null;
+    const readyMeta = readyMatched ? ruleEngine.apply(readyMatched, readyBaseMeta) : readyBaseMeta;
+
+    reporter.send("SENSOR_READY", readyData, readyMeta);
   }
 
   init();
