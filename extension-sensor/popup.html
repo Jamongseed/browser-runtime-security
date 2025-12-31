@@ -16,6 +16,23 @@
     .log-time { color: #999; font-size: 11px; }
     .log-data { background-color: #f1f1f1; padding: 5px; border-radius: 4px; font-family: monospace; white-space: pre-wrap; word-break: break-all; font-size: 11px; color: #333; }
     .empty-state { text-align: center; color: #999; padding: 20px 0; }
+
+    .btn-dashboard {
+      display: block;
+      width: 100%;
+      padding: 12px;
+      margin-top: 15px;
+      background-color: #333;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      text-align: center;
+      font-weight: bold;
+      font-size: 13px;
+      transition: background-color 0.2s;
+    }
+    .btn-dashboard:hover { background-color: #555; }
   </style>
 </head>
 <body>
@@ -26,6 +43,7 @@
   <div id="log-area">
     <div class="empty-state">로그를 불러오는 중...</div>
   </div>
+    <button id="go-dashboard" class="btn-dashboard">상세 대시보드 열기</button>
   <script src="popup.js"></script>
 </body>
 </html>
