@@ -5,7 +5,8 @@
   "description": "Real-time client-side threat detection and runtime behavior monitoring system.",
   "permissions": [
     "storage",   
-    "tabs" 
+    "tabs",
+    "notifications"
   ],
   "host_permissions": [
     "<all_urls>" 
