@@ -25,6 +25,8 @@
         "engine/reporter.js",
         "detectors/forms.js",
         "detectors/dom_mutation.js",
+        "detectors/invisible_layer.js",
+        "detectors/postmessage.js",
         "content.js"
       ],
       "run_at": "document_start"

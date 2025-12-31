@@ -14,6 +14,23 @@
       if (e.source !== window || !e.data.__BRS__) return;
       const { type, data } = e.data;
 
+      // (추가) form.submit/requestSubmit 후킹 이벤트를 기존 FORM_SUBMIT 이벤트로 변환
+      if (type === "FORM_NATIVE_SUBMIT") {
+        const d = data || {};
+        const baseMeta = {
+          ruleId: d.mismatch ? "PHISHING_FORM_MISMATCH" : "FORM_ACTION_MATCH",
+          scoreDelta: d.mismatch ? 50 : 5,
+          severity: d.mismatch ? "HIGH" : "LOW",
+          targetOrigin: d.actionOrigin || ""
+        };
+
+        const matched2 = ruleEngine ? ruleEngine.match({ type: "FORM_SUBMIT", data: d, ctx: {} }) : null;
+        const meta2 = matched2 ? ruleEngine.apply(matched2, baseMeta) : baseMeta;
+
+        reporter.send("FORM_SUBMIT", d, meta2);
+        return;
+      }
+
       let scoreDelta = 0;
       let ruleId = type;
 
@@ -60,6 +77,16 @@
     const formsDetector = detectors.forms;
     if (formsDetector && typeof formsDetector.start === "function") {
       try { formsDetector.start(reporter.send, ruleEngine); } catch (_) {}
+    }
+
+    const invisibleLayerDetector = detectors.invisibleLayer;
+    if (invisibleLayerDetector && typeof invisibleLayerDetector.start === "function") {
+      try { invisibleLayerDetector.start(reporter.send, ruleEngine); } catch (_) {}
+    }
+
+    const postMessageDetector = detectors.postMessage;
+    if (postMessageDetector && typeof postMessageDetector.start === "function") {
+      try { postMessageDetector.start(reporter.send, ruleEngine); } catch (_) {}
     }
 
     // page_hook 브릿지 + hook 주입

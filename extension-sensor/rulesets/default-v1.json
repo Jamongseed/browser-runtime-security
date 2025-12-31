@@ -4,7 +4,7 @@
   "name": "기본 룰셋 (데모/PoC용)",
   "description": "content.js에서 발생하는 이벤트(type/data)를 기준으로 ruleId/scoreDelta/severity를 정책(룰셋)으로 정의합니다.",
   "enabled": true,
-  "updatedAt": "2025-12-26",
+  "updatedAt": "2025-12-31",
 
   "rules": [
     {
@@ -173,6 +173,48 @@
         "scoreDelta": 15,
         "severity": "LOW"
       }
+    },
+    {
+      "id": "INVISIBLE_LAYER_INSERT_RULE",
+      "enabled": true,
+      "when": {
+        "type": "INVISIBLE_LAYER_DETECTED",
+        "equals": { "reason": "INSERT" }
+      },
+      "action": {
+        "ruleId": "INVISIBLE_LAYER_INSERT",
+        "severity": "MEDIUM",
+        "scoreDelta": 25
+      }
+    },
+    {
+      "id": "INVISIBLE_LAYER_CLICK_RULE",
+      "enabled": true,
+      "when": {
+        "type": "INVISIBLE_LAYER_DETECTED",
+        "equals": { "reason": "POINTERDOWN" }
+      },
+      "action": {
+        "ruleId": "INVISIBLE_LAYER_CLICK",
+        "severity": "HIGH",
+        "scoreDelta": 60
+      }
+    },
+    {
+    "id": "POC_C_THIRDPARTY_POSTMESSAGE_ARM",
+    "enabled": true,
+    "when": {
+      "type": "THIRDPARTY_POSTMESSAGE_ARM",
+      "equals": {
+        "action": "ARM_FORM_SWAP"
+      }
+    },
+    "action": {
+      "ruleId": "THIRDPARTY_WIDGET_ARMED",
+      "severity": "MEDIUM",
+      "scoreDelta": 15,
+      "targetOrigin": "http://localhost:4000"
     }
+  }
   ]
 }

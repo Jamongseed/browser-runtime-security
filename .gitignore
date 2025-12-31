@@ -1,0 +1,1 @@
+printf "\n# deps\n**/node_modules/\n\n" >> .gitignore
