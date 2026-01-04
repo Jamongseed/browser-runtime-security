@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PoC-G - Service Worker Persistence</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main class="wrap">
+    <h1>PoC-G: Service Worker 지속성 + API 응답 변조</h1>
+
+    <section class="card">
+      <h2>상태</h2>
+      <div class="row"><span class="k">Page Origin</span><span id="pageOrigin" class="v"></span></div>
+      <div class="row"><span class="k">SDK Origin</span><span class="v">http://localhost:4000</span></div>
+      <div class="row"><span class="k">Service Worker</span><span id="swState" class="v">unknown</span></div>
+      <div class="row"><span class="k">Last API</span><span id="lastApi" class="v">-</span></div>
+    </section>
+
+    <section class="card">
+      <h2>동작</h2>
+      <div class="btns">
+        <button id="btnCheck">/api/account 호출 (SW 조작 대상)</button>
+        <button id="btnRaw">/api/account-raw 호출 (원본 확인)</button>
+        <button id="btnReset">SW 등록 해제(Reset)</button>
+      </div>
+
+      <pre id="out" class="out"></pre>
+      <p class="hint">DevTools → Application → Service Workers에서 등록 여부도 확인 가능.</p>
+    </section>
+
+    <script src="http://localhost:4000/sdk_sw_register.js" defer></script>
+    <script src="/app.js" defer></script>
+  </main>
+</body>
+</html>
+
