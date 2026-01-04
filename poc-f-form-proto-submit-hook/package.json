@@ -1,0 +1,17 @@
+{
+  "name": "poc-f-form-proto-submit-hook",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "main": "node server-main.js",
+    "thirdparty": "node server-thirdparty.js",
+    "dev": "concurrently -k \"npm run main\" \"npm run thirdparty\""
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
+
