@@ -17,6 +17,26 @@
       // (추가) form.submit/requestSubmit 후킹 이벤트를 기존 FORM_SUBMIT 이벤트로 변환
       if (type === "FORM_NATIVE_SUBMIT") {
         const d = data || {};
+
+        // (추가) 상태 1bit + data 태그 (PROTO_TAMPER -> FORM_SUBMIT 연계)
+        // - detector(form_submit_prototype_tamper.js)가 기록해 둔 공유 상태를 읽어 붙임
+        // - ruleEngine.match 이전에 d.protoTamperSeen이 들어가야 "상태 기반 룰"이 매칭됨
+        let _protoEvidence = null;
+        try {
+          const st = window.__BRS_FORM_PROTO_TAMPER_STATE__;
+          if (st && st.seen) {
+            d.protoTamperSeen = true;
+            d.protoTamperProps = st.props || { submit: true, requestSubmit: true };
+            d.protoTamperTs = st.ts || 0;
+
+            _protoEvidence = {
+              protoTamper: st.last || null,
+              protoTamperTs: st.ts || 0,
+              dtMs: st.ts ? (Date.now() - st.ts) : null,
+            };
+          }
+        } catch (_) {}
+
         const baseMeta = {
           ruleId: d.mismatch ? "PHISHING_FORM_MISMATCH" : "FORM_ACTION_MATCH",
           scoreDelta: d.mismatch ? 50 : 5,
@@ -24,10 +44,54 @@
           targetOrigin: d.actionOrigin || ""
         };
 
+        // (추가) evidence 채우기 (FORM_SUBMIT_AFTER_PROTO_TAMPER에서 보여줄 근거)
+        if (_protoEvidence) baseMeta.evidence = _protoEvidence;
+
         const matched2 = ruleEngine ? ruleEngine.match({ type: "FORM_SUBMIT", data: d, ctx: {} }) : null;
         const meta2 = matched2 ? ruleEngine.apply(matched2, baseMeta) : baseMeta;
 
         reporter.send("FORM_SUBMIT", d, meta2);
+        return;
+      }
+
+      // (추가) page_hook에서 감지한 "폼 프로토타입 선행 변조" 이벤트를 PROTO_TAMPER로 변환
+      if (type === "FORM_PROTO_TAMPER") {
+        const d = data || {};
+
+        const baseMeta = {
+          ruleId: d.prop === "requestSubmit"
+            ? "FORM_REQUESTSUBMIT_PROTOTYPE_TAMPER"
+            : "FORM_SUBMIT_PROTOTYPE_TAMPER",
+          scoreDelta: 30,
+          severity: "MEDIUM",
+          targetOrigin: location.origin
+        };
+
+        // (추가) 공유 상태 갱신: page_hook발 PROTO_TAMPER도 상관분석에 포함
+        // - detector가 아직 돌지 않았거나(레이스), detector가 아닌 경로로 PROTO_TAMPER가 들어온 경우에도
+        //   FORM_SUBMIT 시점에 protoTamperSeen/evidence가 채워지도록 1bit 상태를 여기서도 업데이트한다.
+        try {
+          const st = window.__BRS_FORM_PROTO_TAMPER_STATE__ = window.__BRS_FORM_PROTO_TAMPER_STATE__ || {
+            seen: false,
+            props: { submit: false, requestSubmit: false },
+            ts: 0,
+            last: null,
+          };
+
+          st.seen = true;
+          if (d && (d.prop === "submit" || d.prop === "requestSubmit")) st.props[d.prop] = true;
+          st.ts = Date.now();
+          st.last = {
+            type: "PROTO_TAMPER",
+            ruleId: baseMeta.ruleId,
+            data: d,
+          };
+        } catch (_) {}
+
+        const matched2 = ruleEngine ? ruleEngine.match({ type: "PROTO_TAMPER", data: d, ctx: {} }) : null;
+        const meta2 = matched2 ? ruleEngine.apply(matched2, baseMeta) : baseMeta;
+
+        reporter.send("PROTO_TAMPER", d, meta2);
         return;
       }
 
@@ -87,6 +151,11 @@
     const postMessageDetector = detectors.postMessage;
     if (postMessageDetector && typeof postMessageDetector.start === "function") {
       try { postMessageDetector.start(reporter.send, ruleEngine); } catch (_) {}
+    }
+
+    const protoTamperDetector = detectors.formSubmitPrototypeTamper;
+    if (protoTamperDetector && typeof protoTamperDetector.start === "function") {
+      try { protoTamperDetector.start(reporter.send, ruleEngine); } catch (_) {}
     }
 
     // page_hook 브릿지 + hook 주입
