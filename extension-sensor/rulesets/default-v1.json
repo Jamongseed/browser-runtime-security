@@ -4,7 +4,7 @@
   "name": "기본 룰셋 (데모/PoC용)",
   "description": "content.js에서 발생하는 이벤트(type/data)를 기준으로 ruleId/scoreDelta/severity를 정책(룰셋)으로 정의합니다.",
   "enabled": true,
-  "updatedAt": "2025-12-31",
+  "updatedAt": "2025-01-05",
 
   "rules": [
     {
@@ -44,7 +44,59 @@
         "severity": "LOW"
       }
     },
-
+    {
+      "id": "SW_REGISTER_INITIATED_BY_CROSS_SITE_SCRIPT",
+      "enabled": true,
+      "when": {
+        "type": "SW_REGISTER",
+        "equals": { "initiatorCrossSite": true }
+      },
+      "action": {
+        "ruleId": "SW_REGISTER_INITIATED_BY_CROSS_SITE_SCRIPT",
+        "scoreDelta": 80,
+        "severity": "HIGH"
+      }
+    },
+    {
+      "id": "SW_REGISTER",
+      "enabled": true,
+      "when": { "type": "SW_REGISTER" },
+      "action": {
+        "ruleId": "SW_REGISTER",
+        "scoreDelta": 10,
+        "severity": "LOW"
+      }
+    },
+    {
+      "id": "SW_REGISTRATIONS_PRESENT",
+      "enabled": true,
+      "when": { "type": "SW_REGISTRATIONS_PRESENT" },
+      "action": {
+        "ruleId": "SW_REGISTRATIONS_PRESENT",
+        "scoreDelta": 5,
+        "severity": "LOW"
+      }
+    },
+    {
+      "id": "SW_PERSISTENCE_ACTIVE",
+      "enabled": true,
+      "when": { "type": "SW_PERSISTENCE_ACTIVE" },
+      "action": {
+        "ruleId": "SW_PERSISTENCE_ACTIVE",
+        "scoreDelta": 20,
+        "severity": "MEDIUM"
+      }
+    },
+    {
+      "id": "POC_G_SW_CHAIN",
+      "enabled": true,
+      "when": { "type": "POC_G_SW_CHAIN" },
+      "action": {
+        "ruleId": "POC_G_SW_CHAIN_CONFIRMED",
+        "scoreDelta": 90,
+        "severity": "HIGH"
+      }
+    },
     {
       "id": "HIDDEN_IFRAME_INSERT",
       "enabled": true,
@@ -71,7 +123,32 @@
         "severity": "LOW"
       }
     },
-
+    {
+      "id": "FORM_SUBMIT_AFTER_PROTO_TAMPER_MISMATCH",
+      "enabled": true,
+      "when": {
+        "type": "FORM_SUBMIT",
+        "equals": { "mismatch": true, "protoTamperSeen": true }
+      },
+      "action": {
+        "ruleId": "PHISHING_FORM_MISMATCH_AFTER_PROTO_TAMPER",
+        "scoreDelta": 80,
+        "severity": "HIGH"
+      }
+    },
+    {
+      "id": "FORM_SUBMIT_AFTER_PROTO_TAMPER_OK",
+      "enabled": true,
+      "when": {
+        "type": "FORM_SUBMIT",
+        "equals": { "mismatch": false, "protoTamperSeen": true }
+      },
+      "action": {
+        "ruleId": "FORM_SUBMIT_AFTER_PROTO_TAMPER",
+        "scoreDelta": 30,
+        "severity": "MEDIUM"
+      }
+    },
     {
       "id": "PHISHING_FORM_MISMATCH",
       "enabled": true,
@@ -112,7 +189,6 @@
         "targetOrigin": "UNKNOWN"
       }
     },
-
     {
       "id": "OBFUSCATION_ATOB",
       "enabled": true,
@@ -201,20 +277,46 @@
       }
     },
     {
-    "id": "POC_C_THIRDPARTY_POSTMESSAGE_ARM",
-    "enabled": true,
-    "when": {
-      "type": "THIRDPARTY_POSTMESSAGE_ARM",
-      "equals": {
-        "action": "ARM_FORM_SWAP"
+      "id": "POC_C_THIRDPARTY_POSTMESSAGE_ARM",
+      "enabled": true,
+      "when": {
+        "type": "THIRDPARTY_POSTMESSAGE_ARM",
+        "equals": {
+          "action": "ARM_FORM_SWAP"
+        }
+      },
+      "action": {
+        "ruleId": "THIRDPARTY_WIDGET_ARMED",
+        "severity": "MEDIUM",
+        "scoreDelta": 15,
+        "targetOrigin": "http://localhost:4000"
       }
     },
-    "action": {
-      "ruleId": "THIRDPARTY_WIDGET_ARMED",
-      "severity": "MEDIUM",
-      "scoreDelta": 15,
-      "targetOrigin": "http://localhost:4000"
+    {
+      "id": "FORM_SUBMIT_PROTOTYPE_TAMPER",
+      "enabled": true,
+      "when": {
+        "type": "PROTO_TAMPER",
+        "equals": { "prop": "submit" }
+      },
+      "action": {
+        "ruleId": "FORM_SUBMIT_PROTOTYPE_TAMPER",
+        "scoreDelta": 40,
+        "severity": "HIGH"
+      }
+    },
+    {
+      "id": "FORM_REQUESTSUBMIT_PROTOTYPE_TAMPER",
+      "enabled": true,
+      "when": {
+        "type": "PROTO_TAMPER",
+        "equals": { "prop": "requestSubmit" }
+      },
+      "action": {
+        "ruleId": "FORM_REQUESTSUBMIT_PROTOTYPE_TAMPER",
+        "scoreDelta": 35,
+        "severity": "HIGH"
+      }
     }
-  }
   ]
 }

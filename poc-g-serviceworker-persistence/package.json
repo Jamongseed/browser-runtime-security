@@ -1,0 +1,12 @@
+{
+  "name": "poc-g-serviceworker-persistence",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node victim.js & node attacker.js",
+    "dev:win": "start /B node victim.js && start /B node attacker.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

@@ -1,1 +1,8 @@
 printf "\n# deps\n**/node_modules/\n\n" >> .gitignore
+
+# PoC-G
+poc-g-serviceworker-persistence/node_modules/
+
+# deps
+**/node_modules/
+
