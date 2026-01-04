@@ -26,6 +26,22 @@
   }
 
   function start(sendLog, ruleEngine) {
+    // (추가) PoC-G 체인용: 마지막 cross-site script 삽입 시각/증거 기록
+    function recordDynScriptCrossSite(src, abs, targetOrigin, phase) {
+      try {
+        const st = window.__BRS_POC_G__ = window.__BRS_POC_G__ || {};
+        st.lastDynCrossTs = Date.now();
+        st.lastDynCrossData = {
+          type: "DYN_SCRIPT_INSERT",
+          src: String(src || ""),
+          abs: String(abs || ""),
+          targetOrigin: String(targetOrigin || ""),
+          crossSite: true,
+          phase: phase || ""
+        };
+      } catch (_) {}
+    }
+
     // (추가) 초기 스캔: 이미 DOM에 존재하는 script/iframe도 1회 감지
     try {
       document.querySelectorAll("script[src]").forEach((n) => {
@@ -41,6 +57,9 @@
 
         const targetOrigin = getOrigin(abs);
         const crossSite = isCrossSite(targetOrigin);
+
+        // (추가) PoC-G 체인용 기록
+        if (crossSite) recordDynScriptCrossSite(src, abs, targetOrigin, "initial_scan");
 
         const baseMeta = {
           ruleId: crossSite ? "DYN_SCRIPT_INSERT_CROSS_SITE" : "DYN_SCRIPT_INSERT_SAME_SITE",
@@ -110,6 +129,9 @@
 
             const targetOrigin = getOrigin(abs);
             const crossSite = isCrossSite(targetOrigin);
+
+            // (추가) PoC-G 체인용 기록
+            if (crossSite) recordDynScriptCrossSite(src, abs, targetOrigin, "mutation");
 
             const baseMeta = {
               ruleId: crossSite ? "DYN_SCRIPT_INSERT_CROSS_SITE" : "DYN_SCRIPT_INSERT_SAME_SITE",
