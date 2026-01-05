@@ -4,6 +4,8 @@ const REAL_PATH = "/real";
 const AD_PATH = "/ad";
 
 let enabled = true;//PoC on/off 상태값
+let swapped = false; //스왑 중복 체크용 플래그
+let demoMode = true; //네비게이션 막고 직접 이동하는 용도로 만듬
 
 //조작할 태그들 몇개 자바스크립트 객체로 따로 빼두기
 const link = document.getElementById("baitLink");
@@ -35,8 +37,16 @@ function swapHrefToAd() {
   console.log("[poc-d] href swapped to", AD_PATH);
 }
 
+//이후 스왑 중복 방지용으로 설계
+function swapHrefToAdOnce() {
+  if (swapped) return;   //이미 이번 클릭에서 swap 했으면 무시
+  swapped = true;
+  swapHrefToAd();
+}
+
 //Reset 함수입니다. href를 다시 정상경로로 복구해줍니다.(데모사이트를 반복해서 실행할 때 있으면 좋을것 같아서 넣었습니다)
 function resetHrefToReal() {
+  swapped = false; //swap플래그도 초기화 해줘야 함
   if (!link) return;
   link.setAttribute("href", REAL_PATH);
   updateHrefView();
@@ -53,7 +63,7 @@ function installPreClickHook() {
     (e) => {
       if (!enabled) return;
       if (e.button !== undefined && e.button !== 0) return;
-      swapHrefToAd();//DOM 속성 변경
+      swapHrefToAdOnce();//DOM 속성 변경
     },
     { capture: true }
   );
@@ -63,39 +73,95 @@ function installPreClickHook() {
     (e) => {
       if (!enabled) return;
       if (e.button !== 0) return;
-      swapHrefToAd();//DOM 속성 변경
+      swapHrefToAdOnce();//DOM 속성 변경
     },
     { capture: true }
   );
 
   //다시 원위치(데모 반복시행시 도움이 될것 같아서 넣음)
-  link.addEventListener("click", () => {
-    setTimeout(() => resetHrefToReal(), 0);
-  });
+  link.addEventListener(
+      "click", 
+      (e) => {
+          if(!enabled) return;//일단 off면 빠꾸
+
+          if(demoMode){
+              e.preventDefault();//기본이동을 일단 멈추고
+              const to = link.href;//preclickHook에서 이미 ad로 바뀐 상태의 주소를 to에 저장
+              resetHrefToReal();//이제 리셋하고(약간 증거인멸 느낌?)
+              setTimeout(()=>{
+                  window.location.assign(to);//잠깐 지연 후(쫄려서 넣었음....), 직접 이동하기
+              }, 150);}         
+      },
+      {capture: true}
+  );
 }
 
 //herf가 바뀌는 순간을 콘솔에 증거로 남겨주는 함수입니다. MutationObserver를 사용해봤습니다.
-//저번에 말씀하신 MutationObserver를 사용해볼려고 했는데, 이걸 공격용으로 어떻게 사용하는지 감이 안잡혀서 콘솔기록용으로 써봤습니다.
 function installHrefMutationObserver() {
+  console.log("[poc-d] installHrefMutationObserver mounted");
   if (!link) return;
+
+  //먼저 발생한 down 이벤트 기준 시각
+  let firstDownAt = 0;
+
+  function markFirstDown(type) {
+    if (firstDownAt !== 0) return; // 이미 기록됐으면 무시하도록 만들기
+    firstDownAt = performance.now();
+  }
+
+  // pointerdown
+  link.addEventListener(
+    "pointerdown",
+    () => {
+      markFirstDown("pointerdown");
+    },
+    { capture: true }
+  );
+
+  // mousedown
+  link.addEventListener(
+    "mousedown",
+    () => {
+      markFirstDown("mousedown");
+    },
+    { capture: true }
+  );
+
+  //href 변경을 감지하고, 이벤트 이후 차이만큼 delta(ms) 출력
   const obs = new MutationObserver((mutations) => {
+    const now = performance.now();
+
     for (const m of mutations) {
       if (m.type === "attributes" && m.attributeName === "href") {
-        console.log("[poc-d][mutation] href changed ->", link.getAttribute("href"));
+        const href = link.getAttribute("href");
+
+        const deltaMs =
+          firstDownAt > 0 ? Math.round(now - firstDownAt) : null;
+
+        console.log("[poc-d][mutation] href changed ->", href, {
+          delta_ms: deltaMs,  // down 이벤트 이후 몇 ms 만에 변경됐는지
+        });
+
+        //종료 후 초기화
+        firstDownAt = 0;
       }
     }
   });
+
   obs.observe(link, { attributes: true, attributeFilter: ["href"] });
 }
 
+
+
 //최종완성, DOM이 완성된 순간 함수들 전부 설치
 document.addEventListener("DOMContentLoaded", () => {
+  installHrefMutationObserver();//얘를 제일 먼저 둬야 delta_ms가 인식이 됨..... 심지어 1ms 뜸
+
   setStatus();
   updateHrefView();
 
   installPreClickHook();
-  installHrefMutationObserver();
-
+  
   toggleBtn?.addEventListener("click", () => {
     enabled = !enabled;
     setStatus();
