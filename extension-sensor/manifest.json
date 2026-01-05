@@ -27,6 +27,7 @@
         "detectors/dom_mutation.js",
         "detectors/invisible_layer.js",
         "detectors/postmessage.js",
+        "detectors/form_submit_prototype_tamper.js",
         "content.js"
       ],
       "run_at": "document_start"

@@ -71,7 +71,32 @@
         "severity": "LOW"
       }
     },
-
+    {
+      "id": "FORM_SUBMIT_AFTER_PROTO_TAMPER_MISMATCH",
+      "enabled": true,
+      "when": {
+        "type": "FORM_SUBMIT",
+        "equals": { "mismatch": true, "protoTamperSeen": true }
+      },
+      "action": {
+        "ruleId": "PHISHING_FORM_MISMATCH_AFTER_PROTO_TAMPER",
+        "scoreDelta": 80,
+        "severity": "HIGH"
+      }
+    },
+    {
+      "id": "FORM_SUBMIT_AFTER_PROTO_TAMPER_OK",
+      "enabled": true,
+      "when": {
+        "type": "FORM_SUBMIT",
+        "equals": { "mismatch": false, "protoTamperSeen": true }
+      },
+      "action": {
+        "ruleId": "FORM_SUBMIT_AFTER_PROTO_TAMPER",
+        "scoreDelta": 30,
+        "severity": "MEDIUM"
+      }
+    },
     {
       "id": "PHISHING_FORM_MISMATCH",
       "enabled": true,
@@ -112,7 +137,6 @@
         "targetOrigin": "UNKNOWN"
       }
     },
-
     {
       "id": "OBFUSCATION_ATOB",
       "enabled": true,
@@ -201,20 +225,46 @@
       }
     },
     {
-    "id": "POC_C_THIRDPARTY_POSTMESSAGE_ARM",
-    "enabled": true,
-    "when": {
-      "type": "THIRDPARTY_POSTMESSAGE_ARM",
-      "equals": {
-        "action": "ARM_FORM_SWAP"
+      "id": "POC_C_THIRDPARTY_POSTMESSAGE_ARM",
+      "enabled": true,
+      "when": {
+        "type": "THIRDPARTY_POSTMESSAGE_ARM",
+        "equals": {
+          "action": "ARM_FORM_SWAP"
+        }
+      },
+      "action": {
+        "ruleId": "THIRDPARTY_WIDGET_ARMED",
+        "severity": "MEDIUM",
+        "scoreDelta": 15,
+        "targetOrigin": "http://localhost:4000"
       }
     },
-    "action": {
-      "ruleId": "THIRDPARTY_WIDGET_ARMED",
-      "severity": "MEDIUM",
-      "scoreDelta": 15,
-      "targetOrigin": "http://localhost:4000"
+    {
+      "id": "FORM_SUBMIT_PROTOTYPE_TAMPER",
+      "enabled": true,
+      "when": {
+        "type": "PROTO_TAMPER",
+        "equals": { "prop": "submit" }
+      },
+      "action": {
+        "ruleId": "FORM_SUBMIT_PROTOTYPE_TAMPER",
+        "scoreDelta": 40,
+        "severity": "HIGH"
+      }
+    },
+    {
+      "id": "FORM_REQUESTSUBMIT_PROTOTYPE_TAMPER",
+      "enabled": true,
+      "when": {
+        "type": "PROTO_TAMPER",
+        "equals": { "prop": "requestSubmit" }
+      },
+      "action": {
+        "ruleId": "FORM_REQUESTSUBMIT_PROTOTYPE_TAMPER",
+        "scoreDelta": 35,
+        "severity": "HIGH"
+      }
     }
-  }
   ]
 }
