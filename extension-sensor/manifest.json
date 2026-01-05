@@ -20,6 +20,13 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
+      "js": ["page_hook_sw_boot.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true
+    },
+    {
+      "matches": ["<all_urls>"],
       "js": [
         "engine/rule_engine.js",
         "engine/reporter.js",
@@ -28,9 +35,11 @@
         "detectors/invisible_layer.js",
         "detectors/postmessage.js",
         "detectors/form_submit_prototype_tamper.js",
+        "detectors/sw_persistence.js",
         "content.js"
       ],
-      "run_at": "document_start"
+      "run_at": "document_start",
+      "all_frames": true
     }
   ],
   "web_accessible_resources": [

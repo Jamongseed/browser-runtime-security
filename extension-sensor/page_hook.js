@@ -4,25 +4,26 @@
     window.postMessage({ __BRS__: true, type, data }, "*");
   };
 
-  // const getStack = () => {
-  //   try {
-  //     const stack = new Error().stack || "";
-  //
-  //     const lines = stack.split("\n");
-  //
-  //     const callerLine = lines.find(line =>
-  //       line.includes("at ") &&
-  //       !line.includes("getStack") &&
-  //       !line.includes("window.") &&
-  //       !line.includes("<anonymous>")
-  //     );
-  //
-  //     return callerLine ? callerLine.trim() : stack.slice(0, 300);
-  //
-  //   } catch (e) {
-  //     return "unknown";
-  //   }
-  // };
+  // (복구) stack 수집: SW_REGISTER 이벤트에서 evidence.stack을 담기 위해 사용
+  const getStack = () => {
+    try {
+      const stack = new Error().stack || "";
+
+      const lines = stack.split("\n");
+
+      const callerLine = lines.find(line =>
+        line.includes("at ") &&
+        !line.includes("getStack") &&
+        !line.includes("window.") &&
+        !line.includes("<anonymous>")
+      );
+
+      return callerLine ? callerLine.trim() : stack.slice(0, 300);
+
+    } catch (e) {
+      return "unknown";
+    }
+  };
 
   try {
     const _eval = window.eval;
