@@ -1,5 +1,5 @@
 function openDashboardWithSession(sessionId) {
-  let targetUrl = "local_dashboard/dashboard.html";
+  let targetUrl = chrome.runtime.getURL("local_dashboard/dashboard.html");
   
   if (sessionId) {
     targetUrl += `?sessionId=${sessionId}`;
@@ -27,7 +27,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
     // URL을 못 찾으면 그냥 빈 창 띄우기
     if (!tab || !tab.url) {
       renderEmpty(logArea);
@@ -45,23 +44,55 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const logsToDisplay = sessionLogs.sort((a, b) => b.ts - a.ts);
   
-    logArea.innerHTML = logsToDisplay.map(log => {
-      const timeStr = new Date(log.ts).toLocaleTimeString();
-      const dataStr = JSON.stringify(log.data, null, 2).replace(/"/g, '').slice(0, 100);
 
-      return `
-        <div class="log-item ${log.severity}">
-          <div class="log-header">
-            <span>${log.type}</span>
-            <span class="log-time">${timeStr}</span>
-          </div>
-          <div class="log-data">${dataStr}</div>
-          <div style="margin-top:5px; font-size:11px; color:#888;">
-              위험도: <b>${log.severity}</b> (점수: ${log.scoreDelta})
-          </div>
-        </div>
-      `;
-    }).join('');
+    logArea.innerHTML = '';
+    logsToDisplay.forEach(log => {
+      const timeStr = new Date(log.ts).toLocaleTimeString();
+      let dataStr = "";
+      try {
+        dataStr = JSON.stringify(log.data, null, 2).replace(/"/g, '').slice(0, 100);
+      } catch (e) {
+        dataStr = "Data Parsing Error";
+      }
+
+      const itemDiv = document.createElement('div');
+      itemDiv.className = `log-item ${log.severity}`;
+
+      const headerDiv = document.createElement('div');
+      headerDiv.className = 'log-header';
+
+      const typeSpan = document.createElement('span');
+      typeSpan.textContent = log.type;
+
+      const timeSpan = document.createElement('span');
+      timeSpan.className = 'log-time';
+      timeSpan.textContent = timeStr;
+
+      headerDiv.appendChild(typeSpan);
+      headerDiv.appendChild(timeSpan);
+
+      const dataDiv = document.createElement('div');
+      dataDiv.className = 'log-data';
+      dataDiv.textContent = dataStr;
+
+      const footerDiv = document.createElement('div');
+      footerDiv.style.marginTop = '5px';
+      footerDiv.style.fontSize = '11px';
+      footerDiv.style.color = '#888';
+      
+      footerDiv.appendChild(document.createTextNode("위험도: "));
+      
+      const bTag = document.createElement('b');
+      bTag.textContent = log.severity;
+      footerDiv.appendChild(bTag);
+      
+      footerDiv.appendChild(document.createTextNode(` (점수: ${log.scoreDelta})`));
+
+      itemDiv.appendChild(headerDiv);
+      itemDiv.appendChild(dataDiv);
+      itemDiv.appendChild(footerDiv);
+      logArea.appendChild(itemDiv);
+    });
 
     if (btn) {
       btn.addEventListener('click', () => {

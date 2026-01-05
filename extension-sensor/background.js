@@ -1,6 +1,11 @@
 const MAX_LOG_COUNT = 50;
 const LOCAL_SAVE_TARGETS = ["HIGH", "MEDIUM"];
 const NOTIFICATION_COOLDOWN = 5000;
+const ALARM_NAME = "retry_failed_logs";
+const FAILED_QUEUE_KEY = "failed_log_queue";
+const RETRY_INTERVAL_MIN = 5;
+const MAX_FAIL_QUEUE_SIZE = 100;
+const TIMEOUT_MS = 5000;
 
 const CONFIG = {
   // false: 개발용, true: AWS 배포용
@@ -30,6 +35,82 @@ async function generateReportHash(sessionId, ts) {
 
   // 앞자리 32글자만 사용
   return hashHex.slice(0,32);
+}
+
+async function addToFailedQueue(threatData) {
+  try {
+    let {[FAILED_QUEUE_KEY]: queue } = await chrome.storage.local.get({ [FAILED_QUEUE_KEY]: [] });
+
+    queue.push({
+      data: threatData,
+      failedAt: Date.now()
+    });
+
+    if (queue.length > MAX_FAIL_QUEUE_SIZE) {
+      queue = queue.slice(-MAX_FAIL_QUEUE_SIZE)
+    }
+
+    await chrome.storage.local.set({ [FAILED_QUEUE_KEY] : queue });
+  } catch (err) {
+    console.warn("[BRS] Failed to save log to failed queue:", err);
+  }
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.alarms.get(ALARM_NAME, (alarm) => {
+    if (!alarm) {
+      chrome.alarms.create(ALARM_NAME, { periodInMinutes: RETRY_INTERVAL_MIN });
+      console.log(`[BRS] Retry alarm created. Interval: ${RETRY_INTERVAL_MIN}min`);
+    }
+  });
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === ALARM_NAME) {
+    processFailedQueue();
+  }
+});
+
+async function processFailedQueue() {
+  let { [FAILED_QUEUE_KEY]: queue } = await chrome.storage.local.get({ [FAILED_QUEUE_KEY]: [] });
+
+  if (!queue || queue.length === 0) return;
+
+  console.log(`[BRS] Retrying ${queue.length} failed logs...`);
+  
+  const remainingQueue = [];
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+  for (const item of queue) {
+    try {
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+      const response = await fetch(CONFIG.API_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(item.data),
+        signal: controller.signal
+      });
+      
+      clearTimeout(id);
+
+      if (!response.ok) throw new Error("Retry failed");
+
+    } catch (e) {
+      if (Date.now() - item.failedAt < ONE_DAY_MS) {
+        remainingQueue.push(item);
+      } else {
+        console.warn("[BRS] Drop expired log:", item);
+      }
+    }
+  }
+
+  await chrome.storage.local.set({ [FAILED_QUEUE_KEY]: remainingQueue });
+
+  if (queue.length > remainingQueue.length) {
+    console.log(`[BRS] Retry Success! Sent: ${queue.length - remainingQueue.length}, Remaining: ${remainingQueue.length}`);
+  }
 }
 
 // Notification
@@ -111,21 +192,32 @@ async function updateBadge(threatData) {
 
 // Data Handling
 async function sendReport(threatData) {
-  const targetUrl = CONFIG.API_ENDPOINT;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
   try {
-    const response = await fetch(targetUrl, {
+    const response = await fetch(CONFIG.API_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(threatData),
-      keepalive: true
+      keepalive: true,
+      signal: controller.signal
     });
+
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       throw new Error(`Server returned ${response.status} ${response.statusText}`);
     }
   } catch (err) {
-    console.error("Failed to transmit threat data:", err);
-  }
+    if (err.name == 'AbortError') {
+      console.warn("[BRS] Network Timeout. Saving to queue");
+    } else {
+      console.warn("[BRS] Transmission failed. Saving to queue:", err.message);
+    }
+    
+    await addToFailedQueue(threatData);
+  } 
 }
 
 function saveLog(threatData) {
@@ -174,9 +266,9 @@ async function processThreatReport(inputData, sender) {
       tabId
     };
 
-    updateBadge(enrichedData);
+    await updateBadge(enrichedData);
     showThreatNotification(enrichedData);
-    sendReport(enrichedData);
+    await sendReport(enrichedData);
     saveLog(enrichedData);
   } catch (error) {
     console.error("[BRS] Process Error:", error);
@@ -185,7 +277,9 @@ async function processThreatReport(inputData, sender) {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "REPORT_THREAT") {
-    processThreatReport(message.data, sender);
+    processThreatReport(message.data, sender)
+    .then(() => sendResponse({ ok: true }))
+    .catch((err) => sendResponse({ ok: false, error: err.message}));
     return true;
   }
 });
