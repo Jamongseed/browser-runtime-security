@@ -1,0 +1,363 @@
+// index.mjs (Node.js 24 / ESM) - BRS_Events_Query
+
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
+
+const ddb = DynamoDBDocumentClient.from(
+  new DynamoDBClient({ region: process.env.AWS_REGION }),
+  { marshallOptions: { removeUndefinedValues: true } }
+);
+
+const TABLE_NAME = process.env.TABLE_NAME; // e.g. BRS_Events
+const TOP_DOMAIN_GSI = process.env.TOP_DOMAIN_GSI || "gsi_top_domain_ts";
+
+// MVP guardrails
+const DEFAULT_WINDOW_MS = 24 * 60 * 60 * 1000;
+const MAX_WINDOW_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_LIMIT = 50;
+const MAX_LIMIT = 200;
+
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "OPTIONS,GET",
+  "Access-Control-Allow-Headers":
+    "Content-Type, X-Amz-Date, Authorization, X-Api-Key, X-Amz-Security-Token",
+};
+
+function json(statusCode, obj) {
+  return {
+    statusCode,
+    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+    body: JSON.stringify(obj),
+  };
+}
+
+function getMethod(event) {
+  return (event?.httpMethod || "").toUpperCase(); // REST API v1
+}
+
+function getPath(event) {
+  // REST API v1: event.path. (stage가 붙는 경우도 있어서 suffix 매칭)
+  const p = event?.path || "";
+  return p;
+}
+
+function parseAllowedDomains() {
+  const raw = process.env.ALLOWED_DOMAINS || "";
+  const set = new Set(
+    raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => s.toLowerCase())
+  );
+  return set;
+}
+
+const ALLOWED_DOMAINS = parseAllowedDomains();
+
+function isAllowedDomain(domain) {
+  if (!domain) return false;
+  if (ALLOWED_DOMAINS.size === 0) return true; // allow-all if not set
+  return ALLOWED_DOMAINS.has(domain.toLowerCase());
+}
+
+function clampInt(v, def, min, max) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return def;
+  const i = Math.trunc(n);
+  if (i < min) return min;
+  if (i > max) return max;
+  return i;
+}
+
+function toSinceMs(qs) {
+  // sinceMs가 없으면 now-24h. 있으면 max 24h까지 클램프.
+  const now = Date.now();
+  const raw = qs?.sinceMs;
+  if (raw === undefined || raw === null || raw === "") return now - DEFAULT_WINDOW_MS;
+
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return now - DEFAULT_WINDOW_MS;
+
+  const minSince = now - MAX_WINDOW_MS;
+  // 더 과거면 24h로 클램프
+  return n < minSince ? minSince : n;
+}
+
+function decodeNextToken(token) {
+  if (!token) return undefined;
+  try {
+    const jsonStr = Buffer.from(token, "base64url").toString("utf8");
+    const obj = JSON.parse(jsonStr);
+    return obj && typeof obj === "object" ? obj : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function encodeNextToken(lastEvaluatedKey) {
+  if (!lastEvaluatedKey) return null;
+  const jsonStr = JSON.stringify(lastEvaluatedKey);
+  return Buffer.from(jsonStr, "utf8").toString("base64url");
+}
+
+function pickEventFields(item) {
+  return {
+    ts: item.ts,
+    event_id: item.event_id,
+    severity: item.severity,
+    type: item.type,
+    ruleId: item.ruleId,
+    origin: item.origin,
+    page_host: item.page_host,
+    page_hash: item.page_hash,
+    session_id: item.session_id,
+  };
+}
+
+function severityWeight(sev) {
+  if (sev === "HIGH") return 100;
+  if (sev === "MEDIUM") return 50;
+  if (sev === "LOW") return 10;
+  return 0;
+}
+
+/**
+ * Query domain events since sinceMs (max 24h window), optionally filtered by severity
+ */
+async function queryDomainEvents({ domain, sinceMs, limit, nextToken, severity }) {
+  const sinceKey = `${sinceMs}#`; // ts#event_id >= "<sinceMs>#"
+
+  const ExclusiveStartKey = decodeNextToken(nextToken);
+
+  const params = {
+    TableName: TABLE_NAME,
+    IndexName: TOP_DOMAIN_GSI,
+    KeyConditionExpression: "#d = :d AND #sk >= :since",
+    ExpressionAttributeNames: {
+      "#d": "top_domain",
+      "#sk": "ts#event_id",
+    },
+    ExpressionAttributeValues: {
+      ":d": domain,
+      ":since": sinceKey,
+    },
+    Limit: limit,
+    ScanIndexForward: false, // 최신부터
+    ExclusiveStartKey,
+  };
+
+  // 간단 필터(원하면 GSI로 최적화 가능)
+  if (severity) {
+    params.FilterExpression = "#sev = :sev";
+    params.ExpressionAttributeNames["#sev"] = "severity";
+    params.ExpressionAttributeValues[":sev"] = severity;
+  }
+
+  const res = await ddb.send(new QueryCommand(params));
+  return {
+    items: (res.Items || []),
+    nextToken: encodeNextToken(res.LastEvaluatedKey),
+  };
+}
+
+// ---------- Handlers ----------
+async function handleEvents(event) {
+  const qs = event.queryStringParameters || {};
+  const domain = (qs.domain || "").trim();
+
+  if (!domain) return json(400, { ok: false, reason: "MISSING_domain" });
+  if (!isAllowedDomain(domain)) return json(403, { ok: false, reason: "DOMAIN_NOT_ALLOWED" });
+
+  const sinceMs = toSinceMs(qs);
+  const limit = clampInt(qs.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
+  const severity = qs.severity ? String(qs.severity).toUpperCase() : undefined;
+  const nextToken = qs.nextToken ? String(qs.nextToken) : undefined;
+
+  const { items, nextToken: outNext } = await queryDomainEvents({
+    domain,
+    sinceMs,
+    limit,
+    nextToken,
+    severity,
+  });
+
+  return json(200, {
+    ok: true,
+    domain,
+    windowMs: Date.now() - sinceMs,
+    items: items.map(pickEventFields),
+    nextToken: outNext,
+  });
+}
+
+async function handleRankings(event) {
+  const qs = event.queryStringParameters || {};
+  const domain = (qs.domain || "").trim();
+  if (!domain) return json(400, { ok: false, reason: "MISSING_domain" });
+  if (!isAllowedDomain(domain)) return json(403, { ok: false, reason: "DOMAIN_NOT_ALLOWED" });
+
+  const sinceMs = toSinceMs(qs);
+  const by = (qs.by || "ruleId").trim(); // ruleId | type | page_host | page_hash
+  const limit = clampInt(qs.limit, 20, 1, 100);
+  const severity = qs.severity ? String(qs.severity).toUpperCase() : undefined;
+
+  // 랭킹은 window 전체가 필요하니, 페이지네이션으로 일정량까지 모음 (MVP cap)
+  const MAX_EVENTS_TO_PROCESS = 10000;
+  let nextToken = qs.nextToken ? String(qs.nextToken) : undefined;
+
+  const all = [];
+  while (all.length < MAX_EVENTS_TO_PROCESS) {
+    const { items, nextToken: nt } = await queryDomainEvents({
+      domain,
+      sinceMs,
+      limit: Math.min(500, MAX_EVENTS_TO_PROCESS - all.length),
+      nextToken,
+      severity,
+    });
+    all.push(...items);
+    nextToken = nt || undefined;
+    if (!nextToken) break;
+  }
+
+  const keyOf = (it) => {
+    if (by === "type") return it.type;
+    if (by === "page_host") return it.page_host;
+    if (by === "page_hash") return it.page_hash;
+    return it.ruleId; // default
+  };
+
+  const agg = new Map(); // key -> stats
+  for (const it of all) {
+    const k = keyOf(it);
+    if (!k) continue;
+    const cur = agg.get(k) || {
+      key: k,
+      count: 0,
+      uniqueSessionsSet: new Set(),
+      severityBreakdown: { HIGH: 0, MEDIUM: 0, LOW: 0 },
+      score: 0,
+    };
+    cur.count += 1;
+    cur.uniqueSessionsSet.add(it.session_id);
+    if (cur.severityBreakdown[it.severity] !== undefined) cur.severityBreakdown[it.severity] += 1;
+
+    // 기본 weighted score (경량)
+    cur.score += severityWeight(it.severity);
+
+    agg.set(k, cur);
+  }
+
+  // 반복 탐지 기반 보정(아주 경량): count가 많을수록 log 보정
+  const items = Array.from(agg.values()).map((x) => {
+    const uniqueSessions = x.uniqueSessionsSet.size;
+    const repeatBoost = Math.log1p(x.count) * 10; // k=10 (임시)
+    const sessionBoost = Math.log1p(uniqueSessions) * 5;
+    const score = Math.round(x.score + repeatBoost + sessionBoost);
+
+    return {
+      key: x.key,
+      count: x.count,
+      uniqueSessions,
+      severityBreakdown: x.severityBreakdown,
+      score,
+    };
+  });
+
+  items.sort((a, b) => b.score - a.score);
+
+  return json(200, {
+    ok: true,
+    domain,
+    windowMs: Date.now() - sinceMs,
+    by,
+    isPartial: nextToken ? true : false,
+    items: items.slice(0, limit),
+  });
+}
+
+async function handleTrends(event) {
+  const qs = event.queryStringParameters || {};
+  const domain = (qs.domain || "").trim();
+  if (!domain) return json(400, { ok: false, reason: "MISSING_domain" });
+  if (!isAllowedDomain(domain)) return json(403, { ok: false, reason: "DOMAIN_NOT_ALLOWED" });
+
+  const sinceMs = toSinceMs(qs);
+  const bucket = (qs.bucket || "1h").trim(); // 5m | 15m | 1h
+  const severity = qs.severity ? String(qs.severity).toUpperCase() : undefined;
+
+  const bucketMs =
+    bucket === "5m" ? 5 * 60 * 1000 :
+    bucket === "15m" ? 15 * 60 * 1000 :
+    60 * 60 * 1000; // default 1h
+
+  // window 전체 데이터 필요 (MVP cap)
+  const MAX_EVENTS_TO_PROCESS = 10000;
+  let nextToken = qs.nextToken ? String(qs.nextToken) : undefined;
+
+  const all = [];
+  while (all.length < MAX_EVENTS_TO_PROCESS) {
+    const { items, nextToken: nt } = await queryDomainEvents({
+      domain,
+      sinceMs,
+      limit: Math.min(500, MAX_EVENTS_TO_PROCESS - all.length),
+      nextToken,
+      severity,
+    });
+    all.push(...items);
+    nextToken = nt || undefined;
+    if (!nextToken) break;
+  }
+
+  const bucketStart = (ts) => Math.floor(ts / bucketMs) * bucketMs;
+
+  const seriesMap = new Map(); // bucketTs -> stats
+  for (const it of all) {
+    const t = bucketStart(it.ts);
+    const cur = seriesMap.get(t) || { t, count: 0, score: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+    cur.count += 1;
+    cur.score += severityWeight(it.severity);
+    if (cur[it.severity] !== undefined) cur[it.severity] += 1;
+    seriesMap.set(t, cur);
+  }
+
+  const series = Array.from(seriesMap.values()).sort((a, b) => a.t - b.t);
+
+  return json(200, {
+    ok: true,
+    domain,
+    windowMs: Date.now() - sinceMs,
+    bucketMs,
+    isPartial: nextToken ? true : false,
+    series,
+  });
+}
+
+export const handler = async (event) => {
+  try {
+    const method = getMethod(event);
+
+    if (method === "OPTIONS") {
+      return { statusCode: 204, headers: CORS_HEADERS, body: "" };
+    }
+    if (method !== "GET") {
+      return json(405, { ok: false, reason: "METHOD_NOT_ALLOWED" });
+    }
+
+    if (!TABLE_NAME) {
+      return json(500, { ok: false, reason: "MISSING_TABLE_NAME" });
+    }
+
+    const path = getPath(event);
+    // stage prefix가 붙어도 동작하도록 endsWith 사용
+    if (path.endsWith("/events")) return await handleEvents(event);
+    if (path.endsWith("/rankings")) return await handleRankings(event);
+    if (path.endsWith("/trends")) return await handleTrends(event);
+
+    return json(404, { ok: false, reason: "NOT_FOUND" });
+  } catch (err) {
+    console.error("query handler error:", err);
+    return json(500, { ok: false, reason: "INTERNAL_ERROR" });
+  }
+};
