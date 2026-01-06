@@ -8,8 +8,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const contentDiv = document.getElementById('content');
 
   // 1. 스토리지에서 모든 로그 가져오기
-  chrome.storage.local.get({ threatLogs: [] }, (result) => {
-    const logs = result.threatLogs;
+  chrome.storage.local.get({ brs_threat_logs: [], tabSessions: {} }, (result) => {
+    const logs = result.brs_threat_logs;
+    const sessions = result.tabSessions;
 
     if (logs.length === 0) {
       contentDiv.innerHTML = '<div id="error-msg">저장된 위협 로그가 없습니다.</div>';
