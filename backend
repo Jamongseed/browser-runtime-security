@@ -1,0 +1,368 @@
+// index.mjs (Node.js 24 / ESM)
+
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { randomUUID, createHash } from "node:crypto";
+
+const ddb = DynamoDBDocumentClient.from(
+  new DynamoDBClient({ region: process.env.AWS_REGION }),
+  { marshallOptions: { removeUndefinedValues: true } }
+);
+
+const TABLE_NAME = process.env.TABLE_NAME; // e.g. BRS_Events
+
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "OPTIONS,POST",
+  "Access-Control-Allow-Headers":
+    "Content-Type, X-Amz-Date, Authorization, X-Api-Key, X-Amz-Security-Token",
+};
+
+function json(statusCode, obj) {
+  return {
+    statusCode,
+    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+    body: JSON.stringify(obj),
+  };
+}
+
+// API Gateway REST(v1)
+function getMethod(event) {
+  return (event?.httpMethod || "").toUpperCase();
+}
+
+// YYYY-MM-DD (UTC)
+function toDateBucket(tsMs) {
+  const d = new Date(Number(tsMs));
+  if (Number.isNaN(d.getTime())) return null;
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+// origin URL에서 hostname 뽑기
+function toTopDomain(origin) {
+  try {
+    const u = new URL(origin);
+    return u.hostname || null;
+  } catch {
+    return null;
+  }
+}
+
+function isNonEmptyString(v) {
+  return typeof v === "string" && v.trim().length > 0;
+}
+
+function validateSeverity(sev) {
+  return sev === "HIGH" || sev === "MEDIUM" || sev === "LOW";
+}
+
+/**
+ * =========================
+ * sanitizeThreat (allowlist)
+ * - unknown 필드: drop/reject
+ * - 길이/형식/범위 제한
+ * - origin: URL.origin 으로 normalize
+ * - page: 전체 URL만 허용, query/fragment 버리고 host + hash 저장
+ * =========================
+ */
+
+// ---- limits / allowlist ----
+const MAX_TYPE_LEN = 32;
+const MAX_RULEID_LEN = 64;
+const MAX_ID_LEN = 64; // installId/sessionId/eventId
+const MAX_ORIGIN_LEN = 128; // URL.origin 수준
+const MAX_PAGE_URL_LEN = 1024;
+
+const ALLOWED_SEVERITY = new Set(["HIGH", "MEDIUM", "LOW"]);
+const ALLOWED_KEYS = new Set([
+  "schema_version", // optional (number)
+  "eventId",        // optional (string)
+  "ts",             // required (number)
+  "type",           // required (string)
+  "ruleId",         // required (string)
+  "severity",       // required (string enum)
+  "origin",         // required (string URL-ish)
+  "page",           // required (string: full URL)
+  //"installId",    // required (string)
+  "sessionId",      // required (string)
+]);
+
+function isPlainObject(v) {
+  return v !== null && typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype;
+}
+
+function clampString(v, maxLen) {
+  if (typeof v !== "string") return null;
+  const s = v.trim();
+  if (!s) return null;
+  return s.length > maxLen ? s.slice(0, maxLen) : s;
+}
+
+function isSafeId(s) {
+  return /^[A-Za-z0-9._:-]+$/.test(s);
+}
+
+function sha256Base64Url(input) {
+  const b64 = createHash("sha256").update(input).digest("base64");
+  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function normalizeOrigin(origin) {
+  if (typeof origin !== "string") return null;
+  const s = origin.trim();
+  if (!s || s.length > MAX_ORIGIN_LEN * 4) return null; // 파싱 비용 방지
+  try {
+    const u = new URL(s);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    const o = u.origin; // scheme+host(+port)
+    if (o.length > MAX_ORIGIN_LEN) return null;
+    return o;
+  } catch {
+    return null;
+  }
+}
+
+function parsePageToSafeParts(pageUrl) {
+  if (typeof pageUrl !== "string") return null;
+  const s = pageUrl.trim();
+  if (!s || s.length > MAX_PAGE_URL_LEN) return null;
+  if (s.includes("\n") || s.includes("\r")) return null;
+
+  let u;
+  try {
+    // 정책: page는 전체 URL만 허용
+    u = new URL(s);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+
+  const host = u.hostname || null;
+  if (!host) return null;
+
+  // query/fragment 저장하지 않음
+  const path = u.pathname || "/";
+
+  // host는 별도 저장, path는 해시로 저장
+  const page_hash = `sha256:${sha256Base64Url(path)}`;
+
+  return { page_host: host, page_hash };
+}
+
+/**
+ * 반환: { ok: true, value } | { ok: false, reason, details? }
+ */
+export function sanitizeThreat(threat, opts = {}) {
+  const {
+    unknownFieldPolicy = "drop", // "drop" | "reject"
+    requireAll = true,
+    // 권장: 미래/과거를 분리해서 운영
+    tsMaxFutureSkewMs = 10 * 60 * 1000,            // +10분
+    tsMaxPastSkewMs = 7 * 24 * 60 * 60 * 1000,     // -7일
+  } = opts;
+
+  if (!isPlainObject(threat)) {
+    return { ok: false, reason: "INVALID_OBJECT" };
+  }
+
+  // unknown field 정책
+  if (unknownFieldPolicy === "reject") {
+    for (const k of Object.keys(threat)) {
+      if (!ALLOWED_KEYS.has(k)) {
+        return { ok: false, reason: "UNSUPPORTED_FIELD", details: { field: k } };
+      }
+    }
+  }
+
+  const required = ["type", "ruleId", "ts", "severity", "origin", "page", "sessionId"];//"installId"제외
+  if (requireAll) {
+    for (const k of required) {
+      if (threat[k] === undefined || threat[k] === null || threat[k] === "") {
+        return { ok: false, reason: "MISSING_FIELD", details: { field: k } };
+      }
+    }
+  }
+
+  const type = clampString(threat.type, MAX_TYPE_LEN);
+  if (!type) return { ok: false, reason: "INVALID_type" };
+
+  const ruleId = clampString(threat.ruleId, MAX_RULEID_LEN);
+  if (!ruleId) return { ok: false, reason: "INVALID_ruleId" };
+
+  const severity = clampString(threat.severity, 16);
+  if (!severity || !ALLOWED_SEVERITY.has(severity)) {
+    return { ok: false, reason: "INVALID_severity" };
+  }
+
+  const ts = Number(threat.ts);
+  if (!Number.isFinite(ts) || ts <= 0) {
+    return { ok: false, reason: "INVALID_ts" };
+  }
+
+  // ts 범위 체크 (파싱 후!)
+  const now = Date.now();
+  if (ts - now > tsMaxFutureSkewMs) {
+    return { ok: false, reason: "TS_TOO_FUTURE" };
+  }
+  if (now - ts > tsMaxPastSkewMs) {
+    return { ok: false, reason: "TS_TOO_OLD" };
+  }
+
+  //const installId = clampString(threat.installId, MAX_ID_LEN);
+  //if (!installId || !isSafeId(installId)) {
+  //  return { ok: false, reason: "INVALID_installId" };
+  //}
+
+  const sessionId = clampString(threat.sessionId, MAX_ID_LEN);
+  if (!sessionId || !isSafeId(sessionId)) {
+    return { ok: false, reason: "INVALID_sessionId" };
+  }
+
+  let eventId = null;
+  if (threat.eventId !== undefined && threat.eventId !== null && threat.eventId !== "") {
+    eventId = clampString(String(threat.eventId), MAX_ID_LEN);
+    if (!eventId || !isSafeId(eventId)) {
+      return { ok: false, reason: "INVALID_eventId" };
+    }
+  }
+
+  let schema_version = undefined;
+  if (threat.schema_version !== undefined && threat.schema_version !== null && threat.schema_version !== "") {
+    const v = Number(threat.schema_version);
+    if (!Number.isInteger(v) || v < 1 || v > 100) {
+      return { ok: false, reason: "INVALID_schema_version" };
+    }
+    schema_version = v;
+  }
+
+  const origin = normalizeOrigin(threat.origin);
+  if (!origin) return { ok: false, reason: "INVALID_origin" };
+
+  const pageParts = parsePageToSafeParts(threat.page);
+  if (!pageParts) return { ok: false, reason: "INVALID_page" };
+
+  const value = {
+    ...(schema_version !== undefined ? { schema_version } : {}),
+    ...(eventId ? { eventId } : {}),
+    ts,
+    type,
+    ruleId,
+    severity,
+    origin,
+    page_host: pageParts.page_host,
+    page_hash: pageParts.page_hash,
+    //installId,
+    sessionId,
+  };
+
+  return { ok: true, value };
+}
+
+
+/**
+ * =========================
+ * Lambda handler
+ * =========================
+ */
+export const handler = async (event) => {
+  try {
+    const method = getMethod(event);
+
+    if (method === "OPTIONS") {
+      return { statusCode: 204, headers: CORS_HEADERS, body: "" };
+    }
+    if (method !== "POST") {
+      return json(405, { ok: false, reason: "METHOD_NOT_ALLOWED" });
+    }
+
+    // Body string + (권장) base64 처리
+    const rawBody = event.body ?? "";
+    const bodyStr =
+      event.isBase64Encoded ? Buffer.from(rawBody, "base64").toString("utf8") : rawBody;
+
+    // (권장) 파싱 전 크기 제한 (예: 16KB)
+    if (typeof bodyStr === "string" && bodyStr.length > 16 * 1024) {
+      return json(413, { ok: false, reason: "PAYLOAD_TOO_LARGE" });
+    }
+
+    // JSON parse
+    let threat;
+    try {
+      threat = typeof bodyStr === "string" ? JSON.parse(bodyStr) : bodyStr;
+    } catch {
+      return json(400, { ok: false, reason: "INVALID_JSON" });
+    }
+
+    const sanitized = sanitizeThreat(threat, {
+      unknownFieldPolicy: "drop",
+      requireAll: true,
+      // 필요하면 조정
+      // tsMaxSkewMs: 10 * 60 * 1000
+    });
+    if (!sanitized.ok) {
+      return json(400, { ok: false, reason: sanitized.reason, details: sanitized.details });
+    }
+
+    const v = sanitized.value;
+
+    // 정제된 값으로 파생값 계산
+    const date = toDateBucket(v.ts);
+    if (!date) return json(400, { ok: false, reason: "INVALID_DATE_BUCKET" });
+
+    const top_domain = toTopDomain(v.origin);
+    if (!top_domain) return json(400, { ok: false, reason: "INVALID_ORIGIN" });
+
+    const event_id = v.eventId || randomUUID();
+    const ts_event_id = `${v.ts}#${event_id}`;
+
+    const date_bucket = `DATE#${date}`;
+    const severity_bucket = `SEV#${v.severity}#${date}`;
+
+    const item = {
+      // Base Table (PK/SK)
+      date_bucket,
+      "ts#event_id": ts_event_id,
+
+      // GSIs
+      top_domain,
+      severity_bucket,
+      //install_id: v.installId,
+      session_id: v.sessionId,
+
+      // 공통 필드
+      ts: v.ts,
+      event_id,
+      severity: v.severity,
+      type: v.type,
+      ruleId: v.ruleId,
+      origin: v.origin,
+
+      page_host: v.page_host,
+      page_hash: v.page_hash,
+
+      payload: v,
+    };
+
+    await ddb.send(
+      new PutCommand({
+        TableName: TABLE_NAME,
+        Item: item,
+        ConditionExpression: "attribute_not_exists(#sk)",
+        ExpressionAttributeNames: { "#sk": "ts#event_id" },
+      })
+    );
+
+    return json(200, { ok: true, event_id });
+  } catch (err) {
+    console.error("handler error:", err);
+
+    if (err?.name === "ConditionalCheckFailedException") {
+      return json(409, { ok: true, reason: "DUPLICATE", event_id: null });
+    }
+
+    return json(500, { ok: false, reason: "INTERNAL_ERROR" });
+  }
+};
