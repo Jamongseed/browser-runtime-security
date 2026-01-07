@@ -25,6 +25,16 @@
     }
   };
 
+  // (공용) URL/Origin 유틸 (network + dom-provenance 공용)
+  const toAbsUrl = (raw) => {
+    if (!raw) return "";
+    try { return new URL(String(raw), location.href).href; } catch { return String(raw); }
+  };
+  const getOrigin = (url) => {
+    try { return new URL(url).origin; } catch { return ""; }
+  };
+  const isCrossSite = (targetOrigin) => targetOrigin && targetOrigin !== location.origin;
+
   try {
     const _eval = window.eval;
     window.eval = function (code) {
@@ -78,15 +88,6 @@
   // (추가) Network 후킹: sendBeacon / fetch 로 외부 유출(collect) 시그널을 런타임에서 포착
   //  - content.js에서 SUSP_NETWORK_CALL을 NETWORK_LEAK으로 매핑해 collector에 찍히게 된다
   try {
-    const toAbsUrl = (raw) => {
-      if (!raw) return "";
-      try { return new URL(String(raw), location.href).href; } catch { return String(raw); }
-    };
-    const getOrigin = (url) => {
-      try { return new URL(url).origin; } catch { return ""; }
-    };
-    const isCrossSite = (targetOrigin) => targetOrigin && targetOrigin !== location.origin;
-
     // (1) navigator.sendBeacon
     if (navigator && typeof navigator.sendBeacon === "function" && !navigator.sendBeacon.__BRS_PATCHED__) {
       const _sendBeacon = navigator.sendBeacon.bind(navigator);
@@ -155,6 +156,122 @@
     }
   } catch (e) {
     send("HOOK_ERROR", { where: "network", msg: String(e?.message || e) });
+  }
+
+  // (추가) DOM 삽입 provenance(initiator/stack) 후킹:
+  //  - dom_mutation.js(MutationObserver)는 "무언가 삽입됨"만 잡기 쉬움
+  //  - 여기서는 "누가 삽입했는지(initiator/stack)"를 SCRIPT/IFRAME의 src 설정 시점에만 data-*로 부착
+  //  - Node.prototype 후킹은 무거울 수 있어 제외(경량화)
+  try {
+    const isInternalNode = (el) => {
+      try {
+        if (!el || !(el instanceof HTMLElement)) return false;
+        if (el.getAttribute && el.getAttribute("data-brs-internal") === "1") return true;
+        const src = (el.getAttribute && el.getAttribute("src")) || "";
+        if (src.startsWith("chrome-extension://") || src.startsWith("moz-extension://")) return true;
+        return false;
+      } catch (_) {
+        return false;
+      }
+    };
+
+    // (경량) stack에서 "첫 유효 프레임 1줄"만 추출
+    const captureInitiator1 = () => {
+      try {
+        const stack = String(new Error().stack || "");
+        const lines = stack.split("\n").map(s => s.trim()).filter(Boolean);
+
+        const line = lines.find(l =>
+          l.includes("at ") &&
+          !l.includes("captureInitiator1") &&
+          !l.includes("annotateSrc") &&
+          !l.includes("page_hook.js") &&
+          !l.includes("chrome-extension://") &&
+          !l.includes("moz-extension://")
+        ) || "";
+
+        let initiatorUrl = "";
+        const m = line.match(/\((https?:\/\/[^\s\)]+)\)/) || line.match(/(https?:\/\/[^\s\)]+)/);
+        if (m && m[1]) initiatorUrl = m[1];
+
+        const initiatorOrigin = initiatorUrl ? getOrigin(initiatorUrl) : "";
+        const initiatorCrossSite = initiatorOrigin ? isCrossSite(initiatorOrigin) : false;
+
+        return { line: (line || "").slice(0, 220), initiatorUrl, initiatorOrigin, initiatorCrossSite };
+      } catch (_) {
+        return { line: "", initiatorUrl: "", initiatorOrigin: "", initiatorCrossSite: false };
+      }
+    };
+
+    const annotateSrc = (el, phase, rawSrc) => {
+      try {
+        if (!el || !(el instanceof HTMLElement)) return;
+        if (isInternalNode(el)) return;
+
+        const tag = String(el.tagName || "");
+        if (tag !== "SCRIPT" && tag !== "IFRAME") return;
+
+        // (중복 방지) 같은 src에 대해 여러 번 찍지 않음
+        const abs = toAbsUrl(rawSrc || (el.getAttribute && el.getAttribute("src")) || "");
+        if (!abs) return;
+
+        const prevAbs = el.getAttribute("data-brs-init-abs") || "";
+        if (prevAbs && prevAbs === abs) return;
+
+        const ev = captureInitiator1();
+        const targetOrigin = getOrigin(abs);
+
+        el.setAttribute("data-brs-init-phase", String(phase || ""));
+        el.setAttribute("data-brs-init-abs", abs);
+        el.setAttribute("data-brs-init-origin", ev.initiatorOrigin || "");
+        el.setAttribute("data-brs-init-cross", ev.initiatorCrossSite ? "1" : "0");
+        if (ev.initiatorUrl) el.setAttribute("data-brs-init-url", ev.initiatorUrl);
+        if (ev.line) el.setAttribute("data-brs-init-stack", ev.line);
+
+        if (targetOrigin) el.setAttribute("data-brs-target-origin", targetOrigin);
+        el.setAttribute("data-brs-target-cross", (targetOrigin && isCrossSite(targetOrigin)) ? "1" : "0");
+      } catch (_) {}
+    };
+
+    // (1) setAttribute("src", ...)
+    const EP = Element.prototype;
+    if (typeof EP.setAttribute === "function" && !EP.setAttribute.__BRS_PATCHED_SRC_PROVENANCE__) {
+      const _setAttribute = EP.setAttribute;
+
+      EP.setAttribute = function (name, value) {
+        try {
+          const k = String(name || "").toLowerCase();
+          if (k === "src") annotateSrc(this, "setAttribute:src", value);
+        } catch (_) {}
+        return _setAttribute.apply(this, arguments);
+      };
+
+      EP.setAttribute.__BRS_PATCHED_SRC_PROVENANCE__ = true;
+    }
+
+    // (2) property setter: script.src / iframe.src (가능하면)
+    try {
+      const patchSrcSetter = (Proto, label) => {
+        if (!Proto) return;
+        const desc = Object.getOwnPropertyDescriptor(Proto, "src");
+        if (!desc || typeof desc.set !== "function" || desc.set.__BRS_PATCHED_SRC_PROVENANCE__) return;
+
+        const _set = desc.set;
+        const patchedSet = function (v) {
+          try { annotateSrc(this, `${label}:src`, v); } catch (_) {}
+          return _set.call(this, v);
+        };
+        patchedSet.__BRS_PATCHED_SRC_PROVENANCE__ = true;
+
+        Object.defineProperty(Proto, "src", { ...desc, set: patchedSet });
+      };
+
+      patchSrcSetter(HTMLScriptElement && HTMLScriptElement.prototype, "HTMLScriptElement");
+      patchSrcSetter(HTMLIFrameElement && HTMLIFrameElement.prototype, "HTMLIFrameElement");
+    } catch (_) {}
+
+  } catch (e) {
+    send("HOOK_ERROR", { where: "dom-provenance", msg: String(e?.message || e) });
   }
 
   // (추가) form.submit / form.requestSubmit 후킹: form.submit()은 submit 이벤트를 발생시키지 않아 content-script form detector가 놓치는 케이스 보완
