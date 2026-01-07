@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>PoC-E: Script injection</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main class="card">
+    <h1>PoC-E: Script Injection</h1>
+    <p class="desc">
+      우측하단 광고 위젯의 <b>닫기</b>를 누르면(서드파티 SDK가 위젯 DOM을 제거),
+      메인 페이지가 <code>MutationObserver</code>로 이를 감지하고
+      <code>http://localhost:4000/injected.js</code>를 동적으로 삽입합니다.<br/>
+      삽입된 스크립트는 화면 배지를 띄우고 <code>ws://localhost:5000</code>로 무해한 텔레메트리를 전송합니다.
+    </p>
+
+    <div class="status" id="status">Ready. (waiting for ad close)</div>
+
+    <details class="hint">
+      <summary>PoC 체인</summary>
+      <ol>
+        <li>Third-party SDK(:4000)가 광고 위젯을 삽입</li>
+        <li>사용자: 닫기 클릭</li>
+        <li>Main(:3000): MutationObserver로 위젯 DOM 제거 감지</li>
+        <li>Main(:3000): injected.js를 동적 삽입</li>
+        <li>Injected(:4000): 배지 표시 + collector(:5000)로 heartbeat 전송</li>
+      </ol>
+    </details>
+  </main>
+
+  <script src="/gate.js"></script>
+  <script src="http://localhost:4000/sdk.js"></script>
+</body>
+</html>

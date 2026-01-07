@@ -1,0 +1,19 @@
+{
+  "name": "poc-e-script-injection",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "main": "node server-main.js",
+    "thirdparty": "node server-thirdparty.js",
+    "collect": "node server-collect-ws.js",
+    "start": "concurrently -k \"npm run collect\" \"npm run thirdparty\" \"npm run main\""
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
