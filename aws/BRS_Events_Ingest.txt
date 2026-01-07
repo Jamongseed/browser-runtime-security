@@ -269,6 +269,10 @@ export function sanitizeThreat(threat, opts = {}) {
  */
 export const handler = async (event) => {
   try {
+    if (!TABLE_NAME) {
+      return json(500, { ok: false, reason: "MISSING_TABLE_NAME" });
+    }
+    
     const method = getMethod(event);
 
     if (method === "OPTIONS") {

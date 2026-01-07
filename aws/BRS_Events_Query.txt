@@ -62,6 +62,28 @@ function isAllowedDomain(domain) {
   return ALLOWED_DOMAINS.has(domain.toLowerCase());
 }
 
+function normalizeDomain(s) {
+  return String(s || "").trim().toLowerCase();
+}
+
+function isValidDomainFormat(domain) {
+  // 매우 빡센 검증 대신 "안전한 최소"만: 길이 + 허용 문자 + 연속 점 금지
+  if (!domain) return false;
+  if (domain.length > 253) return false;
+  // a-z0-9.- 만 허용 (서브도메인/하이픈/점)
+  if (!/^[a-z0-9.-]+$/.test(domain)) return false;
+  if (domain.includes("..")) return false;
+  if (domain.startsWith(".") || domain.endsWith(".")) return false;
+  return true;
+}
+
+function normalizeSeverity(raw) {
+  if (!raw) return undefined;
+  const s = String(raw).trim().toUpperCase();
+  if (s === "HIGH" || s === "MEDIUM" || s === "LOW") return s;
+  return "__INVALID__";
+}
+
 function clampInt(v, def, min, max) {
   const n = Number(v);
   if (!Number.isFinite(n)) return def;
@@ -75,26 +97,50 @@ function toSinceMs(qs) {
   // sinceMs가 없으면 now-24h. 있으면 max 24h까지 클램프.
   const now = Date.now();
   const raw = qs?.sinceMs;
-  if (raw === undefined || raw === null || raw === "") return now - DEFAULT_WINDOW_MS;
-
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) return now - DEFAULT_WINDOW_MS;
 
+  // 미래면 now로 자름
+  const safe = Math.min(n, now);
+
+  // 과거면 24h 이전까지만 허용
   const minSince = now - MAX_WINDOW_MS;
-  // 더 과거면 24h로 클램프
-  return n < minSince ? minSince : n;
+  return safe < minSince ? minSince : safe;
 }
 
-function decodeNextToken(token) {
-  if (!token) return undefined;
+function isPlainObject(v) {
+  return v !== null && typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype;
+}
+
+// GSI(top_domain, ts#event_id) 기준 검증
+function decodeNextTokenStrict(token) {
+  if (!token) return { ok: true, key: undefined };
+
+  let obj;
   try {
     const jsonStr = Buffer.from(token, "base64url").toString("utf8");
-    const obj = JSON.parse(jsonStr);
-    return obj && typeof obj === "object" ? obj : undefined;
+    obj = JSON.parse(jsonStr);
   } catch {
-    return undefined;
+    return { ok: false, reason: "INVALID_nextToken" };
   }
+
+  if (!isPlainObject(obj)) return { ok: false, reason: "INVALID_nextToken" };
+
+  const d = obj.top_domain;
+  const sk = obj["ts#event_id"];
+
+  if (typeof d !== "string" || d.length === 0) return { ok: false, reason: "INVALID_nextToken" };
+  if (typeof sk !== "string" || sk.length === 0) return { ok: false, reason: "INVALID_nextToken" };
+
+  // (선택) 길이 가드
+  if (d.length > 255 || sk.length > 200) {
+    return { ok: false, reason: "INVALID_nextToken" };
+  }
+
+  return { ok: true, key: obj };
 }
+
+
 
 function encodeNextToken(lastEvaluatedKey) {
   if (!lastEvaluatedKey) return null;
@@ -127,9 +173,17 @@ function severityWeight(sev) {
  * Query domain events since sinceMs (max 24h window), optionally filtered by severity
  */
 async function queryDomainEvents({ domain, sinceMs, limit, nextToken, severity }) {
-  const sinceKey = `${sinceMs}#`; // ts#event_id >= "<sinceMs>#"
+  const decoded = decodeNextTokenStrict(nextToken);
+  if (!decoded.ok) {
+    return { ok: false, reason: decoded.reason };
+  }
 
-  const ExclusiveStartKey = decodeNextToken(nextToken);
+  // nextToken이 특정 도메인 파티션에 묶여있도록 강제 (token 재사용/오용 방지)
+  if (decoded.key && decoded.key.top_domain !== domain) {
+    return { ok: false, reason: "INVALID_nextToken" };
+  }
+
+  const sinceKey = `${sinceMs}#`;
 
   const params = {
     TableName: TABLE_NAME,
@@ -144,11 +198,10 @@ async function queryDomainEvents({ domain, sinceMs, limit, nextToken, severity }
       ":since": sinceKey,
     },
     Limit: limit,
-    ScanIndexForward: false, // 최신부터
-    ExclusiveStartKey,
+    ScanIndexForward: false,
+    ExclusiveStartKey: decoded.key,
   };
 
-  // 간단 필터(원하면 GSI로 최적화 가능)
   if (severity) {
     params.FilterExpression = "#sev = :sev";
     params.ExpressionAttributeNames["#sev"] = "severity";
@@ -156,8 +209,10 @@ async function queryDomainEvents({ domain, sinceMs, limit, nextToken, severity }
   }
 
   const res = await ddb.send(new QueryCommand(params));
+
   return {
-    items: (res.Items || []),
+    ok: true,
+    items: res.Items || [],
     nextToken: encodeNextToken(res.LastEvaluatedKey),
   };
 }
@@ -165,59 +220,73 @@ async function queryDomainEvents({ domain, sinceMs, limit, nextToken, severity }
 // ---------- Handlers ----------
 async function handleEvents(event) {
   const qs = event.queryStringParameters || {};
-  const domain = (qs.domain || "").trim();
+  const domain = normalizeDomain(qs.domain);
 
   if (!domain) return json(400, { ok: false, reason: "MISSING_domain" });
+  if (!isValidDomainFormat(domain)) return json(400, { ok: false, reason: "INVALID_domain" });
   if (!isAllowedDomain(domain)) return json(403, { ok: false, reason: "DOMAIN_NOT_ALLOWED" });
 
   const sinceMs = toSinceMs(qs);
   const limit = clampInt(qs.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
-  const severity = qs.severity ? String(qs.severity).toUpperCase() : undefined;
+  const severity = normalizeSeverity(qs.severity);
+  if (severity === "__INVALID__") return json(400, { ok: false, reason: "INVALID_severity" });
   const nextToken = qs.nextToken ? String(qs.nextToken) : undefined;
 
-  const { items, nextToken: outNext } = await queryDomainEvents({
+  const result = await queryDomainEvents({
     domain,
     sinceMs,
     limit,
     nextToken,
-    severity,
+    severity: severity || undefined,
   });
+
+  if (!result.ok) {
+    return json(400, { ok: false, reason: result.reason });
+  }
 
   return json(200, {
     ok: true,
     domain,
     windowMs: Date.now() - sinceMs,
-    items: items.map(pickEventFields),
-    nextToken: outNext,
+    items: result.items.map(pickEventFields),
+    nextToken: result.nextToken,
   });
 }
 
 async function handleRankings(event) {
   const qs = event.queryStringParameters || {};
-  const domain = (qs.domain || "").trim();
+  const domain = normalizeDomain(qs.domain);
   if (!domain) return json(400, { ok: false, reason: "MISSING_domain" });
+  if (!isValidDomainFormat(domain)) return json(400, { ok: false, reason: "INVALID_domain" });
   if (!isAllowedDomain(domain)) return json(403, { ok: false, reason: "DOMAIN_NOT_ALLOWED" });
-
+  
   const sinceMs = toSinceMs(qs);
   const by = (qs.by || "ruleId").trim(); // ruleId | type | page_host | page_hash
   const limit = clampInt(qs.limit, 20, 1, 100);
-  const severity = qs.severity ? String(qs.severity).toUpperCase() : undefined;
-
+  const severity = normalizeSeverity(qs.severity);
+  if (severity === "__INVALID__") return json(400, { ok: false, reason: "INVALID_severity" });
+ 
   // 랭킹은 window 전체가 필요하니, 페이지네이션으로 일정량까지 모음 (MVP cap)
   const MAX_EVENTS_TO_PROCESS = 10000;
   let nextToken = qs.nextToken ? String(qs.nextToken) : undefined;
 
   const all = [];
   while (all.length < MAX_EVENTS_TO_PROCESS) {
-    const { items, nextToken: nt } = await queryDomainEvents({
+    const result = await queryDomainEvents({
       domain,
       sinceMs,
       limit: Math.min(500, MAX_EVENTS_TO_PROCESS - all.length),
       nextToken,
-      severity,
+      severity: severity || undefined,
     });
-    all.push(...items);
-    nextToken = nt || undefined;
+
+    if (!result.ok) {
+      return json(400, { ok: false, reason: result.reason });
+    }
+
+    all.push(...result.items);
+    nextToken = result.nextToken || undefined;
+
     if (!nextToken) break;
   }
 
@@ -249,7 +318,6 @@ async function handleRankings(event) {
     agg.set(k, cur);
   }
 
-  // 반복 탐지 기반 보정(아주 경량): count가 많을수록 log 보정
   const items = Array.from(agg.values()).map((x) => {
     const uniqueSessions = x.uniqueSessionsSet.size;
     const repeatBoost = Math.log1p(x.count) * 10; // k=10 (임시)
@@ -273,19 +341,22 @@ async function handleRankings(event) {
     windowMs: Date.now() - sinceMs,
     by,
     isPartial: nextToken ? true : false,
+    nextToken: nextToken || null,
     items: items.slice(0, limit),
   });
 }
 
 async function handleTrends(event) {
   const qs = event.queryStringParameters || {};
-  const domain = (qs.domain || "").trim();
+  const domain = normalizeDomain(qs.domain);
   if (!domain) return json(400, { ok: false, reason: "MISSING_domain" });
+  if (!isValidDomainFormat(domain)) return json(400, { ok: false, reason: "INVALID_domain" });
   if (!isAllowedDomain(domain)) return json(403, { ok: false, reason: "DOMAIN_NOT_ALLOWED" });
-
+ 
   const sinceMs = toSinceMs(qs);
   const bucket = (qs.bucket || "1h").trim(); // 5m | 15m | 1h
-  const severity = qs.severity ? String(qs.severity).toUpperCase() : undefined;
+  const severity = normalizeSeverity(qs.severity);
+  if (severity === "__INVALID__") return json(400, { ok: false, reason: "INVALID_severity" });
 
   const bucketMs =
     bucket === "5m" ? 5 * 60 * 1000 :
@@ -298,15 +369,21 @@ async function handleTrends(event) {
 
   const all = [];
   while (all.length < MAX_EVENTS_TO_PROCESS) {
-    const { items, nextToken: nt } = await queryDomainEvents({
+    const result = await queryDomainEvents({
       domain,
       sinceMs,
       limit: Math.min(500, MAX_EVENTS_TO_PROCESS - all.length),
       nextToken,
-      severity,
+      severity: severity || undefined,
     });
-    all.push(...items);
-    nextToken = nt || undefined;
+
+    if (!result.ok) {
+      return json(400, { ok: false, reason: result.reason });
+    }
+
+    all.push(...result.items);
+    nextToken = result.nextToken || undefined;
+
     if (!nextToken) break;
   }
 
@@ -330,6 +407,7 @@ async function handleTrends(event) {
     windowMs: Date.now() - sinceMs,
     bucketMs,
     isPartial: nextToken ? true : false,
+    nextToken: nextToken || null,
     series,
   });
 }
