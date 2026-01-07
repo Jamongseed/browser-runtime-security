@@ -5,13 +5,16 @@
   "description": "Real-time client-side threat detection and runtime behavior monitoring system.",
   "permissions": [
     "storage",   
-    "tabs" 
+    "tabs",
+    "notifications",
+    "alarms"
   ],
   "host_permissions": [
     "<all_urls>" 
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "action": {
     "default_popup": "popup.html",
