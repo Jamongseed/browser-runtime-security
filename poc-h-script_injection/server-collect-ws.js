@@ -29,8 +29,8 @@ wss.on("connection", (socket) => {  //connection이 발생하면 'socket'이라는 웹소�
         const key = msg?.key || "";
         console.log(`[collector] ${et} | SID: ${sid.slice(0, 8)} | Key: "${key}"`);
       }
-    } catch {
-      //일단 에러 무시......
+    } catch (e) {
+      console.log("[collector] bad message (${e.message}):", raw.toString("utf8").slice(0,120));
     }
   });
   //마찬가지로 닫힐때 콘솔 찍도록 콜백함수 예약

