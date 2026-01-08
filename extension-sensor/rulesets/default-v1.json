@@ -17,6 +17,58 @@
         "severity": "LOW"
       }
     },
+    {
+      "id": "DYN_SCRIPT_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT_CROSS_SITE",
+      "enabled": true,
+      "when": {
+        "type": "DYN_SCRIPT_INSERT",
+        "equals": { "initiatorCrossSite": true, "crossSite": true }
+      },
+      "action": {
+        "ruleId": "DYN_SCRIPT_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT",
+        "scoreDelta": 40,
+        "severity": "HIGH"
+      }
+    },
+    {
+      "id": "DYN_SCRIPT_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT_SAME_SITE",
+      "enabled": true,
+      "when": {
+        "type": "DYN_SCRIPT_INSERT",
+        "equals": { "initiatorCrossSite": true, "crossSite": false }
+      },
+      "action": {
+        "ruleId": "DYN_SCRIPT_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT",
+        "scoreDelta": 30,
+        "severity": "MEDIUM"
+      }
+    },
+    {
+      "id": "HIDDEN_IFRAME_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT",
+      "enabled": true,
+      "when": {
+        "type": "DYN_IFRAME_INSERT",
+        "equals": { "hidden": true, "initiatorCrossSite": true }
+      },
+      "action": {
+        "ruleId": "HIDDEN_IFRAME_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT",
+        "scoreDelta": 90,
+        "severity": "HIGH"
+      }
+    },
+    {
+      "id": "IFRAME_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT",
+      "enabled": true,
+      "when": {
+        "type": "DYN_IFRAME_INSERT",
+        "equals": { "hidden": false, "initiatorCrossSite": true }
+      },
+      "action": {
+        "ruleId": "IFRAME_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT",
+        "scoreDelta": 60,
+        "severity": "HIGH"
+      }
+    },
 
     {
       "id": "DYN_SCRIPT_INSERT_CROSS_SITE",

@@ -4,10 +4,14 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "thirdparty": "node thirdparty_server.js",
+    "dev": "concurrently -n poc,third -c auto \"node server.js\" \"node thirdparty_server.js\""
   },
   "dependencies": {
     "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
   }
 }
-

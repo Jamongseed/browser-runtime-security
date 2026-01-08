@@ -20,14 +20,14 @@ function sleep(ms) {
 
 function step2_insertExternalScript() {
   const s = document.createElement("script");
-  s.src = "https://example.com/analytics.js?ts=" + Date.now();
+  s.src = "http://localhost:4000/poc-a-thirdparty.js?ts=" + Date.now();
   s.async = true;
   document.head.appendChild(s);
 }
 
 function step3_insertHiddenIframe() {
   const f = document.createElement("iframe");
-  f.src = "https://example.com/frame?ts=" + Date.now();
+  f.src = "http://localhost:4000/frame?ts=" + Date.now();
   f.style.width = "1px";
   f.style.height = "1px";
   f.style.position = "absolute";
@@ -112,4 +112,3 @@ form?.addEventListener("submit", async (e) => {
     setDisabled(false);
   }
 });
-
