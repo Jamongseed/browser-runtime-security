@@ -1,0 +1,253 @@
+// index.mjs (AWS Lambda - Node.js 24)
+// deps: @aws-sdk/client-dynamodb @aws-sdk/lib-dynamodb
+import crypto from "crypto";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
+
+const TABLE = process.env.TABLE_NAME || "BRS_Events";
+const TTL_DAYS = Number(process.env.TTL_DAYS || 30);            
+const MAX_JSON_BYTES = Number(process.env.MAX_JSON_BYTES || 20000);
+
+const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || "*";
+const ALLOW_HEADERS = "content-type";
+const ALLOW_METHODS = "POST,OPTIONS";
+
+const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
+  marshallOptions: { removeUndefinedValues: true },
+});
+
+function corsHeaders(/* event */) {
+  return {
+    "content-type": "application/json",
+    "access-control-allow-origin": ALLOW_ORIGIN,
+    "access-control-allow-methods": ALLOW_METHODS,
+    "access-control-allow-headers": ALLOW_HEADERS,
+    // 캐시(프리플라이트 최적화)
+    "access-control-max-age": "600",
+  };
+}
+
+function resp(statusCode, bodyObj, extraHeaders) {
+  return {
+    statusCode,
+    headers: { ...corsHeaders(), ...(extraHeaders || {}) },
+    body: JSON.stringify(bodyObj),
+  };
+}
+
+// UTF-8 바이트 기준 JSON 크기 측정/컷
+function jsonByteLength(obj) {
+  try {
+    return Buffer.byteLength(JSON.stringify(obj ?? null), "utf8");
+  } catch {
+    return 0;
+  }
+}
+
+function safeStr(v, maxLen) {
+  const s = v == null ? "" : String(v);
+  return s.length > maxLen ? s.slice(0, maxLen) : s;
+}
+
+function isoDayFromTs(ts) {
+  let d = new Date(ts);
+
+  if (Number.isFinite(ts) && ts > 0 && ts < 1e12) d = new Date(ts * 1000);
+
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+
+  const yyyy = parts.find(p => p.type === "year")?.value ?? "0000";
+  const mm   = parts.find(p => p.type === "month")?.value ?? "00";
+  const dd   = parts.find(p => p.type === "day")?.value ?? "00";
+
+  return `${yyyy}-${mm}-${dd}`; // YYYY-MM-DD
+}
+
+
+function truncateJsonByBytes(obj, maxBytes) {
+  try {
+    const s = JSON.stringify(obj ?? null);
+    const bytes = Buffer.byteLength(s, "utf8");
+    if (bytes <= maxBytes) {
+      return { json: obj ?? null, truncated: false, bytes };
+    }
+    // preview는 문자열 일부만(바이트 정확 컷까진 안 하고 “대략적인 프리뷰”)
+    return {
+      json: { __truncated__: true, preview: s.slice(0, Math.min(2000, s.length)) },
+      truncated: true,
+      bytes,
+    };
+  } catch {
+    return { json: { __invalid_json__: true }, truncated: true, bytes: 0 };
+  }
+}
+
+function computeEventId(p) {
+  // 멱등키: 확장 이벤트의 “동일 이벤트”를 안정적으로 구분하는데 충분한 조합
+  const base = [
+    p.sessionId,
+    p.ts,
+    p.type,
+    p.ruleId,
+    p.page,
+    p.origin,
+    p.targetOrigin,
+    p.severity,
+    p.scoreDelta,
+  ].map((x) => String(x ?? "")).join("|");
+
+  return crypto.createHash("sha256").update(base).digest("hex");
+}
+
+export const handler = async (event) => {
+  // 0) CORS preflight
+  const method =
+    event?.requestContext?.http?.method ||
+    event?.requestContext?.httpMethod ||
+    event?.httpMethod ||
+    "";
+
+  if (String(method).toUpperCase() === "OPTIONS") {
+    // 바디 없이 204 응답이 일반적
+    return {
+      statusCode: 204,
+      headers: corsHeaders(event),
+      body: "",
+    };
+  }
+  // 1) parse body
+  let payload;
+  try {
+    payload =
+      typeof event?.body === "string"
+        ? JSON.parse(event.body)
+        : (event?.body ?? event);
+  } catch {
+    return resp(400, { ok: false, error: "Invalid JSON body" });
+  }
+
+  // (선택) 최상위 payload 자체도 너무 크면 컷/거절
+  // API Gateway/Lambda URL 자체 제한이 있긴 하지만, 방어적으로 추가
+  const payloadBytes = jsonByteLength(payload);
+  const MAX_PAYLOAD_BYTES = Number(process.env.MAX_PAYLOAD_BYTES || 450_000); // 여유치(약 450KB)
+  if (payloadBytes > MAX_PAYLOAD_BYTES) {
+    return resp(413, { ok: false, error: "Payload too large" });
+  }
+
+  // 2) minimal validation
+  const type = safeStr(payload?.type, 120);
+  const ruleId = safeStr(payload?.ruleId, 200);
+  const sessionId = safeStr(payload?.sessionId, 120);
+  const ts = Number(payload?.ts);
+
+  if (!type || !sessionId || !Number.isFinite(ts)) {
+    return resp(400, { ok: false, error: "Missing required fields: type, sessionId, ts" });
+  }
+
+  const origin = safeStr(payload?.origin, 400);
+  const page = safeStr(payload?.page, 2000);
+  const targetOrigin = safeStr(payload?.targetOrigin, 400);
+  const ua = safeStr(payload?.ua, 400);
+  const severity = safeStr(payload?.severity ?? "INFO", 20);
+  const scoreDelta = Number(payload?.scoreDelta ?? 0);
+
+  const now = Date.now();
+  const MAX_SKEW_MS = Number(process.env.MAX_TS_SKEW_MS || 7 * 86400 * 1000);
+  if (Math.abs(ts - now) > MAX_SKEW_MS) {
+    return resp(400, { ok: false, error: "ts is out of acceptable range" });
+  }
+
+  const day = isoDayFromTs(ts);
+  const eventId = computeEventId({
+    type,
+    ruleId: ruleId || type,
+    sessionId,
+    ts,
+    page,
+    origin,
+    targetOrigin,
+    severity,
+    scoreDelta,
+  });
+
+  const eventIdShort = eventId.slice(0, 12);
+
+  // 3) key design
+  const pk = `ORG#${origin || "UNKNOWN"}#DAY#${day}`;
+  const sk = `TS#${ts}#SESS#${sessionId}#TYPE#${type}#E#${eventIdShort}`;
+
+  // 4) GSIs
+  const gsi1pk = `SEV#${severity || "UNKNOWN"}#DAY#${day}`;
+  const gsi1sk = `TS#${ts}#ORG#${origin || "UNKNOWN"}#TYPE#${type}#E#${eventIdShort}`;
+
+  const gsi2pk = `RULE#${(ruleId || type) || "UNKNOWN"}#DAY#${day}`;
+  const gsi2sk = `TS#${ts}#ORG#${origin || "UNKNOWN"}#SEV#${severity || "UNKNOWN"}#E#${eventIdShort}`;
+
+  const gsi3pk = `SESS#${sessionId}`;
+  const gsi3sk = `TS#${ts}#ORG#${origin || "UNKNOWN"}#TYPE#${type}#E#${eventIdShort}`;
+
+  const gsi4pk = `TGT#${targetOrigin || "UNKNOWN"}#DAY#${day}`;
+  const gsi4sk = `TS#${ts}#ORG#${origin || "UNKNOWN"}#TYPE#${type}#E#${eventIdShort}`;
+
+  // 5) payload size control
+  const MAX_JSON_BYTES = Number(process.env.MAX_JSON_BYTES || 20_000);
+  const dataPack = truncateJsonByBytes(payload?.data, MAX_JSON_BYTES);
+  const evPack = truncateJsonByBytes(payload?.evidence, MAX_JSON_BYTES);
+
+  // 6) TTL (optional)
+  const ttl = TTL_DAYS > 0
+    ? Math.floor((Date.now() + TTL_DAYS * 86400 * 1000) / 1000)
+    : undefined;
+
+  const item = {
+    pk, sk,
+    eventId,
+    ts, day,
+
+    type,
+    ruleId: ruleId || type,
+    sessionId,
+    origin,
+    page,
+    targetOrigin,
+    ua,
+    severity,
+    scoreDelta,
+
+    data: dataPack.json,
+    evidence: evPack.json,
+    dataTruncated: dataPack.truncated,
+    evidenceTruncated: evPack.truncated,
+
+    gsi1pk, gsi1sk,
+    gsi2pk, gsi2sk,
+    gsi3pk, gsi3sk,
+    gsi4pk, gsi4sk,
+
+    ttl,
+  };
+
+  try {
+    await ddb.send(new PutCommand({
+      TableName: TABLE,
+      Item: item,
+      // eventId 중복 저장 방지(리플레이/재전송 대비)
+      ConditionExpression: "attribute_not_exists(eventId)",
+    }));
+  } catch (e) {
+    // 중복이면 성공으로 취급 (멱등)
+    const name = String(e?.name || "");
+    if (name.includes("ConditionalCheckFailed")) {
+      return resp(200, { ok: true, dedup: true, eventId });
+    }
+    console.error("ddb_put_failed", e);
+    return resp(500, { ok: false, error: "Failed to persist event" });
+  }
+
+  return resp(200, { ok: true, eventId });
+};

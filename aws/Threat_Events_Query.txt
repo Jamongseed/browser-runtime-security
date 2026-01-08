@@ -1,0 +1,368 @@
+// index.mjs (Node.js 24 / ESM) - Threat_Events Query API
+// deps: @aws-sdk/client-dynamodb @aws-sdk/lib-dynamodb
+
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
+
+const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
+  marshallOptions: { removeUndefinedValues: true },
+});
+
+const TABLE_NAME = process.env.TABLE_NAME || "Threat_Events";
+
+// Index names
+const GSI1 = process.env.GSI1_NAME || "GSI1_SeverityDay";
+const GSI2 = process.env.GSI2_NAME || "GSI2_RuleDay";
+const GSI3 = process.env.GSI3_NAME || "GSI3_Session";
+const GSI4 = process.env.GSI4_NAME || "GSI4_TargetOriginDay";
+
+// Guardrails
+const DEFAULT_LIMIT = 50;
+const MAX_LIMIT = 200;
+const DEFAULT_WINDOW_MS = 24 * 60 * 60 * 1000;
+const MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // 7d
+
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "OPTIONS,GET",
+  "Access-Control-Allow-Headers":
+    "Content-Type, X-Amz-Date, Authorization, X-Api-Key, X-Amz-Security-Token",
+};
+
+function json(statusCode, obj) {
+  return {
+    statusCode,
+    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+    body: JSON.stringify(obj),
+  };
+}
+
+function clampInt(v, def, min, max) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return def;
+  const i = Math.trunc(n);
+  if (i < min) return min;
+  if (i > max) return max;
+  return i;
+}
+
+function toSinceMs(qs) {
+  const now = Date.now();
+  const raw = Number(qs?.sinceMs);
+  if (!Number.isFinite(raw) || raw <= 0) return now - DEFAULT_WINDOW_MS;
+
+  const safe = Math.min(raw, now);
+  const minSince = now - MAX_WINDOW_MS;
+  return safe < minSince ? minSince : safe;
+}
+
+function normDay(s) {
+  const day = String(s || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  return day;
+}
+
+function normSeverity(s) {
+  if (!s) return null;
+  const v = String(s).trim().toUpperCase();
+  if (v === "HIGH" || v === "MEDIUM" || v === "LOW") return v;
+  return "__INVALID__";
+}
+
+function safeStr(s, max = 4000) {
+  const v = String(s ?? "").trim();
+  if (!v) return "";
+  return v.length > max ? v.slice(0, max) : v;
+}
+
+function encodeNextToken(key) {
+  if (!key) return null;
+  return Buffer.from(JSON.stringify(key), "utf8").toString("base64url");
+}
+
+function isPlainObject(v) {
+  return v !== null && typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype;
+}
+
+// nextToken이 “다른 파티션”에 재사용/오용되는 것 방지
+function decodeNextToken(token, pkName, pkValue, skName) {
+  if (!token) return { ok: true, key: undefined };
+  let obj;
+  try {
+    obj = JSON.parse(Buffer.from(token, "base64url").toString("utf8"));
+  } catch {
+    return { ok: false, reason: "INVALID_nextToken" };
+  }
+  if (!isPlainObject(obj)) return { ok: false, reason: "INVALID_nextToken" };
+  if (typeof obj[pkName] !== "string" || typeof obj[skName] !== "string") {
+    return { ok: false, reason: "INVALID_nextToken" };
+  }
+  if (obj[pkName] !== pkValue) return { ok: false, reason: "INVALID_nextToken" };
+  return { ok: true, key: obj };
+}
+
+function pickItem(it) {
+  // 응답 payload는 필요에 따라 더 줄이거나 늘리세요
+  return {
+    ts: it.ts,
+    day: it.day,
+    type: it.type,
+    ruleId: it.ruleId,
+    severity: it.severity,
+    scoreDelta: it.scoreDelta,
+    sessionId: it.sessionId,
+    origin: it.origin,
+    page: it.page,
+    targetOrigin: it.targetOrigin,
+    eventId: it.eventId,
+    // 필요하면 data/evidence도 내려주되, 기본은 숨기는 걸 권장
+    // data: it.data,
+    // evidence: it.evidence,
+  };
+}
+
+async function doQuery({
+  indexName,              // undefined면 base table
+  pkName, pkValue,
+  skName,                 // "sk" 또는 "gsiXsk"
+  sinceMs,
+  limit,
+  nextToken,
+}) {
+  const decoded = decodeNextToken(nextToken, pkName, pkValue, skName);
+  if (!decoded.ok) return { ok: false, reason: decoded.reason };
+
+  // KeyCondition은 파티션으로만 강하게 좁히고, 시간은 ts(number)로 필터
+  // (키에 0-padding ts를 쓰면 range condition으로 더 효율화 가능)
+  const params = {
+    TableName: TABLE_NAME,
+    ...(indexName ? { IndexName: indexName } : {}),
+    KeyConditionExpression: "#pk = :pk",
+    ExpressionAttributeNames: {
+      "#pk": pkName,
+      "#ts": "ts",
+    },
+    ExpressionAttributeValues: {
+      ":pk": pkValue,
+      ":since": Number(sinceMs),
+    },
+    FilterExpression: "#ts >= :since",
+    Limit: limit,
+    ScanIndexForward: false,         // 최신부터
+    ExclusiveStartKey: decoded.key,
+  };
+
+  const res = await ddb.send(new QueryCommand(params));
+  return {
+    ok: true,
+    items: res.Items || [],
+    nextToken: encodeNextToken(res.LastEvaluatedKey),
+  };
+}
+
+// ---------- Route handlers ----------
+async function handleEvents(event) {
+  const qs = event.queryStringParameters || {};
+  const origin = safeStr(qs.origin, 400);
+  const day = normDay(qs.day);
+
+  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
+  if (!day) return json(400, { ok: false, reason: "MISSING_or_INVALID_day" });
+
+  const sinceMs = toSinceMs(qs);
+  const limit = clampInt(qs.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
+  const nextToken = qs.nextToken ? String(qs.nextToken) : undefined;
+
+  const pkValue = `ORG#${origin}#DAY#${day}`;
+
+  const result = await doQuery({
+    indexName: undefined,
+    pkName: "pk",
+    pkValue,
+    skName: "sk",
+    sinceMs,
+    limit,
+    nextToken,
+  });
+
+  if (!result.ok) return json(400, { ok: false, reason: result.reason });
+
+  return json(200, {
+    ok: true,
+    query: { origin, day, sinceMs, limit },
+    items: result.items.map(pickItem),
+    nextToken: result.nextToken,
+  });
+}
+
+async function handleBySeverity(event) {
+  const qs = event.queryStringParameters || {};
+  const severity = normSeverity(qs.severity);
+  const day = normDay(qs.day);
+
+  if (!day) return json(400, { ok: false, reason: "MISSING_or_INVALID_day" });
+  if (!severity) return json(400, { ok: false, reason: "MISSING_severity" });
+  if (severity === "__INVALID__") return json(400, { ok: false, reason: "INVALID_severity" });
+
+  const sinceMs = toSinceMs(qs);
+  const limit = clampInt(qs.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
+  const nextToken = qs.nextToken ? String(qs.nextToken) : undefined;
+
+  const pkValue = `SEV#${severity}#DAY#${day}`;
+
+  const result = await doQuery({
+    indexName: GSI1,
+    pkName: "gsi1pk",
+    pkValue,
+    skName: "gsi1sk",
+    sinceMs,
+    limit,
+    nextToken,
+  });
+
+  if (!result.ok) return json(400, { ok: false, reason: result.reason });
+
+  return json(200, {
+    ok: true,
+    query: { severity, day, sinceMs, limit },
+    items: result.items.map(pickItem),
+    nextToken: result.nextToken,
+  });
+}
+
+async function handleByRule(event) {
+  const qs = event.queryStringParameters || {};
+  const ruleId = safeStr(qs.ruleId, 200);
+  const day = normDay(qs.day);
+
+  if (!ruleId) return json(400, { ok: false, reason: "MISSING_ruleId" });
+  if (!day) return json(400, { ok: false, reason: "MISSING_or_INVALID_day" });
+
+  const sinceMs = toSinceMs(qs);
+  const limit = clampInt(qs.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
+  const nextToken = qs.nextToken ? String(qs.nextToken) : undefined;
+
+  const pkValue = `RULE#${ruleId}#DAY#${day}`;
+
+  const result = await doQuery({
+    indexName: GSI2,
+    pkName: "gsi2pk",
+    pkValue,
+    skName: "gsi2sk",
+    sinceMs,
+    limit,
+    nextToken,
+  });
+
+  if (!result.ok) return json(400, { ok: false, reason: result.reason });
+
+  return json(200, {
+    ok: true,
+    query: { ruleId, day, sinceMs, limit },
+    items: result.items.map(pickItem),
+    nextToken: result.nextToken,
+  });
+}
+
+async function handleBySession(event) {
+  const qs = event.queryStringParameters || {};
+  const sessionId = safeStr(qs.sessionId, 200);
+  if (!sessionId) return json(400, { ok: false, reason: "MISSING_sessionId" });
+
+  const sinceMs = toSinceMs(qs);
+  const limit = clampInt(qs.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
+  const nextToken = qs.nextToken ? String(qs.nextToken) : undefined;
+
+  const pkValue = `SESS#${sessionId}`;
+
+  const result = await doQuery({
+    indexName: GSI3,
+    pkName: "gsi3pk",
+    pkValue,
+    skName: "gsi3sk",
+    sinceMs,
+    limit,
+    nextToken,
+  });
+
+  if (!result.ok) return json(400, { ok: false, reason: result.reason });
+
+  return json(200, {
+    ok: true,
+    query: { sessionId, sinceMs, limit },
+    items: result.items.map(pickItem),
+    nextToken: result.nextToken,
+  });
+}
+
+async function handleByTarget(event) {
+  const qs = event.queryStringParameters || {};
+  const targetOrigin = safeStr(qs.targetOrigin, 400);
+  const day = normDay(qs.day);
+
+  if (!targetOrigin) return json(400, { ok: false, reason: "MISSING_targetOrigin" });
+  if (!day) return json(400, { ok: false, reason: "MISSING_or_INVALID_day" });
+
+  const sinceMs = toSinceMs(qs);
+  const limit = clampInt(qs.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
+  const nextToken = qs.nextToken ? String(qs.nextToken) : undefined;
+
+  const pkValue = `TGT#${targetOrigin}#DAY#${day}`;
+
+  const result = await doQuery({
+    indexName: GSI4,
+    pkName: "gsi4pk",
+    pkValue,
+    skName: "gsi4sk",
+    sinceMs,
+    limit,
+    nextToken,
+  });
+
+  if (!result.ok) return json(400, { ok: false, reason: result.reason });
+
+  return json(200, {
+    ok: true,
+    query: { targetOrigin, day, sinceMs, limit },
+    items: result.items.map(pickItem),
+    nextToken: result.nextToken,
+  });
+}
+
+// ---------- Router ----------
+function getMethod(event) {
+  return String(event?.httpMethod || event?.requestContext?.http?.method || "")
+    .toUpperCase();
+}
+function getPath(event) {
+  return String(event?.path || event?.rawPath || "");
+}
+
+export const handler = async (event) => {
+  try {
+    const method = getMethod(event);
+
+    if (method === "OPTIONS") {
+      return { statusCode: 204, headers: CORS_HEADERS, body: "" };
+    }
+    if (method !== "GET") {
+      return json(405, { ok: false, reason: "METHOD_NOT_ALLOWED" });
+    }
+    if (!TABLE_NAME) {
+      return json(500, { ok: false, reason: "MISSING_TABLE_NAME" });
+    }
+
+    const path = getPath(event);
+    // stage prefix가 붙어도 동작하도록 endsWith
+    if (path.endsWith("/events")) return await handleEvents(event);
+    if (path.endsWith("/events/bySeverity")) return await handleBySeverity(event);
+    if (path.endsWith("/events/byRule")) return await handleByRule(event);
+    if (path.endsWith("/events/bySession")) return await handleBySession(event);
+    if (path.endsWith("/events/byTarget")) return await handleByTarget(event);
+
+    return json(404, { ok: false, reason: "NOT_FOUND" });
+  } catch (err) {
+    console.error("query api error:", err);
+    return json(500, { ok: false, reason: "INTERNAL_ERROR" });
+  }
+};
