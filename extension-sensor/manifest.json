@@ -5,13 +5,17 @@
   "description": "Real-time client-side threat detection and runtime behavior monitoring system.",
   "permissions": [
     "storage",   
-    "tabs" 
+    "tabs",
+    "notifications",
+    "alarms"
   ],
   "host_permissions": [
-    "<all_urls>" 
+    "http://localhost:3000/*",
+    "http://127.0.0.1:3000/*"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "action": {
     "default_popup": "popup.html",
@@ -19,14 +23,20 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": [
+        "http://localhost:3000/*",
+        "http://127.0.0.1:3000/*"
+      ],
       "js": ["page_hook_sw_boot.js"],
       "run_at": "document_start",
       "world": "MAIN",
       "all_frames": true
     },
     {
-      "matches": ["<all_urls>"],
+      "matches": [
+        "http://localhost:3000/*",
+        "http://127.0.0.1:3000/*"
+      ],
       "js": [
         "engine/rule_engine.js",
         "engine/reporter.js",
@@ -48,7 +58,10 @@
         "page_hook.js",
         "rulesets/*"
       ],
-      "matches": ["<all_urls>"]
+      "matches": [
+        "http://localhost:3000/*",
+        "http://127.0.0.1:3000/*"
+      ]
     }
   ]
 }
