@@ -10,6 +10,21 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// 서버에 보내기 전 payload 재포장
+function toServerPayload(threat) {
+  const payload = { ...threat };
+
+  // ID 매핑 (reportId -> eventId)
+  if (payload.reportId) {
+    payload.eventId = payload.reportId;
+  } else {
+    // ID가 없을 경우 비상용 생성
+    payload.eventId = crypto.randomUUID();
+  }
+
+  return payload;
+}
+
 async function fetchWithTimeout(url, options, timeoutMs) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);

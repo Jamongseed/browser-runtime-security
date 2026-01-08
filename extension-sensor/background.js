@@ -11,7 +11,7 @@ initInstallId();
 
 const CONFIG = {
 	API_ENDPOINT: "http://localhost:8080/events",
-  // API_ENDPOINT: "https://81rdme5tpd.execute-api.ap-southeast-2.amazonaws.com/prod/events",
+  // API_ENDPOINT: "https://tatnbs1wq5.execute-api.ap-northeast-2.amazonaws.com/prod/events",
 	USE_SERVER_DASHBOARD:   false,
 	AWS_DASHBOARD_URL: "",
 	LOCAL_DASHBOARD_PATH: "local_dashboard/dashboard.html"

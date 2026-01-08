@@ -1,6 +1,10 @@
+import { getOrCreateInstallId } from './installIdManager.js';
+
 export async function generateReportHash(sessionId, ts) {
-	const extensionId = chrome.runtime.id;
-	const rawString = `${extensionId}:${sessionId}:${ts}`;
+	const installId = await getOrCreateInstallId();
+	const randomSalt = Math.random().toString(36).substring(2, 10);
+	
+	const rawString = `${installId}:${sessionId}:${ts}:${randomSalt}`;
 
 	const msgBuffer = new TextEncoder().encode(rawString);
 	const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);

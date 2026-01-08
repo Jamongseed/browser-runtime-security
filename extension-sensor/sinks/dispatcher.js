@@ -31,7 +31,7 @@ export function createDispatcher(sinks = []) {
             const result = await sink.send(threat, context);
 						return { sinkName, result };
 					} catch (err) {
-						err.sinkName = sinkName;
+						if (err && typeof err === 'object') err.sinkName = sinkName;
 						throw err;
 					}
 				})
@@ -43,8 +43,11 @@ export function createDispatcher(sinks = []) {
 				console.warn(`[BRS] ${failures.length}/${activeSinks.length} sinks failed.`);
 				
 				failures.forEach(f => {
-					const name = f.reason.sinkName || "Unknown Sink";
-					console.error(`[BRS] - [${name}] Failed:`, f.reason.message || f.reason);
+					const err = f.reason;
+					const name = err?.sinkName || "Unknown Sink";
+					const msg = err?.message || err || "Unknown error";
+
+					console.error(`[BRS] - [${name}] Failed:`, msg);
 				});
 			}
 
