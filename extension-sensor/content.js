@@ -203,7 +203,7 @@
 
     // page_hook 브릿지 + hook 주입
     startPageHookBridge(ruleEngine, reporter);
-    startHooks();
+    //startHooks();
 
     if (ruleEngine && typeof ruleEngine.load === "function") {
       try { await ruleEngine.load(); } catch (_) {}
@@ -240,6 +240,11 @@
     const swPersistenceDetector = detectors.swPersistence;
     if (swPersistenceDetector && typeof swPersistenceDetector.start === "function") {
       try { swPersistenceDetector.start(reporter.send, ruleEngine); } catch (_) {}
+    }
+
+    const moDetector = detectors.mutationObserver;
+    if (moDetector && typeof moDetector.start === "function") {
+      try { moDetector.start(reporter.send, ruleEngine); } catch (_) {}
     }
 
     // SENSOR_READY

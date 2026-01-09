@@ -4,14 +4,13 @@
   "version": "0.1.0",
   "description": "Real-time client-side threat detection and runtime behavior monitoring system.",
   "permissions": [
-    "storage",   
+    "storage",
     "tabs",
     "notifications",
     "alarms"
   ],
   "host_permissions": [
-    "http://localhost:3000/*",
-    "http://127.0.0.1:3000/*"
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js",
@@ -27,7 +26,10 @@
         "http://localhost:3000/*",
         "http://127.0.0.1:3000/*"
       ],
-      "js": ["page_hook_sw_boot.js"],
+      "js": [
+        "page_hook_sw_boot.js",
+        "page_hook.js"
+      ],
       "run_at": "document_start",
       "world": "MAIN",
       "all_frames": true
@@ -46,6 +48,8 @@
         "detectors/postmessage.js",
         "detectors/form_submit_prototype_tamper.js",
         "detectors/sw_persistence.js",
+        "detectors/mutation_observer.js",
+        "debug_dump_injected.js",
         "content.js"
       ],
       "run_at": "document_start",
@@ -55,12 +59,10 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "page_hook.js",
         "rulesets/*"
       ],
       "matches": [
-        "http://localhost:3000/*",
-        "http://127.0.0.1:3000/*"
+        "<all_urls>"
       ]
     }
   ]

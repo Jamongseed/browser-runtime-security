@@ -9,3 +9,4 @@ poc-g-serviceworker-persistence/node_modules/
 
 # deps
 node_modules/
+collector-local/storage/

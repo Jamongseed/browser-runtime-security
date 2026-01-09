@@ -369,6 +369,55 @@
         "scoreDelta": 35,
         "severity": "HIGH"
       }
+    },
+    {
+      "id": "MUTATION_OBSERVER_REGISTER_BASE",
+      "enabled": true,
+      "when": { "type": "MUTATION_OBSERVER_REGISTER" },
+      "action": {
+        "ruleId": "MUTATION_OBSERVER_REGISTER",
+        "scoreDelta": 5,
+        "severity": "LOW"
+      }
+    },
+    {
+      "id": "MUTATION_OBSERVER_REGISTER_WIDE_SCOPE",
+      "enabled": true,
+      "when": {
+        "type": "MUTATION_OBSERVER_REGISTER",
+        "equals": { "targetDesc": "documentElement" }
+      },
+      "action": {
+        "ruleId": "MUTATION_OBSERVER_REGISTER_WIDE_SCOPE",
+        "scoreDelta": 20,
+        "severity": "MEDIUM"
+      }
+    },
+    {
+      "id": "MUTATION_OBSERVER_REGISTER_CROSS_SITE_INITIATOR",
+      "enabled": true,
+      "when": {
+        "type": "MUTATION_OBSERVER_REGISTER",
+        "equals": { "initiatorCrossSite": true }
+      },
+      "action": {
+        "ruleId": "MUTATION_OBSERVER_REGISTER_CROSS_SITE_INITIATOR",
+        "scoreDelta": 40,
+        "severity": "HIGH"
+      }
+    },
+    {
+      "id": "MUTATION_OBSERVER_TRIGGER_SCRIPT_OR_IFRAME_ADDED",
+      "enabled": true,
+      "when": {
+        "type": "MUTATION_OBSERVER_TRIGGER",
+        "equals": { "addedScripts": 1 }
+      },
+      "action": {
+        "ruleId": "MUTATION_OBSERVER_TRIGGER_SCRIPT_OR_IFRAME_ADDED",
+        "scoreDelta": 60,
+        "severity": "HIGH"
+      }
     }
   ]
 }
