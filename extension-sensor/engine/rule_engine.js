@@ -9,6 +9,18 @@
     return !!rs && Array.isArray(rs.rules);
   }
 
+  // (추가) dot-path 지원: "a.b.c" 형태로 nested 접근
+  function getByPath(obj, path) {
+    try {
+      if (!obj || !path) return undefined;
+      const p = String(path);
+      if (!p.includes(".")) return obj[p];
+      return p.split(".").reduce((acc, k) => (acc == null ? undefined : acc[k]), obj);
+    } catch (_) {
+      return undefined;
+    }
+  }
+
   const RuleEngine = {
     ruleset: null,
 
@@ -55,7 +67,8 @@
         if (when.equals) {
           let ok = true;
           for (const [k, v] of Object.entries(when.equals)) {
-            if (event.data?.[k] !== v) { ok = false; break; }
+            const got = getByPath(event.data || {}, k); // (변경)
+            if (got !== v) { ok = false; break; }
           }
           if (!ok) continue;
         }
@@ -63,7 +76,8 @@
         if (when.contains) {
           let ok = true;
           for (const [k, v] of Object.entries(when.contains)) {
-            const s = String(event.data?.[k] ?? "");
+            const got = getByPath(event.data || {}, k); // (변경)
+            const s = String(got ?? "");
             if (!s.includes(String(v))) { ok = false; break; }
           }
           if (!ok) continue;

@@ -4,7 +4,6 @@
     window.postMessage({ __BRS__: true, type, data }, "*");
   };
 
-  // (복구) stack 수집: SW_REGISTER 이벤트에서 evidence.stack을 담기 위해 사용
   const getStack = () => {
     try {
       const stack = new Error().stack || "";
@@ -35,12 +34,40 @@
   };
   const isCrossSite = (targetOrigin) => targetOrigin && targetOrigin !== location.origin;
 
+  // (공용) stack에서 "첫 유효 프레임 1줄"만 추출 (dom-provenance + MutationObserver 공용)
+  const captureInitiator1 = () => {
+    try {
+      const stack = String(new Error().stack || "");
+      const lines = stack.split("\n").map(s => s.trim()).filter(Boolean);
+
+      const line = lines.find(l =>
+        l.includes("at ") &&
+        !l.includes("captureInitiator1") &&
+        !l.includes("annotateSrc") &&
+        !l.includes("page_hook.js") &&
+        !l.includes("chrome-extension://") &&
+        !l.includes("moz-extension://")
+      ) || "";
+
+      let initiatorUrl = "";
+      const m = line.match(/\((https?:\/\/[^\s\)]+)\)/) || line.match(/(https?:\/\/[^\s\)]+)/);
+      if (m && m[1]) initiatorUrl = m[1];
+
+      const initiatorOrigin = initiatorUrl ? getOrigin(initiatorUrl) : "";
+      const initiatorCrossSite = initiatorOrigin ? isCrossSite(initiatorOrigin) : false;
+
+      return { line: (line || "").slice(0, 220), initiatorUrl, initiatorOrigin, initiatorCrossSite };
+    } catch (_) {
+      return { line: "", initiatorUrl: "", initiatorOrigin: "", initiatorCrossSite: false };
+    }
+  };
+
   try {
     const _eval = window.eval;
     window.eval = function (code) {
       const strCode = String(code || "");
-      send("SUSP_EVAL_CALL", { 
-        len: strCode.length, 
+      send("SUSP_EVAL_CALL", {
+        len: strCode.length,
         payload: strCode.slice(0, 100),
         // url: window.location.href,
         // stack: getStack()
@@ -55,7 +82,7 @@
     const _atob = window.atob;
     window.atob = function (encodedString) {
       const strEncoded = String(encodedString || "");
-      send("SUSP_ATOB_CALL", { 
+      send("SUSP_ATOB_CALL", {
         len: strEncoded.length,
         payload: strEncoded.slice(0, 30),
         // url: window.location.href,
@@ -71,7 +98,7 @@
     const _Function = window.Function;
     window.Function = function (...args) {
       const strArgs = args.join(", ");
-      send("SUSP_FUNCTION_CONSTRUCTOR_CALL", { 
+      send("SUSP_FUNCTION_CONSTRUCTOR_CALL", {
         len: strArgs.length,
         payload: strArgs.slice(0, 100),
         // url: window.location.href,
@@ -175,34 +202,6 @@
       }
     };
 
-    // (경량) stack에서 "첫 유효 프레임 1줄"만 추출
-    const captureInitiator1 = () => {
-      try {
-        const stack = String(new Error().stack || "");
-        const lines = stack.split("\n").map(s => s.trim()).filter(Boolean);
-
-        const line = lines.find(l =>
-          l.includes("at ") &&
-          !l.includes("captureInitiator1") &&
-          !l.includes("annotateSrc") &&
-          !l.includes("page_hook.js") &&
-          !l.includes("chrome-extension://") &&
-          !l.includes("moz-extension://")
-        ) || "";
-
-        let initiatorUrl = "";
-        const m = line.match(/\((https?:\/\/[^\s\)]+)\)/) || line.match(/(https?:\/\/[^\s\)]+)/);
-        if (m && m[1]) initiatorUrl = m[1];
-
-        const initiatorOrigin = initiatorUrl ? getOrigin(initiatorUrl) : "";
-        const initiatorCrossSite = initiatorOrigin ? isCrossSite(initiatorOrigin) : false;
-
-        return { line: (line || "").slice(0, 220), initiatorUrl, initiatorOrigin, initiatorCrossSite };
-      } catch (_) {
-        return { line: "", initiatorUrl: "", initiatorOrigin: "", initiatorCrossSite: false };
-      }
-    };
-
     const annotateSrc = (el, phase, rawSrc) => {
       try {
         if (!el || !(el instanceof HTMLElement)) return;
@@ -272,6 +271,271 @@
 
   } catch (e) {
     send("HOOK_ERROR", { where: "dom-provenance", msg: String(e?.message || e) });
+  }
+
+  // (추가) MutationObserver 등록/트리거 후킹 (PoC-H 핵심 시그널)
+  try {
+    const OrigMO = window.MutationObserver;
+    if (typeof OrigMO === "function" && !OrigMO.__BRS_PATCHED__) {
+      let moSeq = 0;
+      const infoMap = new WeakMap(); // observer -> info
+      const shadowSet = new WeakSet();
+
+      const describeTarget = (t) => {
+        try {
+          if (t === document) return "document";
+          if (t === document.documentElement) return "documentElement";
+          if (t === document.body) return "body";
+          if (t && t.nodeType === 1) {
+            const el = t;
+            let s = String(el.tagName || "").toLowerCase();
+            if (el.id) s += `#${el.id}`;
+            if (el.classList && el.classList.length) {
+              s += "." + Array.from(el.classList).slice(0, 2).join(".");
+            }
+            return s || "element";
+          }
+          return `nodeType:${t && t.nodeType}`;
+        } catch (_) {
+          return "unknown";
+        }
+      };
+
+      const slimOptions = (opt) => {
+        try {
+          const o = opt || {};
+          const out = {
+            childList: !!o.childList,
+            subtree: !!o.subtree,
+            attributes: !!o.attributes,
+            characterData: !!o.characterData,
+          };
+          if (Array.isArray(o.attributeFilter)) out.attributeFilter = o.attributeFilter.slice(0, 10);
+          if (o.attributeOldValue != null) out.attributeOldValue = !!o.attributeOldValue;
+          if (o.characterDataOldValue != null) out.characterDataOldValue = !!o.characterDataOldValue;
+          return out;
+        } catch (_) {
+          return {};
+        }
+      };
+
+      const summarizeMutations = (muts) => {
+        const sum = {
+          mutationCount: 0,
+          typeCounts: { childList: 0, attributes: 0, characterData: 0 },
+          addedNodes: 0,
+          removedNodes: 0,
+          addedScripts: 0,
+          addedIframes: 0,
+          addedWithSrc: 0,
+          attrNames: [],
+        };
+
+        try {
+          if (!Array.isArray(muts)) return sum;
+          sum.mutationCount = muts.length;
+
+          const attrSet = new Set();
+
+          for (let i = 0; i < muts.length; i++) {
+            const m = muts[i];
+            const t = String(m && m.type || "");
+            if (t === "childList") sum.typeCounts.childList++;
+            else if (t === "attributes") sum.typeCounts.attributes++;
+            else if (t === "characterData") sum.typeCounts.characterData++;
+
+            // added/removed nodes
+            if (m && m.addedNodes && m.addedNodes.length) {
+              sum.addedNodes += m.addedNodes.length;
+
+              // PoC-H 핵심: script/iframe 삽입 여부만 가볍게 체크(최대 10개만)
+              for (let j = 0; j < m.addedNodes.length && j < 10; j++) {
+                const n = m.addedNodes[j];
+                if (!n || n.nodeType !== 1) continue;
+                const tag = String(n.tagName || "");
+                if (tag === "SCRIPT") sum.addedScripts++;
+                if (tag === "IFRAME") sum.addedIframes++;
+                try {
+                  const src = n.getAttribute && n.getAttribute("src");
+                  if (src) sum.addedWithSrc++;
+                } catch (_) {}
+              }
+            }
+            if (m && m.removedNodes && m.removedNodes.length) {
+              sum.removedNodes += m.removedNodes.length;
+            }
+
+            if (t === "attributes") {
+              try {
+                const an = String(m.attributeName || "");
+                if (an) attrSet.add(an);
+              } catch (_) {}
+            }
+          }
+
+          sum.attrNames = Array.from(attrSet).slice(0, 10);
+        } catch (_) {}
+
+        return sum;
+      };
+
+      // trigger 스팸 방지(옵저버별 300ms에 1번만 emit)
+      const emitTriggerThrottled = (observer, muts) => {
+        const info = infoMap.get(observer);
+        if (!info) return;
+
+        const now = Date.now();
+        info.pendingMuts = info.pendingMuts || [];
+        if (Array.isArray(muts)) info.pendingMuts.push(...muts);
+
+        if (info.timer) return;
+
+        const dueIn = Math.max(0, 300 - (now - (info.lastEmitTs || 0)));
+        info.timer = setTimeout(() => {
+          try {
+            info.timer = null;
+            const pending = info.pendingMuts || [];
+            info.pendingMuts = [];
+
+            info.lastEmitTs = Date.now();
+
+            send("MUTATION_OBSERVER_TRIGGER", {
+              observerId: info.observerId,
+              targetDesc: info.targetDesc || "",
+              summary: summarizeMutations(pending),
+              initiatorUrl: info.initiatorUrl || "",
+              initiatorOrigin: info.initiatorOrigin || "",
+              initiatorCrossSite: !!info.initiatorCrossSite,
+              stackHead: info.stackHead || "",
+              dtMs: info.observeAt ? (Date.now() - info.observeAt) : null,
+            });
+          } catch (_) {}
+        }, dueIn);
+      };
+
+      // constructor patch: callback을 감싸서 trigger를 잡는다
+      const PatchedMO = function (cb) {
+        const observerId = `mo-${Date.now()}-${++moSeq}`;
+        const createdAt = Date.now();
+
+        const wrappedCb = function (muts, obs) {
+          try { emitTriggerThrottled(obs, muts); } catch (_) {}
+          return cb.apply(this, arguments);
+        };
+
+        const obs = new OrigMO(wrappedCb);
+
+        infoMap.set(obs, {
+          observerId,
+          createdAt,
+          observeAt: 0,
+          targetDesc: "",
+          initiatorUrl: "",
+          initiatorOrigin: "",
+          initiatorCrossSite: false,
+          stackHead: "",
+          lastEmitTs: 0,
+          timer: null,
+          pendingMuts: [],
+        });
+
+        return obs;
+      };
+
+      // static/prototype 보존
+      PatchedMO.prototype = OrigMO.prototype;
+      try {
+        Object.defineProperty(PatchedMO, "name", { value: OrigMO.name });
+      } catch (_) {}
+
+      // observe/disconnect 패치(등록 시점 신호)
+      const origObserve = OrigMO.prototype.observe;
+      const origDisconnect = OrigMO.prototype.disconnect;
+
+      OrigMO.prototype.observe = function (target, options) {
+        try {
+         if (shadowSet.has(this)) {
+           return origObserve.apply(this, arguments);
+         }
+
+         let info = infoMap.get(this);
+         if (!info) {
+           info = {
+             observerId: `mo-legacy-${Date.now()}-${++moSeq}`,
+             createdAt: Date.now(),
+             observeAt: 0,
+             targetDesc: "",
+             initiatorUrl: "",
+             initiatorOrigin: "",
+             initiatorCrossSite: false,
+             stackHead: "",
+             lastEmitTs: 0,
+             timer: null,
+             pendingMuts: [],
+             shadow: null,
+           };
+           infoMap.set(this, info);
+
+           try {
+             const shadow = new OrigMO((muts, obs) => {
+               try { emitTriggerThrottled(obs, muts); } catch (_) {}
+             });
+             shadowSet.add(shadow);
+             info.shadow = shadow;
+             infoMap.set(shadow, info);
+           } catch (_) {}
+         }
+
+         info.observeAt = Date.now();
+         info.targetDesc = describeTarget(target);
+         const ev = (typeof captureInitiator1 === "function")
+           ? captureInitiator1()
+           : { line: "", initiatorUrl: "", initiatorOrigin: "", initiatorCrossSite: false };
+         info.initiatorUrl = ev.initiatorUrl || "";
+         info.initiatorOrigin = ev.initiatorOrigin || "";
+         info.initiatorCrossSite = !!ev.initiatorCrossSite;
+         info.stackHead = ev.line || "";
+
+         send("MUTATION_OBSERVER_REGISTER", {
+           observerId: info.observerId,
+           targetDesc: info.targetDesc,
+           options: slimOptions(options),
+           initiatorUrl: info.initiatorUrl,
+           initiatorOrigin: info.initiatorOrigin,
+           initiatorCrossSite: info.initiatorCrossSite,
+           stackHead: info.stackHead,
+           createdAt: info.createdAt,
+         });
+
+         try {
+           if (info.shadow) info.shadow.observe(target, options);
+         } catch (_) {}
+        } catch (_) {}
+
+        return origObserve.apply(this, arguments);
+      };
+
+      OrigMO.prototype.disconnect = function () {
+        try {
+          const info = infoMap.get(this);
+          if (info && info.timer) {
+            clearTimeout(info.timer);
+            info.timer = null;
+            info.pendingMuts = [];
+          }
+         try {
+           if (info && info.shadow) info.shadow.disconnect();
+         } catch (_) {}
+        } catch (_) {}
+        return origDisconnect.apply(this, arguments);
+      };
+
+      PatchedMO.__BRS_PATCHED__ = true;
+      window.MutationObserver = PatchedMO;
+      try { window.MutationObserver.__BRS_PATCHED__ = true; } catch (_) {}
+    }
+  } catch (e) {
+    send("HOOK_ERROR", { where: "MutationObserver", msg: String(e?.message || e) });
   }
 
   // (추가) form.submit / form.requestSubmit 후킹: form.submit()은 submit 이벤트를 발생시키지 않아 content-script form detector가 놓치는 케이스 보완
