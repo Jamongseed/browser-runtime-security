@@ -411,13 +411,62 @@
       "enabled": true,
       "when": {
         "type": "MUTATION_OBSERVER_TRIGGER",
-        "equals": { "addedScripts": 1 }
+        "equals": { "summary.addedScripts": 1 }
       },
       "action": {
         "ruleId": "MUTATION_OBSERVER_TRIGGER_SCRIPT_OR_IFRAME_ADDED",
         "scoreDelta": 60,
         "severity": "HIGH"
       }
+    },
+    {
+      "id": "LINK_HREF_SWAP_CROSS_ORIGIN",
+      "enabled": true,
+      "when": {
+        "type": "LINK_HREF_SWAP_DETECTED",
+        "equals": { "within200ms": true, "crossOriginChanged": true }
+      },
+      "action": {
+        "ruleId": "LINK_HREF_SWAP_CROSS_ORIGIN",
+        "scoreDelta": 80,
+        "severity": "HIGH"
+      }
+    },
+    {
+      "id": "LINK_HREF_SWAP_PRECLICK_REVERTED",
+      "enabled": true,
+      "when": {
+        "type": "LINK_HREF_SWAP_DETECTED",
+        "equals": { "within50ms": true, "reverted": true }
+      },
+      "action": {
+        "ruleId": "LINK_HREF_SWAP_PRECLICK_REVERTED",
+        "scoreDelta": 70,
+        "severity": "HIGH"
+      }
+    },
+    {
+      "id": "LINK_HREF_SWAP_SAME_ORIGIN_JIT",
+      "enabled": true,
+      "when": {
+        "type": "LINK_HREF_SWAP_DETECTED",
+        "equals": { "within50ms": true, "crossOriginChanged": false }
+      },
+      "action": {
+        "ruleId": "LINK_HREF_SWAP_SAME_ORIGIN",
+        "scoreDelta": 40,
+        "severity": "MEDIUM"
+      }
+    },
+    {
+      "id": "LINK_HREF_SWAP_BASE",
+      "enabled": true,
+      "when": { "type": "LINK_HREF_SWAP_DETECTED" },
+      "action": {
+        "ruleId": "LINK_HREF_SWAP",
+        "scoreDelta": 10,
+        "severity": "LOW"
+      }      
     }
   ]
 }

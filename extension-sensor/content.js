@@ -232,6 +232,11 @@
       try { postMessageDetector.start(reporter.send, ruleEngine); } catch (_) {}
     }
 
+    const linkHrefSwapDetector = detectors.linkHrefSwap;
+    if (linkHrefSwapDetector && typeof linkHrefSwapDetector.start === "function") {
+      try { linkHrefSwapDetector.start(reporter.send, ruleEngine); } catch (_) {}
+    }
+    
     const protoTamperDetector = detectors.formSubmitPrototypeTamper;
     if (protoTamperDetector && typeof protoTamperDetector.start === "function") {
       try { protoTamperDetector.start(reporter.send, ruleEngine); } catch (_) {}
