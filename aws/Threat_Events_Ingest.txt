@@ -1,12 +1,15 @@
 // index.mjs (AWS Lambda - Node.js 24)
-// deps: @aws-sdk/client-dynamodb @aws-sdk/lib-dynamodb
+// deps: @aws-sdk/client-dynamodb @aws-sdk/lib-dynamodb 
 import crypto from "crypto";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 
-const TABLE = process.env.TABLE_NAME || "BRS_Events";
-const TTL_DAYS = Number(process.env.TTL_DAYS || 30);            
-const MAX_JSON_BYTES = Number(process.env.MAX_JSON_BYTES || 20000);
+const TABLE = process.env.TABLE_NAME || "Threat_Events";
+const AGG_TABLE = process.env.AGG_TABLE_NAME || "Threat_Aggregates";
+const TTL_DAYS = Number(process.env.TTL_DAYS || 30);
+const MAX_JSON_BYTES = Number(process.env.MAX_JSON_BYTES || 20000);            
+const EVENT_SHARDS = Number(process.env.EVENT_SHARDS || 8);      // Events hot partition 완화
+const AGG_SHARDS   = Number(process.env.AGG_SHARDS || 4);        // Aggregates hot partition 완화
 
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || "*";
 const ALLOW_HEADERS = "content-type";
@@ -16,17 +19,18 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
 });
 
+// API Gateway/Lambda URL용 공통 CORS 헤더 생성
 function corsHeaders(/* event */) {
   return {
     "content-type": "application/json",
     "access-control-allow-origin": ALLOW_ORIGIN,
     "access-control-allow-methods": ALLOW_METHODS,
     "access-control-allow-headers": ALLOW_HEADERS,
-    // 캐시(프리플라이트 최적화)
     "access-control-max-age": "600",
   };
 }
 
+// JSON 응답 포맷을 통일
 function resp(statusCode, bodyObj, extraHeaders) {
   return {
     statusCode,
@@ -35,7 +39,7 @@ function resp(statusCode, bodyObj, extraHeaders) {
   };
 }
 
-// UTF-8 바이트 기준 JSON 크기 측정/컷
+// 객체를 JSON 문자열로 직렬화했을 때 UTF-8 바이트 길이 계산
 function jsonByteLength(obj) {
   try {
     return Buffer.byteLength(JSON.stringify(obj ?? null), "utf8");
@@ -44,16 +48,29 @@ function jsonByteLength(obj) {
   }
 }
 
+// Ts 13자리 ms timestamp로 정규화
+function toTsMs(tsRaw) {
+  const n = Number(tsRaw);
+  if (!Number.isFinite(n) || n <= 0) return NaN;
+  // seconds(10자리대) -> ms
+  if (n > 0 && n < 1e12) return Math.trunc(n * 1000);
+  return Math.trunc(n);
+}
+
+// timestamp(ms)를 13자리 문자열로 zero-pad
+function padTs13(tsMs) {
+  return String(Math.trunc(tsMs)).padStart(13, "0");
+}
+
+// 문자열 변환 + 최대 길이 제한 (DynamoDB 저장 안정성용)
 function safeStr(v, maxLen) {
   const s = v == null ? "" : String(v);
   return s.length > maxLen ? s.slice(0, maxLen) : s;
 }
 
+// Asia/Seoul 기준 시간 단위 집계를 위한 YYYYMMDDHH 키 생성
 function isoDayFromTs(ts) {
-  let d = new Date(ts);
-
-  if (Number.isFinite(ts) && ts > 0 && ts < 1e12) d = new Date(ts * 1000);
-
+  const d = new Date(ts);
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Seoul",
     year: "numeric",
@@ -68,7 +85,38 @@ function isoDayFromTs(ts) {
   return `${yyyy}-${mm}-${dd}`; // YYYY-MM-DD
 }
 
+// Asia/Seoul 기준 시간 단위 집계를 위한 YYYYMMDDHH 키 생성
+function isoHourKeyFromTs(ts) {
+  // Asia/Seoul 기준 YYYYMMDDHH
+  const d = new Date(ts);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+   timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  const yyyy = parts.find(p => p.type === "year")?.value ?? "0000";
+  const mm   = parts.find(p => p.type === "month")?.value ?? "00";
+  const dd   = parts.find(p => p.type === "day")?.value ?? "00";
+  const hh   = parts.find(p => p.type === "hour")?.value ?? "00";
+  return `${yyyy}${mm}${dd}${hh}`; // YYYYMMDDHH
+}
 
+/*
+* NOTE(scoreBucket):
+* ------------------
+* severity 받아오기 때문에 안 씀
+* function scoreBucket(scoreDelta) {
+*   const x = Number(scoreDelta ?? 0);
+*   if (x >= 50) return "HIGH";
+*   if (x >= 10) return "MIDDLE";
+*   return "LOW";
+* }
+*/
+
+// JSON payload가 최대 바이트를 넘으면 preview만 저장하고 truncation 표시
 function truncateJsonByBytes(obj, maxBytes) {
   try {
     const s = JSON.stringify(obj ?? null);
@@ -87,25 +135,17 @@ function truncateJsonByBytes(obj, maxBytes) {
   }
 }
 
-function computeEventId(p) {
-  // 멱등키: 확장 이벤트의 “동일 이벤트”를 안정적으로 구분하는데 충분한 조합
-  const base = [
-    p.sessionId,
-    p.ts,
-    p.type,
-    p.ruleId,
-    p.page,
-    p.origin,
-    p.targetOrigin,
-    p.severity,
-    p.scoreDelta,
-  ].map((x) => String(x ?? "")).join("|");
-
-  return crypto.createHash("sha256").update(base).digest("hex");
+// day(YYYY-MM-DD) 기준 Asia/Seoul 23:59:59 + N일 TTL 계산
+function ttlFromDay(day, plusDays) {
+  const [y, m, d] = day.split("-").map(Number);
+  // Asia/Seoul 기준 day 끝
+  const endOfDaySeoul = Date.UTC(y, m - 1, d + 1, 0, 0, 0) - 1;
+  const ttlMs = endOfDaySeoul + plusDays * 86400 * 1000;
+  return Math.floor(ttlMs / 1000);
 }
 
 export const handler = async (event) => {
-  // 0) CORS preflight
+  // 0. CORS preflight 처리
   const method =
     event?.requestContext?.http?.method ||
     event?.requestContext?.httpMethod ||
@@ -113,14 +153,14 @@ export const handler = async (event) => {
     "";
 
   if (String(method).toUpperCase() === "OPTIONS") {
-    // 바디 없이 204 응답이 일반적
     return {
       statusCode: 204,
       headers: corsHeaders(event),
       body: "",
     };
   }
-  // 1) parse body
+
+  // 1. 요청 body 파싱 및 JSON 검증
   let payload;
   try {
     payload =
@@ -128,90 +168,114 @@ export const handler = async (event) => {
         ? JSON.parse(event.body)
         : (event?.body ?? event);
   } catch {
-    return resp(400, { ok: false, error: "Invalid JSON body" });
+    return resp(400, { ok: false, error: "Invalid JSON body", code: "INVALID_JSON"});
   }
 
-  // (선택) 최상위 payload 자체도 너무 크면 컷/거절
+  // 최상위 payload 자체도 너무 크면 컷/거절
   // API Gateway/Lambda URL 자체 제한이 있긴 하지만, 방어적으로 추가
   const payloadBytes = jsonByteLength(payload);
   const MAX_PAYLOAD_BYTES = Number(process.env.MAX_PAYLOAD_BYTES || 450_000); // 여유치(약 450KB)
   if (payloadBytes > MAX_PAYLOAD_BYTES) {
-    return resp(413, { ok: false, error: "Payload too large" });
+    return resp(413, { ok: false, error: "Payload too large", code: "PAYLOAD_TOO_LARGE"});
   }
 
-  // 2) minimal validation
+  // 2. 필수 필드 최소 검증 (type, sessionId, ts)
   const type = safeStr(payload?.type, 120);
   const ruleId = safeStr(payload?.ruleId, 200);
   const sessionId = safeStr(payload?.sessionId, 120);
-  const ts = Number(payload?.ts);
+  const installId = safeStr(payload?.installId, 120); 
+  const tsMs = toTsMs(payload?.ts);
+  const eventId = safeStr(payload?.eventId, 200) || safeStr(payload?.reportId, 200);       // 길이는 운영 기준으로 조절
 
-  if (!type || !sessionId || !Number.isFinite(ts)) {
-    return resp(400, { ok: false, error: "Missing required fields: type, sessionId, ts" });
+  if (!type) {
+    return resp(400, {
+      ok: false,
+      error: "Missing required field: type",
+      code: "MISSING_TYPE",
+    });
+  }
+
+  if (!sessionId) {
+    return resp(400, {
+      ok: false,
+      error: "Missing required field: sessionId",
+      code: "MISSING_SESSION_ID",
+    });
+  }
+
+  if (!installId) {
+    return resp(400, {
+      ok: false,
+      error: "Missing required field: installId",
+      code: "MISSING_INSTALL_ID",
+    });
+  }
+
+  if (!Number.isFinite(tsMs)) {
+    return resp(400, {
+      ok: false,
+      error: "Invalid or missing required field: ts",
+      code: "INVALID_TS",
+    });
+  }
+
+  if (!eventId) {
+    return resp(400, {
+      ok: false,
+      error: "Missing required field: eventId",
+      code: "MISSING_EVENT_ID",
+    });
   }
 
   const origin = safeStr(payload?.origin, 400);
   const page = safeStr(payload?.page, 2000);
   const targetOrigin = safeStr(payload?.targetOrigin, 400);
   const ua = safeStr(payload?.ua, 400);
-  const severity = safeStr(payload?.severity ?? "INFO", 20);
+  let severity = safeStr(payload?.severity ?? "LOW", 20).toUpperCase();
+  if (!["HIGH", "MEDIUM", "LOW"].includes(severity)) severity = "UNKNOWN";
   const scoreDelta = Number(payload?.scoreDelta ?? 0);
-
   const now = Date.now();
   const MAX_SKEW_MS = Number(process.env.MAX_TS_SKEW_MS || 7 * 86400 * 1000);
-  if (Math.abs(ts - now) > MAX_SKEW_MS) {
-    return resp(400, { ok: false, error: "ts is out of acceptable range" });
+  if (Math.abs(tsMs - now) > MAX_SKEW_MS) {
+    return resp(400, { ok: false, error: "ts is out of acceptable range", code: "TS_OUT_OF_RANGE" });
   }
 
-  const day = isoDayFromTs(ts);
-  const eventId = computeEventId({
-    type,
-    ruleId: ruleId || type,
-    sessionId,
-    ts,
-    page,
-    origin,
-    targetOrigin,
-    severity,
-    scoreDelta,
-  });
+  const day = isoDayFromTs(tsMs);
+  const hourKey = isoHourKeyFromTs(tsMs);
+  
+  // eventId 기반 해시 (결정적 shard 계산)
+  const eventIdHash = crypto.createHash("sha256").update(eventId).digest("hex");
 
-  const eventIdShort = eventId.slice(0, 12);
+  // Events shard: 항상 동일 eventId -> 동일 shard
+  const eventShard = Number.parseInt(eventIdHash.slice(0, 8), 16) % EVENT_SHARDS;
 
-  // 3) key design
-  const pk = `ORG#${origin || "UNKNOWN"}#DAY#${day}`;
-  const sk = `TS#${ts}#SESS#${sessionId}#TYPE#${type}#E#${eventIdShort}`;
+  // SK 길이 제한용 short id (원본도 함께 저장하니 SK는 짧게)
+  const eventIdShort = eventIdHash.slice(0, 16);
 
-  // 4) GSIs
-  const gsi1pk = `SEV#${severity || "UNKNOWN"}#DAY#${day}`;
-  const gsi1sk = `TS#${ts}#ORG#${origin || "UNKNOWN"}#TYPE#${type}#E#${eventIdShort}`;
+  // 3. 이벤트 식별 키
+  // shard (핫파티션 방지)
+  const revTs = String(9999999999999 - tsMs).padStart(13, "0");
 
-  const gsi2pk = `RULE#${(ruleId || type) || "UNKNOWN"}#DAY#${day}`;
-  const gsi2sk = `TS#${ts}#ORG#${origin || "UNKNOWN"}#SEV#${severity || "UNKNOWN"}#E#${eventIdShort}`;
+  const pk = `ORG#${origin || "UNKNOWN"}#DAY#${day}#S#${eventShard}`;
+  const sk = `T#${revTs}#E#${eventIdShort}`;
 
-  const gsi3pk = `SESS#${sessionId}`;
-  const gsi3sk = `TS#${ts}#ORG#${origin || "UNKNOWN"}#TYPE#${type}#E#${eventIdShort}`;
-
-  const gsi4pk = `TGT#${targetOrigin || "UNKNOWN"}#DAY#${day}`;
-  const gsi4sk = `TS#${ts}#ORG#${origin || "UNKNOWN"}#TYPE#${type}#E#${eventIdShort}`;
-
-  // 5) payload size control
-  const MAX_JSON_BYTES = Number(process.env.MAX_JSON_BYTES || 20_000);
+  // 4. payload(data/evidence) 크기 제한
   const dataPack = truncateJsonByBytes(payload?.data, MAX_JSON_BYTES);
   const evPack = truncateJsonByBytes(payload?.evidence, MAX_JSON_BYTES);
 
-  // 6) TTL (optional)
-  const ttl = TTL_DAYS > 0
-    ? Math.floor((Date.now() + TTL_DAYS * 86400 * 1000) / 1000)
-    : undefined;
+  // 5 TTL 계산
+  const ttl = ttlFromDay(day, TTL_DAYS);
 
   const item = {
     pk, sk,
     eventId,
-    ts, day,
+    tsMs, day,
 
     type,
     ruleId: ruleId || type,
     sessionId,
+    installId,
+    
     origin,
     page,
     targetOrigin,
@@ -219,34 +283,112 @@ export const handler = async (event) => {
     severity,
     scoreDelta,
 
+    ttl,
+  };
+
+  const bodyItem = {
+    pk: `EVENT#${eventId}`,
+    sk: "BODY",
+
+    eventId,
+    tsMs, day,
+    installId,
+
     data: dataPack.json,
     evidence: evPack.json,
     dataTruncated: dataPack.truncated,
     evidenceTruncated: evPack.truncated,
 
-    gsi1pk, gsi1sk,
-    gsi2pk, gsi2sk,
-    gsi3pk, gsi3sk,
-    gsi4pk, gsi4sk,
-
     ttl,
   };
 
+  // Aggregates shard
+  const aggShard = Number.parseInt(eventIdHash.slice(8, 16), 16) % AGG_SHARDS;
+  const orgKey = origin || "UNKNOWN";
+  const ruleKey = (ruleId || type) || "UNKNOWN";
+  const domainKey = targetOrigin || "UNKNOWN";
+  const sevKey = severity || "LOW";
+
   try {
+    // 1 메타 Put
     await ddb.send(new PutCommand({
       TableName: TABLE,
       Item: item,
-      // eventId 중복 저장 방지(리플레이/재전송 대비)
-      ConditionExpression: "attribute_not_exists(eventId)",
+      ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)",
     }));
+
+    // 2 BODY Put
+    await ddb.send(new PutCommand({
+      TableName: TABLE,
+      Item: bodyItem,
+    }));
+    
+    // 3 Aggregates UpdateItem들 (카운터/합계 누적)
+    //    - 도메인 랭킹: DAY 단위 DOMAIN 카운트+점수합
+    //    - 룰 빈도: DAY 단위 RULE 카운트
+    //    - 트렌드: HOUR 단위 이벤트 카운트
+    //    - severity: severity 이벤트 카운트
+    //
+    // NOTE: Put 성공한 경우에만 집계를 수행(멱등/중복 방지)
+    const aggUpdates = [];
+
+    // (A) Domain DAY ranking
+    aggUpdates.push(ddb.send(new UpdateCommand({
+      TableName: AGG_TABLE,
+      Key: {
+        pk: `ORG#${orgKey}#DAY#${day}#S#${aggShard}`,
+        sk: `DOMAIN#${domainKey}`,
+      },
+      UpdateExpression: "SET #ttl = if_not_exists(#ttl, :ttl) ADD #cnt :one, #scoreSum :sd",
+      ExpressionAttributeNames: { "#cnt": "cnt", "#scoreSum": "scoreSum", "#ttl": "ttl" },
+      ExpressionAttributeValues: { ":one": 1, ":sd": Number(scoreDelta || 0), ":ttl": ttl },
+    })));
+
+    // (B) Rule DAY topN
+    aggUpdates.push(ddb.send(new UpdateCommand({
+      TableName: AGG_TABLE,
+      Key: {
+        pk: `ORG#${orgKey}#DAY#${day}#S#${aggShard}`,
+        sk: `RULE#${ruleKey}`,
+      },
+      UpdateExpression: "SET #ttl = if_not_exists(#ttl, :ttl) ADD #cnt :one",
+      ExpressionAttributeNames: { "#cnt": "cnt", "#ttl": "ttl" },
+      ExpressionAttributeValues: { ":one": 1, ":ttl": ttl },
+    })));
+
+    // (C) Hour trend
+    aggUpdates.push(ddb.send(new UpdateCommand({
+      TableName: AGG_TABLE,
+      Key: {
+        pk: `ORG#${orgKey}#HOUR#${hourKey}#S#${aggShard}`,
+        sk: "METRIC#EVENT_COUNT",
+      },
+      UpdateExpression: "SET #ttl = if_not_exists(#ttl, :ttl) ADD #cnt :one",
+      ExpressionAttributeNames: { "#cnt": "cnt", "#ttl": "ttl" },
+      ExpressionAttributeValues: { ":one": 1, ":ttl": ttl },
+    })));
+
+    // (D) Severity counts
+    aggUpdates.push(ddb.send(new UpdateCommand({
+      TableName: AGG_TABLE,
+      Key: {
+        pk: `ORG#${orgKey}#DAY#${day}#S#${aggShard}`,
+        sk: `SEV#${sevKey}`,
+      },
+      UpdateExpression: "SET #ttl = if_not_exists(#ttl, :ttl) ADD #cnt :one",
+      ExpressionAttributeNames: { "#cnt": "cnt", "#ttl": "ttl" },
+      ExpressionAttributeValues: { ":one": 1, ":ttl": ttl },
+    })));
+
+    await Promise.all(aggUpdates);
   } catch (e) {
-    // 중복이면 성공으로 취급 (멱등)
+    // 중복 이벤트는 성공 처리, 그 외 에러는 실패 반환
     const name = String(e?.name || "");
     if (name.includes("ConditionalCheckFailed")) {
       return resp(200, { ok: true, dedup: true, eventId });
     }
     console.error("ddb_put_failed", e);
-    return resp(500, { ok: false, error: "Failed to persist event" });
+    return resp(500, { ok: false, error: "Failed to persist event", code: "DDB_WRITE_FAILED"});
   }
 
   return resp(200, { ok: true, eventId });

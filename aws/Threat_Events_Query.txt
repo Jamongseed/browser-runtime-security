@@ -2,25 +2,20 @@
 // deps: @aws-sdk/client-dynamodb @aws-sdk/lib-dynamodb
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, QueryCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
 });
 
 const TABLE_NAME = process.env.TABLE_NAME || "Threat_Events";
-
-// Index names
-const GSI1 = process.env.GSI1_NAME || "GSI1_SeverityDay";
-const GSI2 = process.env.GSI2_NAME || "GSI2_RuleDay";
-const GSI3 = process.env.GSI3_NAME || "GSI3_Session";
-const GSI4 = process.env.GSI4_NAME || "GSI4_TargetOriginDay";
+const EVENT_SHARDS = Number(process.env.EVENT_SHARDS || 8);
 
 // Guardrails
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const DEFAULT_WINDOW_MS = 24 * 60 * 60 * 1000;
-const MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // 7d
+const MAX_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -37,6 +32,7 @@ function json(statusCode, obj) {
   };
 }
 
+// 숫자 파라미터를 min/max 범위로 제한
 function clampInt(v, def, min, max) {
   const n = Number(v);
   if (!Number.isFinite(n)) return def;
@@ -46,6 +42,7 @@ function clampInt(v, def, min, max) {
   return i;
 }
 
+// 조회 시작 시점을 now 기준 window로 안전하게 보정
 function toSinceMs(qs) {
   const now = Date.now();
   const raw = Number(qs?.sinceMs);
@@ -54,6 +51,22 @@ function toSinceMs(qs) {
   const safe = Math.min(raw, now);
   const minSince = now - MAX_WINDOW_MS;
   return safe < minSince ? minSince : safe;
+}
+
+function padTs13(tsMs) {
+  return String(Math.trunc(Number(tsMs))).padStart(13, "0");
+}
+
+// ingest 시 사용한 reverse timestamp 생성 로직
+function revTs13FromMs(tsMs) {
+  // Ingest sk: "T#<revTs>#E#..."
+  const rev = 9999999999999 - Math.trunc(Number(tsMs));
+  return String(rev).padStart(13, "0");
+}
+
+function skUpperBoundFromSinceMs(sinceMs) {
+  // sinceMs 이상(최근)만: revTs <= revTs(sinceMs)
+  return `T#${revTs13FromMs(sinceMs)}`;
 }
 
 function normDay(s) {
@@ -84,8 +97,8 @@ function isPlainObject(v) {
   return v !== null && typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype;
 }
 
-// nextToken이 “다른 파티션”에 재사용/오용되는 것 방지
-function decodeNextToken(token, pkName, pkValue, skName) {
+// 토큰 검증 및 디코딩
+function decodeNextToken(token) {
   if (!token) return { ok: true, key: undefined };
   let obj;
   try {
@@ -94,17 +107,18 @@ function decodeNextToken(token, pkName, pkValue, skName) {
     return { ok: false, reason: "INVALID_nextToken" };
   }
   if (!isPlainObject(obj)) return { ok: false, reason: "INVALID_nextToken" };
-  if (typeof obj[pkName] !== "string" || typeof obj[skName] !== "string") {
+  // shard fan-out: token 형태
+  // { shards: [{ s:0, lek: {...} }, ...], done: [0,1,...] }
+  if (!Array.isArray(obj.shards) && !Array.isArray(obj.done)) {
     return { ok: false, reason: "INVALID_nextToken" };
   }
-  if (obj[pkName] !== pkValue) return { ok: false, reason: "INVALID_nextToken" };
   return { ok: true, key: obj };
 }
 
 function pickItem(it) {
   // 응답 payload는 필요에 따라 더 줄이거나 늘리세요
   return {
-    ts: it.ts,
+    ts: it.tsMs,
     day: it.day,
     type: it.type,
     ruleId: it.ruleId,
@@ -121,46 +135,51 @@ function pickItem(it) {
   };
 }
 
-async function doQuery({
-  indexName,              // undefined면 base table
-  pkName, pkValue,
-  skName,                 // "sk" 또는 "gsiXsk"
-  sinceMs,
-  limit,
-  nextToken,
-}) {
-  const decoded = decodeNextToken(nextToken, pkName, pkValue, skName);
-  if (!decoded.ok) return { ok: false, reason: decoded.reason };
-
-  // KeyCondition은 파티션으로만 강하게 좁히고, 시간은 ts(number)로 필터
-  // (키에 0-padding ts를 쓰면 range condition으로 더 효율화 가능)
+// 단일 shard에 대해 sinceMs 기준 최신 이벤트 조회
+async function queryOneShard({ pkValue, sinceMs, limit, exclusiveStartKey }) {
+  // sinceMs 컷: SK <= upperBound (revTs가 작을수록 최신이므로)
   const params = {
     TableName: TABLE_NAME,
-    ...(indexName ? { IndexName: indexName } : {}),
-    KeyConditionExpression: "#pk = :pk",
-    ExpressionAttributeNames: {
-      "#pk": pkName,
-      "#ts": "ts",
-    },
+    KeyConditionExpression: "#pk = :pk AND #sk <= :skUpper",
+    ExpressionAttributeNames: { "#pk": "pk", "#sk": "sk" },
     ExpressionAttributeValues: {
       ":pk": pkValue,
-      ":since": Number(sinceMs),
+      ":skUpper": skUpperBoundFromSinceMs(sinceMs),
     },
-    FilterExpression: "#ts >= :since",
     Limit: limit,
-    ScanIndexForward: false,         // 최신부터
-    ExclusiveStartKey: decoded.key,
+    ScanIndexForward: true, // revTs 오름차순 = 최신부터
+    ExclusiveStartKey: exclusiveStartKey,
   };
-
   const res = await ddb.send(new QueryCommand(params));
-  return {
-    ok: true,
-    items: res.Items || [],
-    nextToken: encodeNextToken(res.LastEvaluatedKey),
-  };
+  return { items: res.Items || [], lek: res.LastEvaluatedKey };
 }
 
+function revTsFromSk(sk) {
+  // sk = "T#<13digits>#E#..."
+  const m = /^T#(\d{13})#/.exec(String(sk || ""));
+  return m ? m[1] : "9999999999999";
+}
+
+// revTs 기준으로 두 shard 결과를 최신순으로 병합
+function mergeByRevTs(itemsA, itemsB, limit) {
+  // 두 리스트 모두 최신부터(작은 revTs부터) 정렬되어 있다는 가정
+  const out = [];
+  let i = 0, j = 0;
+  while (out.length < limit && (i < itemsA.length || j < itemsB.length)) {
+    const a = itemsA[i];
+    const b = itemsB[j];
+    if (!b) { out.push(a); i++; continue; }
+    if (!a) { out.push(b); j++; continue; }
+    const ra = revTsFromSk(a.sk);
+    const rb = revTsFromSk(b.sk);
+    if (ra <= rb) { out.push(a); i++; } else { out.push(b); j++; }
+  }
+  return out;
+}
+
+
 // ---------- Route handlers ----------
+// ORG + DAY 기준 이벤트 리스트 조회 (샤드 fan-out + pagination)
 async function handleEvents(event) {
   const qs = event.queryStringParameters || {};
   const origin = safeStr(qs.origin, 400);
@@ -173,160 +192,77 @@ async function handleEvents(event) {
   const limit = clampInt(qs.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
   const nextToken = qs.nextToken ? String(qs.nextToken) : undefined;
 
-  const pkValue = `ORG#${origin}#DAY#${day}`;
+  // shard fan-out pagination token
+  const decoded = decodeNextToken(nextToken);
+  if (!decoded.ok) return json(400, { ok: false, reason: decoded.reason });
+  const tokenObj = decoded.key || { shards: [], done: [] };
+  const doneSet = new Set(Array.isArray(tokenObj.done) ? tokenObj.done : []);
+  const shardState = new Map();
+  for (const e of (Array.isArray(tokenObj.shards) ? tokenObj.shards : [])) {
+    if (e && Number.isFinite(Number(e.s))) shardState.set(Number(e.s), e.lek);
+  }
 
-  const result = await doQuery({
-    indexName: undefined,
-    pkName: "pk",
-    pkValue,
-    skName: "sk",
-    sinceMs,
-    limit,
-    nextToken,
+  // 각 샤드에서 일부씩 뽑아 merge (비용 통제: perShardLimit)
+  const perShardLimit = Math.max(1, Math.ceil(limit / 2));
+  let merged = [];
+  const newShardTokens = [];
+  const newlyDone = [];
+
+  // 2개씩 병렬로 Query (동시성 제한)
+  const CONCURRENCY = 2;
+  const pendingShards = [];
+  for (let s = 0; s < EVENT_SHARDS; s++) {
+    if (!doneSet.has(s)) pendingShards.push(s);
+  }
+
+  for (let i = 0; i < pendingShards.length && merged.length < limit; i += CONCURRENCY) {
+    const batch = pendingShards.slice(i, i + CONCURRENCY);
+
+    const results = await Promise.all(batch.map(async (s) => {
+      const pkValue = `ORG#${origin}#DAY#${day}#S#${s}`;
+      const { items, lek } = await queryOneShard({
+        pkValue,
+        sinceMs,
+        limit: perShardLimit,
+        exclusiveStartKey: shardState.get(s),
+      });
+      return { s, items, lek };
+    }));
+
+    for (const r of results) {
+      merged = mergeByRevTs(merged, r.items, limit);
+      if (r.lek) newShardTokens.push({ s: r.s, lek: r.lek });
+      else newlyDone.push(r.s);
+      if (merged.length >= limit) break;
+    }
+  }
+
+  const outToken = encodeNextToken({
+    shards: newShardTokens,
+    done: Array.from(new Set([...doneSet, ...newlyDone])),
   });
-
-  if (!result.ok) return json(400, { ok: false, reason: result.reason });
 
   return json(200, {
     ok: true,
     query: { origin, day, sinceMs, limit },
-    items: result.items.map(pickItem),
-    nextToken: result.nextToken,
+    items: merged.map(pickItem),
+    nextToken: outToken,
   });
 }
 
-async function handleBySeverity(event) {
+// 단일 eventId에 대한 상세 BODY 조회
+async function handleBody(event) {
   const qs = event.queryStringParameters || {};
-  const severity = normSeverity(qs.severity);
-  const day = normDay(qs.day);
+  const eventId = safeStr(qs.eventId, 200);
+  if (!eventId) return json(400, { ok: false, reason: "MISSING_eventId" });
 
-  if (!day) return json(400, { ok: false, reason: "MISSING_or_INVALID_day" });
-  if (!severity) return json(400, { ok: false, reason: "MISSING_severity" });
-  if (severity === "__INVALID__") return json(400, { ok: false, reason: "INVALID_severity" });
+  const res = await ddb.send(new GetCommand({
+    TableName: TABLE_NAME,
+    Key: { pk: `EVENT#${eventId}`, sk: "BODY" },
+  }));
 
-  const sinceMs = toSinceMs(qs);
-  const limit = clampInt(qs.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
-  const nextToken = qs.nextToken ? String(qs.nextToken) : undefined;
-
-  const pkValue = `SEV#${severity}#DAY#${day}`;
-
-  const result = await doQuery({
-    indexName: GSI1,
-    pkName: "gsi1pk",
-    pkValue,
-    skName: "gsi1sk",
-    sinceMs,
-    limit,
-    nextToken,
-  });
-
-  if (!result.ok) return json(400, { ok: false, reason: result.reason });
-
-  return json(200, {
-    ok: true,
-    query: { severity, day, sinceMs, limit },
-    items: result.items.map(pickItem),
-    nextToken: result.nextToken,
-  });
-}
-
-async function handleByRule(event) {
-  const qs = event.queryStringParameters || {};
-  const ruleId = safeStr(qs.ruleId, 200);
-  const day = normDay(qs.day);
-
-  if (!ruleId) return json(400, { ok: false, reason: "MISSING_ruleId" });
-  if (!day) return json(400, { ok: false, reason: "MISSING_or_INVALID_day" });
-
-  const sinceMs = toSinceMs(qs);
-  const limit = clampInt(qs.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
-  const nextToken = qs.nextToken ? String(qs.nextToken) : undefined;
-
-  const pkValue = `RULE#${ruleId}#DAY#${day}`;
-
-  const result = await doQuery({
-    indexName: GSI2,
-    pkName: "gsi2pk",
-    pkValue,
-    skName: "gsi2sk",
-    sinceMs,
-    limit,
-    nextToken,
-  });
-
-  if (!result.ok) return json(400, { ok: false, reason: result.reason });
-
-  return json(200, {
-    ok: true,
-    query: { ruleId, day, sinceMs, limit },
-    items: result.items.map(pickItem),
-    nextToken: result.nextToken,
-  });
-}
-
-async function handleBySession(event) {
-  const qs = event.queryStringParameters || {};
-  const sessionId = safeStr(qs.sessionId, 200);
-  if (!sessionId) return json(400, { ok: false, reason: "MISSING_sessionId" });
-
-  const sinceMs = toSinceMs(qs);
-  const limit = clampInt(qs.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
-  const nextToken = qs.nextToken ? String(qs.nextToken) : undefined;
-
-  const pkValue = `SESS#${sessionId}`;
-
-  const result = await doQuery({
-    indexName: GSI3,
-    pkName: "gsi3pk",
-    pkValue,
-    skName: "gsi3sk",
-    sinceMs,
-    limit,
-    nextToken,
-  });
-
-  if (!result.ok) return json(400, { ok: false, reason: result.reason });
-
-  return json(200, {
-    ok: true,
-    query: { sessionId, sinceMs, limit },
-    items: result.items.map(pickItem),
-    nextToken: result.nextToken,
-  });
-}
-
-async function handleByTarget(event) {
-  const qs = event.queryStringParameters || {};
-  const targetOrigin = safeStr(qs.targetOrigin, 400);
-  const day = normDay(qs.day);
-
-  if (!targetOrigin) return json(400, { ok: false, reason: "MISSING_targetOrigin" });
-  if (!day) return json(400, { ok: false, reason: "MISSING_or_INVALID_day" });
-
-  const sinceMs = toSinceMs(qs);
-  const limit = clampInt(qs.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
-  const nextToken = qs.nextToken ? String(qs.nextToken) : undefined;
-
-  const pkValue = `TGT#${targetOrigin}#DAY#${day}`;
-
-  const result = await doQuery({
-    indexName: GSI4,
-    pkName: "gsi4pk",
-    pkValue,
-    skName: "gsi4sk",
-    sinceMs,
-    limit,
-    nextToken,
-  });
-
-  if (!result.ok) return json(400, { ok: false, reason: result.reason });
-
-  return json(200, {
-    ok: true,
-    query: { targetOrigin, day, sinceMs, limit },
-    items: result.items.map(pickItem),
-    nextToken: result.nextToken,
-  });
+  if (!res.Item) return json(404, { ok: false, reason: "NOT_FOUND" });
+  return json(200, { ok: true, eventId, body: res.Item });
 }
 
 // ---------- Router ----------
@@ -338,6 +274,7 @@ function getPath(event) {
   return String(event?.path || event?.rawPath || "");
 }
 
+// GET /events, /events/body 라우팅 처리
 export const handler = async (event) => {
   try {
     const method = getMethod(event);
@@ -353,12 +290,9 @@ export const handler = async (event) => {
     }
 
     const path = getPath(event);
-    // stage prefix가 붙어도 동작하도록 endsWith
+    // stage prefix가 붙어도 동작하도록 endsWith    
+    if (path.endsWith("/events/body")) return await handleBody(event);
     if (path.endsWith("/events")) return await handleEvents(event);
-    if (path.endsWith("/events/bySeverity")) return await handleBySeverity(event);
-    if (path.endsWith("/events/byRule")) return await handleByRule(event);
-    if (path.endsWith("/events/bySession")) return await handleBySession(event);
-    if (path.endsWith("/events/byTarget")) return await handleByTarget(event);
 
     return json(404, { ok: false, reason: "NOT_FOUND" });
   } catch (err) {
