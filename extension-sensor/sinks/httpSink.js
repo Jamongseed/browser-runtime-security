@@ -1,3 +1,5 @@
+import { runWithLock } from "../utils/lock.js";
+
 const FAILED_QUEUE_KEY = "failed_log_queue";
 const ALARM_NAME = "retry_failed_logs";
 const MAX_FAILED_QUEUE_SIZE = 100;
@@ -48,7 +50,7 @@ async function fetchWithTimeout(url, options, timeoutMs) {
 }
 
 async function popFromQueue(limit) {
-  return navigator.locks.request(QUEUE_LOCK, async () => {
+  return runWithLock(QUEUE_LOCK, async () => {
     let { [FAILED_QUEUE_KEY]: queue } = await chrome.storage.local.get({ [FAILED_QUEUE_KEY]: [] });
     
     if (!queue || queue.length === 0) return [];
@@ -66,7 +68,7 @@ async function pushToQueue(items) {
   const itemsArray = Array.isArray(items) ? items : [items];
   if (itemsArray.length === 0) return;
 
-  return navigator.locks.request(QUEUE_LOCK, async () => {
+  return runWithLock(QUEUE_LOCK, async () => {
     let { [FAILED_QUEUE_KEY]: queue } = await chrome.storage.local.get({ [FAILED_QUEUE_KEY]: [] });
     
     const newQueue = queue.concat(itemsArray);
