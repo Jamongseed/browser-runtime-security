@@ -1,10 +1,12 @@
+import { runWithLock } from "./lock.js";
+
 // 동시성 제어 Key
 const SESSION_LOCK = "brs_session_lock";
 
 export async function updateTabSession(tabId, sessionId) {
   if (!tabId || !sessionId) return;
 
-  await navigator.locks.request(SESSION_LOCK, async () => {
+  await runWithLock(SESSION_LOCK, async () => {
     try {
       const { tabSessions = {} } = await chrome.storage.local.get("tabSessions");
       
@@ -27,7 +29,7 @@ export async function getSessionIdByTab(tabId) {
 export async function removeTabSession(tabId) {
   if (!tabId) return;
 
-  await navigator.locks.request(SESSION_LOCK, async () => {
+  await runWithLock(SESSION_LOCK, async () => {
     try {
       const { tabSessions = {} } = await chrome.storage.local.get("tabSessions");
       

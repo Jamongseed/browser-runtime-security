@@ -16,13 +16,11 @@ function renderEmpty(element, msg) {
 
 document.addEventListener('DOMContentLoaded', () => {
   chrome.storage.local.get({ 
-    brs_threat_logs: [], 
-    tabSessions: {}, 
-    brs_installId: null 
+    brs_threat_logs: [],
+    brs_installId: null
   }, async (result) => {
 
     const logs = result.brs_threat_logs;
-    const tabSessions = result.tabSessions;
     const installId = result.brs_installId;
 
     const logArea = document.getElementById('log-area');
