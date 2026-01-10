@@ -139,7 +139,7 @@ function truncateJsonByBytes(obj, maxBytes) {
 function ttlFromDay(day, plusDays) {
   const [y, m, d] = day.split("-").map(Number);
   // Asia/Seoul 기준 day 끝
-  const endOfDaySeoul = Date.UTC(y, m - 1, d + 1, 0, 0, 0) - 1;
+  const endOfDaySeoul = Date.UTC(y, m - 1, d, 15, 59, 59);
   const ttlMs = endOfDaySeoul + plusDays * 86400 * 1000;
   return Math.floor(ttlMs / 1000);
 }
@@ -276,6 +276,10 @@ export const handler = async (event) => {
     sessionId,
     installId,
     
+    // GSI for installId personal page
+    ii_pk: `INSTALL#${installId}`,
+    ii_sk: `T#${revTs}#E#${eventIdShort}`,
+    
     origin,
     page,
     targetOrigin,
@@ -290,7 +294,6 @@ export const handler = async (event) => {
     pk: `EVENT#${eventId}`,
     sk: "BODY",
 
-    eventId,
     tsMs, day,
     installId,
 
@@ -374,6 +377,30 @@ export const handler = async (event) => {
       Key: {
         pk: `ORG#${orgKey}#DAY#${day}#S#${aggShard}`,
         sk: `SEV#${sevKey}`,
+      },
+      UpdateExpression: "SET #ttl = if_not_exists(#ttl, :ttl) ADD #cnt :one",
+      ExpressionAttributeNames: { "#cnt": "cnt", "#ttl": "ttl" },
+      ExpressionAttributeValues: { ":one": 1, ":ttl": ttl },
+    })));
+
+    // (E) RULE trend (DAY x SEV) - stacked bars
+    aggUpdates.push(ddb.send(new UpdateCommand({
+      TableName: AGG_TABLE,
+      Key: {
+        pk: `ORG#${orgKey}#TREND#RULE#K#${ruleKey}#S#${aggShard}`,
+        sk: `DAY#${day}#SEV#${sevKey}`,
+      },
+      UpdateExpression: "SET #ttl = if_not_exists(#ttl, :ttl) ADD #cnt :one",
+      ExpressionAttributeNames: { "#cnt": "cnt", "#ttl": "ttl" },
+      ExpressionAttributeValues: { ":one": 1, ":ttl": ttl },
+    })));
+
+    // (F) DOMAIN trend (DAY x SEV) - stacked bars
+    aggUpdates.push(ddb.send(new UpdateCommand({
+      TableName: AGG_TABLE,
+      Key: {
+        pk: `ORG#${orgKey}#TREND#DOMAIN#K#${domainKey}#S#${aggShard}`,
+        sk: `DAY#${day}#SEV#${sevKey}`,
       },
       UpdateExpression: "SET #ttl = if_not_exists(#ttl, :ttl) ADD #cnt :one",
       ExpressionAttributeNames: { "#cnt": "cnt", "#ttl": "ttl" },

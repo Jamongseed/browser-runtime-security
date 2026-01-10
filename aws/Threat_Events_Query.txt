@@ -115,8 +115,26 @@ function decodeNextToken(token) {
   return { ok: true, key: obj };
 }
 
+
+// nextToken for single Query (LastEvaluatedKey)
+function encodeLekToken(lek) {
+  if (!lek) return null;
+  return Buffer.from(JSON.stringify(lek), "utf8").toString("base64url");
+}
+
+function decodeLekToken(token) {
+  if (!token) return { ok: true, lek: undefined };
+  let obj;
+  try {
+    obj = JSON.parse(Buffer.from(token, "base64url").toString("utf8"));
+  } catch {
+    return { ok: false, reason: "INVALID_nextToken" };
+  }
+  if (!isPlainObject(obj)) return { ok: false, reason: "INVALID_nextToken" };
+  return { ok: true, lek: obj };
+}
+
 function pickItem(it) {
-  // 응답 payload는 필요에 따라 더 줄이거나 늘리세요
   return {
     ts: it.tsMs,
     day: it.day,
@@ -129,7 +147,6 @@ function pickItem(it) {
     page: it.page,
     targetOrigin: it.targetOrigin,
     eventId: it.eventId,
-    // 필요하면 data/evidence도 내려주되, 기본은 숨기는 걸 권장
     // data: it.data,
     // evidence: it.evidence,
   };
@@ -265,6 +282,43 @@ async function handleBody(event) {
   return json(200, { ok: true, eventId, body: res.Item });
 }
 
+async function handleEventsByInstall(event) {
+  const qs = event.queryStringParameters || {};
+  const installId = safeStr(qs.installId, 120);
+  if (!installId) return json(400, { ok: false, reason: "MISSING_installId" });
+
+  const sinceMs = toSinceMs(qs);
+  const limit = clampInt(qs.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
+  const nextToken = qs.nextToken ? String(qs.nextToken) : undefined;
+
+  const decoded = decodeLekToken(nextToken);
+  if (!decoded.ok) return json(400, { ok: false, reason: decoded.reason });
+ 
+  const res = await ddb.send(new QueryCommand({
+    TableName: TABLE_NAME,
+    IndexName: "install_ID",
+    KeyConditionExpression: "#pk = :pk AND #sk <= :skUpper",
+    ExpressionAttributeNames: {
+      "#pk": "ii_pk",
+      "#sk": "ii_sk",
+    },
+    ExpressionAttributeValues: {
+      ":pk": `INSTALL#${installId}`,
+      ":skUpper": skUpperBoundFromSinceMs(sinceMs),
+    },
+    Limit: limit,
+    ScanIndexForward: true,
+    ExclusiveStartKey: decoded.lek,
+  }));
+
+  return json(200, {
+    ok: true,
+    query: { installId, sinceMs, limit },
+    items: (res.Items || []).map(pickItem),
+    nextToken: encodeLekToken(res.LastEvaluatedKey),
+  });
+}
+
 // ---------- Router ----------
 function getMethod(event) {
   return String(event?.httpMethod || event?.requestContext?.http?.method || "")
@@ -293,6 +347,7 @@ export const handler = async (event) => {
     // stage prefix가 붙어도 동작하도록 endsWith    
     if (path.endsWith("/events/body")) return await handleBody(event);
     if (path.endsWith("/events")) return await handleEvents(event);
+    if (path.endsWith("/events/by-install")) return await handleEventsByInstall(event);
 
     return json(404, { ok: false, reason: "NOT_FOUND" });
   } catch (err) {

@@ -73,6 +73,84 @@ function parseLimit(qs) {
   return Math.min(limit, MAX_LIMIT);
 }
 
+function normDayFlexible2(s) {
+  const v = String(s || "").trim();
+  if (!v) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  if (/^\d{8}$/.test(v)) return `${v.slice(0, 4)}-${v.slice(4, 6)}-${v.slice(6, 8)}`;
+  return null;
+}
+
+function addDaysIso(isoDay, deltaDays) {
+  // isoDay: YYYY-MM-DD
+  const [y, m, d] = isoDay.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + deltaDays));
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getUTCDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+function lastNDaysRange(n) {
+  // Asia/Seoul 기준 today
+  const now = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const yyyy = now.getUTCFullYear();
+  const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(now.getUTCDate()).padStart(2, "0");
+  const end = `${yyyy}-${mm}-${dd}`;
+  const start = addDaysIso(end, -(n - 1));
+  return { start, end };
+}
+
+async function queryShardPkSkBetween({ pk, shard, skFrom, skTo }) {
+  const pkValue = `${pk}#S#${shard}`;
+  const res = await ddb.send(new QueryCommand({
+    TableName: TABLE_NAME,
+    KeyConditionExpression: "#pk = :pk AND #sk BETWEEN :a AND :b",
+    ExpressionAttributeNames: { "#pk": "pk", "#sk": "sk" },
+    ExpressionAttributeValues: { ":pk": pkValue, ":a": skFrom, ":b": skTo },
+  }));
+  return res.Items || [];
+}
+
+async function fanoutTrendBetween({ pkBase, skFrom, skTo }) {
+  const all = [];
+  for (let s = 0; s < AGG_SHARDS; s++) {
+    const items = await queryShardPkSkBetween({ pk: pkBase, shard: s, skFrom, skTo });
+    all.push(...items);
+  }
+  return all;
+}
+
+function parseTrendSk(sk) {
+  // sk: DAY#YYYY-MM-DD#SEV#HIGH
+  const m = /^DAY#(\d{4}-\d{2}-\d{2})#SEV#([A-Z]+)$/.exec(String(sk || ""));
+  return m ? { day: m[1], sev: m[2] } : null;
+}
+
+function foldTrendItemsToDays({ items, startDay, endDay }) {
+  const acc = new Map(); // day -> {day,HIGH,MEDIUM,LOW}
+  for (const it of items) {
+    const p = parseTrendSk(it.sk);
+    if (!p) continue;
+    const dayObj = acc.get(p.day) || { day: p.day, HIGH: 0, MEDIUM: 0, LOW: 0 };
+    const c = Number(it.cnt || 0);
+    if (p.sev === "HIGH") dayObj.HIGH += c;
+    else if (p.sev === "MEDIUM") dayObj.MEDIUM += c;
+    else if (p.sev === "LOW") dayObj.LOW += c;
+    acc.set(p.day, dayObj);
+  }
+
+  // fill missing days with zeros (good for chart)
+  const out = [];
+  let cur = startDay;
+  while (cur <= endDay) {
+    out.push(acc.get(cur) || { day: cur, HIGH: 0, MEDIUM: 0, LOW: 0 });
+    cur = addDaysIso(cur, 1);
+  }
+  return out;
+}
+
 // 특정 shard에서 sk prefix(DOMAIN/RULE/SEV) 기준 조회
 async function queryShardDayPrefix({ origin, day, shard, skPrefix }) {
   const pk = `ORG#${origin}#DAY#${day}#S#${shard}`;
@@ -113,11 +191,13 @@ function topNByCnt(list, limit) {
 async function handleTopnDomains(event) {
   const qs = event.queryStringParameters || {};
   const origin = required(qs, "origin", 120);
-  const day = requiredDay(qs);
-  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
-  if (!day) return json(400, { ok: false, reason: "MISSING_day" });
-  const limit = parseLimit(qs);
+  const dayRes = requiredDay(qs);
 
+  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
+  if (!dayRes.ok) return json(400, { ok: false, reason: dayRes.reason });
+  
+  const day = dayRes.value; 
+  const limit = parseLimit(qs);
   const items = await fanoutDayPrefix({ origin, day, skPrefix: "DOMAIN#" });
 
   // merge by domain key (sk = DOMAIN#xxx)
@@ -140,13 +220,14 @@ async function handleTopnDomains(event) {
 async function handleTopnRules(event) {
   const qs = event.queryStringParameters || {};
   const origin = required(qs, "origin", 120);
-  const day = requiredDay(qs);
+  const dayRes = requiredDay(qs);
+
   if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
-  if (!day) return json(400, { ok: false, reason: "MISSING_day" });
+  if (!dayRes.ok) return json(400, { ok: false, reason: dayRes.reason });
+
+  const day = dayRes.value;
   const limit = parseLimit(qs);
-
   const items = await fanoutDayPrefix({ origin, day, skPrefix: "RULE#" });
-
   const acc = new Map();
   for (const it of items) {
     const sk = String(it.sk || "");
@@ -165,10 +246,12 @@ async function handleTopnRules(event) {
 async function handleSeverity(event) {
   const qs = event.queryStringParameters || {};
   const origin = required(qs, "origin", 120);
-  const day = required(qs, "day", 16);
-  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
-  if (!day) return json(400, { ok: false, reason: "MISSING_day" });
+  const dayRes = requiredDay(qs);
 
+  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
+  if (!dayRes.ok) return json(400, { ok: false, reason: dayRes.reason });
+
+  const day = dayRes.value;
   const items = await fanoutDayPrefix({ origin, day, skPrefix: "SEV#" });
 
   const acc = new Map();
@@ -186,6 +269,56 @@ async function handleSeverity(event) {
   return json(200, { ok: true, query: { origin, day }, items: out });
 }
 
+// RULE trend (DAY x SEV) - stacked bars
+// GET /trends/rule?origin=...&ruleId=...&startDay=YYYY-MM-DD&endDay=YYYY-MM-DD
+// if start/end omitted -> last 30 days
+async function handleTrendRule(event) {
+  const qs = event.queryStringParameters || {};
+  const origin = required(qs, "origin", 120);
+  const ruleId = required(qs, "ruleId", 200);
+  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
+  if (!ruleId) return json(400, { ok: false, reason: "MISSING_ruleId" });
+
+  const rStart = normDayFlexible2(qs.startDay);
+  const rEnd = normDayFlexible2(qs.endDay);
+  const { start, end } = (rStart && rEnd) ? { start: rStart, end: rEnd } : lastNDaysRange(30);
+  if (!start || !end) return json(400, { ok: false, reason: "INVALID_day_range" });
+
+  const pkBase = `ORG#${origin}#TREND#RULE#K#${ruleId}`;
+  const skFrom = `DAY#${start}#SEV#`;     // inclusive
+  const skTo   = `DAY#${end}#SEV#~`;      // '~' makes it include HIGH/MEDIUM/LOW
+
+  const items = await fanoutTrendBetween({ pkBase, skFrom, skTo });
+  const out = foldTrendItemsToDays({ items, startDay: start, endDay: end });
+
+  return json(200, { ok: true, query: { origin, ruleId, startDay: start, endDay: end }, items: out });
+}
+
+// DOMAIN trend (DAY x SEV) - stacked bars
+// GET /trends/domain?origin=...&domain=...&startDay=...&endDay=...
+// if start/end omitted -> last 30 days
+async function handleTrendDomain(event) {
+  const qs = event.queryStringParameters || {};
+  const origin = required(qs, "origin", 120);
+  const domain = required(qs, "domain", 400);
+  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
+  if (!domain) return json(400, { ok: false, reason: "MISSING_domain" });
+
+  const rStart = normDayFlexible2(qs.startDay);
+  const rEnd = normDayFlexible2(qs.endDay);
+  const { start, end } = (rStart && rEnd) ? { start: rStart, end: rEnd } : lastNDaysRange(30);
+  if (!start || !end) return json(400, { ok: false, reason: "INVALID_day_range" });
+
+  const pkBase = `ORG#${origin}#TREND#DOMAIN#K#${domain}`;
+  const skFrom = `DAY#${start}#SEV#`;
+  const skTo   = `DAY#${end}#SEV#~`;
+
+  const items = await fanoutTrendBetween({ pkBase, skFrom, skTo });
+  const out = foldTrendItemsToDays({ items, startDay: start, endDay: end });
+
+  return json(200, { ok: true, query: { origin, domain, startDay: start, endDay: end }, items: out });
+}
+
 // aggregates 관련 GET API 라우팅
 export const handler = async (event) => {
   try {
@@ -198,9 +331,9 @@ export const handler = async (event) => {
     // stage prefix가 붙어도 동작하도록 endsWith
     if (path.endsWith("/aggregates/topn/domains")) return await handleTopnDomains(event);
     if (path.endsWith("/aggregates/topn/rules")) return await handleTopnRules(event);
-    // Rule 빈도 = DAY 기준 rule cnt (topn/rules로 커버 가능하되, 기존 클라 호환용 alias)
-    //if (path.endsWith("/aggregates/frequency/rules")) return await handleTopnRules(event);
     if (path.endsWith("/aggregates/severity")) return await handleSeverity(event);
+    if (path.endsWith("/trends/rule")) return await handleTrendRule(event);
+    if (path.endsWith("/trends/domain")) return await handleTrendDomain(event);
 
     return json(404, { ok: false, reason: "NOT_FOUND" });
   } catch (err) {
