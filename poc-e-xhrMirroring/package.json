@@ -1,0 +1,21 @@
+{
+  "name": "poc-xhr-mirroring-multicollect",
+  "version": "1.0.0",
+  "main": "server-main.js",
+  "type": "commonjs",
+  "scripts": {
+    "main": "node server-main.js",
+    "hook": "node server-hook.js",
+    "c1": "node server-collector-5001.js",
+    "c2": "node server-collector-5002.js",
+    "c3": "node server-collector-5003.js",
+    "start": "concurrently -k \"npm run c1\" \"npm run c2\" \"npm run c3\" \"npm run hook\" \"npm run main\""
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}
