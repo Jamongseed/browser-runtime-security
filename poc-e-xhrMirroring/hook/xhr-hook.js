@@ -84,6 +84,8 @@
     try{
       this.__poc=this.__poc||{};
       const c=classifyBody(body);
+      const headerCt = (this.__poc.headers && this.__poc.headers["content-type"]) || "";
+      
       const payload={
         type:"XHR_MIRROR",
         sid,
@@ -91,7 +93,7 @@
         ts:Date.now(),
         method:this.__poc.method||"GET",
         url:this.__poc.url||"",
-        contentType:(this.__poc.headers&&this.__poc.headers["content-type"])||"",
+        contentType: guessContentType(body, headerCt),
         bodyKind:c.kind,
         bodySize:c.size,
         pageOrigin:location.origin
