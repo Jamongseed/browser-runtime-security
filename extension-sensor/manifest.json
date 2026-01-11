@@ -49,6 +49,7 @@
         "detectors/form_submit_prototype_tamper.js",
         "detectors/sw_persistence.js",
         "detectors/mutation_observer.js",
+        "detectors/link_href_swap.js",
         "debug_dump_injected.js",
         "content.js"
       ],
