@@ -131,6 +131,11 @@
             else if (data && typeof data.byteLength === "number") size = data.byteLength; // ArrayBuffer
           } catch (_) {}
 
+          // (추가) 상관관계 근거: initiator 1줄(stackHead) + initiator origin
+          const ev = (typeof captureInitiator1 === "function")
+            ? captureInitiator1()
+            : { line: "", initiatorUrl: "", initiatorOrigin: "", initiatorCrossSite: false };
+
           send("SUSP_NETWORK_CALL", {
             api: "sendBeacon",
             url: String(url || ""),
@@ -138,6 +143,12 @@
             targetOrigin,
             crossSite: isCrossSite(targetOrigin),
             size,
+
+            // (추가) evidence-lite for correlation (XHR_MIRRORING_SUSPECT)
+            stackHead: ev.line || "",
+            initiatorUrl: ev.initiatorUrl || "",
+            initiatorOrigin: ev.initiatorOrigin || "",
+            initiatorCrossSite: !!ev.initiatorCrossSite,
           });
         } catch (_) {}
 
@@ -163,6 +174,11 @@
           const abs = toAbsUrl(rawUrl);
           const targetOrigin = getOrigin(abs);
 
+          // (추가) 상관관계 근거: initiator 1줄(stackHead) + initiator origin
+          const ev = (typeof captureInitiator1 === "function")
+            ? captureInitiator1()
+            : { line: "", initiatorUrl: "", initiatorOrigin: "", initiatorCrossSite: false };
+
           send("SUSP_NETWORK_CALL", {
             api: "fetch",
             url: String(rawUrl || ""),
@@ -171,6 +187,12 @@
             crossSite: isCrossSite(targetOrigin),
             method: String((init && init.method) || (input && input.method) || "GET"),
             mode: String((init && init.mode) || (input && input.mode) || ""),
+
+            // (추가) evidence-lite for correlation (XHR_MIRRORING_SUSPECT)
+            stackHead: ev.line || "",
+            initiatorUrl: ev.initiatorUrl || "",
+            initiatorOrigin: ev.initiatorOrigin || "",
+            initiatorCrossSite: !!ev.initiatorCrossSite,
           });
         } catch (_) {}
 
@@ -643,5 +665,160 @@
     send("HOOK_ERROR", { where: "HTMLFormElement.requestSubmit", msg: String(e?.message || e) });
   }
 
+  // (추가) XHR prototype tamper 감지
+  try {
+    const proto = (typeof XMLHttpRequest !== "undefined" && XMLHttpRequest && XMLHttpRequest.prototype) || null;
+    if (proto) {
+      const props = ["open", "send", "setRequestHeader"];
+      const lastFp = Object.create(null);
+      const reported = new Set();
+
+      const isNativeFn = (fn) => {
+        try {
+          return typeof fn === "function" && Function.prototype.toString.call(fn).includes("[native code]");
+        } catch (_) {
+          return false;
+        }
+      };
+
+      const safeFnHead = (fn, max = 220) => {
+        try {
+          if (typeof fn !== "function") return "";
+          return Function.prototype.toString.call(fn).slice(0, max);
+        } catch (_) {
+          return "";
+        }
+      };
+
+      const getDesc = (p) => {
+        try { return Object.getOwnPropertyDescriptor(proto, p); } catch (_) { return null; }
+      };
+
+      const fingerprint = (desc) => {
+        try {
+          if (!desc) return "null";
+          const v = desc.value;
+          return JSON.stringify({
+            t: typeof v,
+            head: typeof v === "function" ? safeFnHead(v, 140) : String(v).slice(0, 140),
+            c: !!desc.configurable,
+            w: !!desc.writable,
+            e: !!desc.enumerable,
+            hasGet: typeof desc.get === "function",
+            hasSet: typeof desc.set === "function",
+          });
+        } catch (_) {
+          return "err";
+        }
+      };
+
+      const analyzeFn = (fn) => {
+        const src = safeFnHead(fn, 1200);
+        const hasHttpUrl = /https?:\/\/[^\s"'`<>]+/i.test(src);
+        const hasFetch = /\bfetch\s*\(/i.test(src);
+        const hasBeacon = /\bsendbeacon\b/i.test(src) || /\bnavigator\.sendbeacon\b/i.test(src);
+        const hasWebSocket = /\bWebSocket\s*\(/i.test(src);
+        const hasImageExfil = /\bnew\s+Image\s*\(/i.test(src) || /\.src\s*=\s*["'`]?https?:\/\//i.test(src);
+        const hasJsonStringify = /\bJSON\.stringify\b/i.test(src);
+
+        let suspicionScore = 0;
+        if (hasFetch) suspicionScore += 3;
+        if (hasBeacon) suspicionScore += 3;
+        if (hasWebSocket) suspicionScore += 3;
+        if (hasImageExfil) suspicionScore += 3;
+        if (hasHttpUrl) suspicionScore += 2;
+        if (hasJsonStringify) suspicionScore += 1;
+
+        let suspicionBand = "LOW";
+        if (suspicionScore >= 6) suspicionBand = "HIGH";
+        else if (suspicionScore >= 3) suspicionBand = "MEDIUM";
+
+        return {
+          head: safeFnHead(fn, 220),
+          hasHttpUrl,
+          hasFetch,
+          hasBeacon,
+          hasWebSocket,
+          hasImageExfil,
+          hasJsonStringify,
+          suspicionScore,
+          suspicionBand,
+        };
+      };
+
+      const emitOnce = (key, data) => {
+        if (reported.has(key)) return;
+        reported.add(key);
+        send("PROTO_TAMPER", data);
+      };
+
+      const checkOne = (prop) => {
+        const desc = getDesc(prop);
+        const fp = fingerprint(desc);
+        const fn = desc && desc.value;
+
+        if (lastFp[prop] === undefined) {
+          lastFp[prop] = fp;
+
+          // 시작 시점부터 이미 non-native면 1회 보고
+          if (typeof fn === "function" && !isNativeFn(fn) && !(fn && fn.__BRS_PATCHED__ === true)) {
+            const analysis = analyzeFn(fn);
+            emitOnce(`XHR_${prop}_INIT_${fp}`, {
+              phase: "init",
+              target: `XMLHttpRequest.prototype.${prop}`,
+              isNative: false,
+              desc: {
+                configurable: !!desc?.configurable,
+                writable: !!desc?.writable,
+                enumerable: !!desc?.enumerable,
+                valueType: typeof fn,
+              },
+              analysis,
+              valueHead: analysis.head,
+              nextFp: fp,
+            });
+          }
+          return;
+        }
+
+        if (lastFp[prop] !== fp) {
+          // BRS 자체 패치 표식(향후) 있으면 제외
+          if (fn && fn.__BRS_PATCHED__ === true) {
+            lastFp[prop] = fp;
+            return;
+          }
+
+          const nativeNow = isNativeFn(fn);
+          const analysis = (typeof fn === "function") ? analyzeFn(fn) : { head: String(fn).slice(0, 220), suspicionScore: 0, suspicionBand: "LOW" };
+
+          emitOnce(`XHR_${prop}_CHG_${fp}`, {
+            phase: "change",
+            target: `XMLHttpRequest.prototype.${prop}`,
+            isNative: nativeNow,
+            desc: {
+              configurable: !!desc?.configurable,
+              writable: !!desc?.writable,
+              enumerable: !!desc?.enumerable,
+              valueType: typeof fn,
+            },
+            analysis,
+            valueHead: analysis.head,
+            prevFp: lastFp[prop],
+            nextFp: fp,
+          });
+
+          lastFp[prop] = fp;
+        }
+      };
+
+      // 1회 즉시 체크 + 주기 체크(가벼운 폴링)
+      try { props.forEach(checkOne); } catch (_) {}
+      setInterval(() => {
+        try { props.forEach(checkOne); } catch (_) {}
+      }, 2000);
+    }
+  } catch (e) {
+    send("HOOK_ERROR", { where: "xhr-proto-tamper", msg: String(e?.message || e) });
+  }
   console.log("[BRS_HOOK] Monitoring injection complete.");
 })();
