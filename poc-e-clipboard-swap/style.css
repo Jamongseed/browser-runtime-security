@@ -1,0 +1,86 @@
+:root {
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+body {
+    margin: 0;
+    padding: 24px;
+    background: #f6f7f9;
+}
+
+.card {
+    max-width: 720px;
+    margin: 0 auto;
+    background: white;
+    border: 1px solid #e6e8ee;
+    border-radius: 12px;
+    padding: 20px;
+}
+
+h1 {
+    margin: 0 0 14px;
+    font-size: 20px;
+}
+
+.row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.label {
+    color: #555;
+    font-size: 14px;
+}
+
+.mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.btn {
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 1px solid #cfd6e6;
+    background: #fff;
+    cursor: pointer;
+}
+
+    .btn:active {
+        transform: translateY(1px);
+    }
+
+.hint {
+    margin: 12px 0 10px;
+    color: #444;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.label-block {
+    display: block;
+    margin: 8px 0;
+    color: #555;
+    font-size: 14px;
+}
+
+.paste {
+    width: 100%;
+    min-height: 120px;
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid #cfd6e6;
+    resize: vertical;
+    font-size: 14px;
+}
+
+.status {
+    margin-top: 10px;
+    font-size: 13px;
+    color: #2b6;
+    min-height: 1.2em;
+}
+
+    .status.err {
+        color: #c33;
+    }
