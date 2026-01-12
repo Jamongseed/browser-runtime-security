@@ -4,13 +4,14 @@
   "name": "기본 룰셋 (데모/PoC용)",
   "description": "content.js에서 발생하는 이벤트(type/data)를 기준으로 ruleId/scoreDelta/severity를 정책(룰셋)으로 정의합니다.",
   "enabled": true,
-  "updatedAt": "2025-01-05",
-
+  "updatedAt": "2026-01-12",
   "rules": [
     {
       "id": "SENSOR_READY",
       "enabled": true,
-      "when": { "type": "SENSOR_READY" },
+      "when": {
+        "type": "SENSOR_READY"
+      },
       "action": {
         "ruleId": "SENSOR_READY",
         "scoreDelta": 0,
@@ -22,7 +23,10 @@
       "enabled": true,
       "when": {
         "type": "DYN_SCRIPT_INSERT",
-        "equals": { "initiatorCrossSite": true, "crossSite": true }
+        "equals": {
+          "initiatorCrossSite": true,
+          "crossSite": true
+        }
       },
       "action": {
         "ruleId": "DYN_SCRIPT_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT",
@@ -35,7 +39,10 @@
       "enabled": true,
       "when": {
         "type": "DYN_SCRIPT_INSERT",
-        "equals": { "initiatorCrossSite": true, "crossSite": false }
+        "equals": {
+          "initiatorCrossSite": true,
+          "crossSite": false
+        }
       },
       "action": {
         "ruleId": "DYN_SCRIPT_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT",
@@ -48,7 +55,10 @@
       "enabled": true,
       "when": {
         "type": "DYN_IFRAME_INSERT",
-        "equals": { "hidden": true, "initiatorCrossSite": true }
+        "equals": {
+          "hidden": true,
+          "initiatorCrossSite": true
+        }
       },
       "action": {
         "ruleId": "HIDDEN_IFRAME_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT",
@@ -61,7 +71,10 @@
       "enabled": true,
       "when": {
         "type": "DYN_IFRAME_INSERT",
-        "equals": { "hidden": false, "initiatorCrossSite": true }
+        "equals": {
+          "hidden": false,
+          "initiatorCrossSite": true
+        }
       },
       "action": {
         "ruleId": "IFRAME_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT",
@@ -69,13 +82,14 @@
         "severity": "HIGH"
       }
     },
-
     {
       "id": "DYN_SCRIPT_INSERT_CROSS_SITE",
       "enabled": true,
       "when": {
         "type": "DYN_SCRIPT_INSERT",
-        "equals": { "crossSite": true }
+        "equals": {
+          "crossSite": true
+        }
       },
       "action": {
         "ruleId": "DYN_SCRIPT_INSERT_CROSS_SITE",
@@ -88,7 +102,9 @@
       "enabled": true,
       "when": {
         "type": "DYN_SCRIPT_INSERT",
-        "equals": { "crossSite": false }
+        "equals": {
+          "crossSite": false
+        }
       },
       "action": {
         "ruleId": "DYN_SCRIPT_INSERT_SAME_SITE",
@@ -101,7 +117,9 @@
       "enabled": true,
       "when": {
         "type": "SW_REGISTER",
-        "equals": { "initiatorCrossSite": true }
+        "equals": {
+          "initiatorCrossSite": true
+        }
       },
       "action": {
         "ruleId": "SW_REGISTER_INITIATED_BY_CROSS_SITE_SCRIPT",
@@ -112,7 +130,9 @@
     {
       "id": "SW_REGISTER",
       "enabled": true,
-      "when": { "type": "SW_REGISTER" },
+      "when": {
+        "type": "SW_REGISTER"
+      },
       "action": {
         "ruleId": "SW_REGISTER",
         "scoreDelta": 10,
@@ -122,7 +142,9 @@
     {
       "id": "SW_REGISTRATIONS_PRESENT",
       "enabled": true,
-      "when": { "type": "SW_REGISTRATIONS_PRESENT" },
+      "when": {
+        "type": "SW_REGISTRATIONS_PRESENT"
+      },
       "action": {
         "ruleId": "SW_REGISTRATIONS_PRESENT",
         "scoreDelta": 5,
@@ -132,7 +154,9 @@
     {
       "id": "SW_PERSISTENCE_ACTIVE",
       "enabled": true,
-      "when": { "type": "SW_PERSISTENCE_ACTIVE" },
+      "when": {
+        "type": "SW_PERSISTENCE_ACTIVE"
+      },
       "action": {
         "ruleId": "SW_PERSISTENCE_ACTIVE",
         "scoreDelta": 20,
@@ -142,7 +166,9 @@
     {
       "id": "POC_G_SW_CHAIN",
       "enabled": true,
-      "when": { "type": "POC_G_SW_CHAIN" },
+      "when": {
+        "type": "POC_G_SW_CHAIN"
+      },
       "action": {
         "ruleId": "POC_G_SW_CHAIN_CONFIRMED",
         "scoreDelta": 90,
@@ -154,7 +180,9 @@
       "enabled": true,
       "when": {
         "type": "DYN_IFRAME_INSERT",
-        "equals": { "hidden": true }
+        "equals": {
+          "hidden": true
+        }
       },
       "action": {
         "ruleId": "HIDDEN_IFRAME_INSERT",
@@ -167,7 +195,9 @@
       "enabled": true,
       "when": {
         "type": "DYN_IFRAME_INSERT",
-        "equals": { "hidden": false }
+        "equals": {
+          "hidden": false
+        }
       },
       "action": {
         "ruleId": "IFRAME_INSERT",
@@ -180,7 +210,10 @@
       "enabled": true,
       "when": {
         "type": "FORM_SUBMIT",
-        "equals": { "mismatch": true, "protoTamperSeen": true }
+        "equals": {
+          "mismatch": true,
+          "protoTamperSeen": true
+        }
       },
       "action": {
         "ruleId": "PHISHING_FORM_MISMATCH_AFTER_PROTO_TAMPER",
@@ -193,7 +226,10 @@
       "enabled": true,
       "when": {
         "type": "FORM_SUBMIT",
-        "equals": { "mismatch": false, "protoTamperSeen": true }
+        "equals": {
+          "mismatch": false,
+          "protoTamperSeen": true
+        }
       },
       "action": {
         "ruleId": "FORM_SUBMIT_AFTER_PROTO_TAMPER",
@@ -206,7 +242,9 @@
       "enabled": true,
       "when": {
         "type": "FORM_SUBMIT",
-        "equals": { "mismatch": true }
+        "equals": {
+          "mismatch": true
+        }
       },
       "action": {
         "ruleId": "PHISHING_FORM_MISMATCH",
@@ -219,7 +257,9 @@
       "enabled": true,
       "when": {
         "type": "FORM_SUBMIT",
-        "equals": { "mismatch": false }
+        "equals": {
+          "mismatch": false
+        }
       },
       "action": {
         "ruleId": "FORM_ACTION_MATCH",
@@ -232,7 +272,9 @@
       "enabled": true,
       "when": {
         "type": "FORM_SUBMIT",
-        "equals": { "parse": "fail" }
+        "equals": {
+          "parse": "fail"
+        }
       },
       "action": {
         "ruleId": "FORM_ACTION_PARSE_FAIL",
@@ -244,7 +286,9 @@
     {
       "id": "OBFUSCATION_ATOB",
       "enabled": true,
-      "when": { "type": "SUSP_ATOB_CALL" },
+      "when": {
+        "type": "SUSP_ATOB_CALL"
+      },
       "action": {
         "ruleId": "OBFUSCATION_ATOB",
         "scoreDelta": 10,
@@ -254,7 +298,9 @@
     {
       "id": "DYNAMIC_CODE_EVAL",
       "enabled": true,
-      "when": { "type": "SUSP_EVAL_CALL" },
+      "when": {
+        "type": "SUSP_EVAL_CALL"
+      },
       "action": {
         "ruleId": "DYNAMIC_CODE_EVAL",
         "scoreDelta": 25,
@@ -264,18 +310,21 @@
     {
       "id": "DYNAMIC_CODE_FUNCTION",
       "enabled": true,
-      "when": { "type": "SUSP_FUNCTION_CONSTRUCTOR_CALL" },
+      "when": {
+        "type": "SUSP_FUNCTION_CONSTRUCTOR_CALL"
+      },
       "action": {
         "ruleId": "DYNAMIC_CODE_FUNCTION",
         "scoreDelta": 25,
         "severity": "MEDIUM"
       }
     },
-
     {
       "id": "DOM_XSS_INJECTION",
       "enabled": true,
-      "when": { "type": "SUSP_DOM_XSS" },
+      "when": {
+        "type": "SUSP_DOM_XSS"
+      },
       "action": {
         "ruleId": "DOM_XSS_INJECTION",
         "scoreDelta": 40,
@@ -285,7 +334,9 @@
     {
       "id": "COOKIE_THEFT",
       "enabled": true,
-      "when": { "type": "SENSITIVE_DATA_ACCESS" },
+      "when": {
+        "type": "SENSITIVE_DATA_ACCESS"
+      },
       "action": {
         "ruleId": "COOKIE_THEFT",
         "scoreDelta": 50,
@@ -295,7 +346,9 @@
     {
       "id": "NETWORK_LEAK",
       "enabled": true,
-      "when": { "type": "SUSP_NETWORK_CALL" },
+      "when": {
+        "type": "SUSP_NETWORK_CALL"
+      },
       "action": {
         "ruleId": "NETWORK_LEAK",
         "scoreDelta": 15,
@@ -303,11 +356,25 @@
       }
     },
     {
+      "id": "XHR_MIRRORING_SUSPECT",
+      "enabled": true,
+      "when": {
+        "type": "XHR_MIRRORING_SUSPECT"
+      },
+      "action": {
+        "ruleId": "XHR_MIRRORING_SUSPECT",
+        "scoreDelta": 80,
+        "severity": "HIGH"
+      }
+    },
+    {
       "id": "INVISIBLE_LAYER_INSERT_RULE",
       "enabled": true,
       "when": {
         "type": "INVISIBLE_LAYER_DETECTED",
-        "equals": { "reason": "INSERT" }
+        "equals": {
+          "reason": "INSERT"
+        }
       },
       "action": {
         "ruleId": "INVISIBLE_LAYER_INSERT",
@@ -320,7 +387,9 @@
       "enabled": true,
       "when": {
         "type": "INVISIBLE_LAYER_DETECTED",
-        "equals": { "reason": "POINTERDOWN" }
+        "equals": {
+          "reason": "POINTERDOWN"
+        }
       },
       "action": {
         "ruleId": "INVISIBLE_LAYER_CLICK",
@@ -349,7 +418,9 @@
       "enabled": true,
       "when": {
         "type": "PROTO_TAMPER",
-        "equals": { "prop": "submit" }
+        "equals": {
+          "prop": "submit"
+        }
       },
       "action": {
         "ruleId": "FORM_SUBMIT_PROTOTYPE_TAMPER",
@@ -362,7 +433,9 @@
       "enabled": true,
       "when": {
         "type": "PROTO_TAMPER",
-        "equals": { "prop": "requestSubmit" }
+        "equals": {
+          "prop": "requestSubmit"
+        }
       },
       "action": {
         "ruleId": "FORM_REQUESTSUBMIT_PROTOTYPE_TAMPER",
@@ -371,9 +444,182 @@
       }
     },
     {
+      "id": "XHR_OPEN_PROTOTYPE_TAMPER_HIGH",
+      "enabled": true,
+      "when": {
+        "type": "PROTO_TAMPER",
+        "contains": {
+          "target": "XMLHttpRequest.prototype.open"
+        },
+        "equals": {
+          "isNative": false,
+          "analysis.suspicionBand": "HIGH"
+        }
+      },
+      "action": {
+        "ruleId": "XHR_OPEN_PROTOTYPE_TAMPER",
+        "scoreDelta": 60,
+        "severity": "HIGH"
+      }
+    },
+    {
+      "id": "XHR_OPEN_PROTOTYPE_TAMPER_MEDIUM",
+      "enabled": true,
+      "when": {
+        "type": "PROTO_TAMPER",
+        "contains": {
+          "target": "XMLHttpRequest.prototype.open"
+        },
+        "equals": {
+          "isNative": false,
+          "analysis.suspicionBand": "MEDIUM"
+        }
+      },
+      "action": {
+        "ruleId": "XHR_OPEN_PROTOTYPE_TAMPER",
+        "scoreDelta": 35,
+        "severity": "MEDIUM"
+      }
+    },
+    {
+      "id": "XHR_OPEN_PROTOTYPE_TAMPER_LOW",
+      "enabled": true,
+      "when": {
+        "type": "PROTO_TAMPER",
+        "contains": {
+          "target": "XMLHttpRequest.prototype.open"
+        },
+        "equals": {
+          "isNative": false,
+          "analysis.suspicionBand": "LOW"
+        }
+      },
+      "action": {
+        "ruleId": "XHR_OPEN_PROTOTYPE_TAMPER",
+        "scoreDelta": 12,
+        "severity": "LOW"
+      }
+    },
+    {
+      "id": "XHR_SEND_PROTOTYPE_TAMPER_HIGH",
+      "enabled": true,
+      "when": {
+        "type": "PROTO_TAMPER",
+        "contains": {
+          "target": "XMLHttpRequest.prototype.send"
+        },
+        "equals": {
+          "isNative": false,
+          "analysis.suspicionBand": "HIGH"
+        }
+      },
+      "action": {
+        "ruleId": "XHR_SEND_PROTOTYPE_TAMPER",
+        "scoreDelta": 60,
+        "severity": "HIGH"
+      }
+    },
+    {
+      "id": "XHR_SEND_PROTOTYPE_TAMPER_MEDIUM",
+      "enabled": true,
+      "when": {
+        "type": "PROTO_TAMPER",
+        "contains": {
+          "target": "XMLHttpRequest.prototype.send"
+        },
+        "equals": {
+          "isNative": false,
+          "analysis.suspicionBand": "MEDIUM"
+        }
+      },
+      "action": {
+        "ruleId": "XHR_SEND_PROTOTYPE_TAMPER",
+        "scoreDelta": 35,
+        "severity": "MEDIUM"
+      }
+    },
+    {
+      "id": "XHR_SEND_PROTOTYPE_TAMPER_LOW",
+      "enabled": true,
+      "when": {
+        "type": "PROTO_TAMPER",
+        "contains": {
+          "target": "XMLHttpRequest.prototype.send"
+        },
+        "equals": {
+          "isNative": false,
+          "analysis.suspicionBand": "LOW"
+        }
+      },
+      "action": {
+        "ruleId": "XHR_SEND_PROTOTYPE_TAMPER",
+        "scoreDelta": 12,
+        "severity": "LOW"
+      }
+    },
+    {
+      "id": "XHR_SETREQUESTHEADER_PROTOTYPE_TAMPER_HIGH",
+      "enabled": true,
+      "when": {
+        "type": "PROTO_TAMPER",
+        "contains": {
+          "target": "XMLHttpRequest.prototype.setRequestHeader"
+        },
+        "equals": {
+          "isNative": false,
+          "analysis.suspicionBand": "HIGH"
+        }
+      },
+      "action": {
+        "ruleId": "XHR_SETREQUESTHEADER_PROTOTYPE_TAMPER",
+        "scoreDelta": 60,
+        "severity": "HIGH"
+      }
+    },
+    {
+      "id": "XHR_SETREQUESTHEADER_PROTOTYPE_TAMPER_MEDIUM",
+      "enabled": true,
+      "when": {
+        "type": "PROTO_TAMPER",
+        "contains": {
+          "target": "XMLHttpRequest.prototype.setRequestHeader"
+        },
+        "equals": {
+          "isNative": false,
+          "analysis.suspicionBand": "MEDIUM"
+        }
+      },
+      "action": {
+        "ruleId": "XHR_SETREQUESTHEADER_PROTOTYPE_TAMPER",
+        "scoreDelta": 35,
+        "severity": "MEDIUM"
+      }
+    },
+    {
+      "id": "XHR_SETREQUESTHEADER_PROTOTYPE_TAMPER_LOW",
+      "enabled": true,
+      "when": {
+        "type": "PROTO_TAMPER",
+        "contains": {
+          "target": "XMLHttpRequest.prototype.setRequestHeader"
+        },
+        "equals": {
+          "isNative": false,
+          "analysis.suspicionBand": "LOW"
+        }
+      },
+      "action": {
+        "ruleId": "XHR_SETREQUESTHEADER_PROTOTYPE_TAMPER",
+        "scoreDelta": 12,
+        "severity": "LOW"
+      }
+    },
+    {
       "id": "MUTATION_OBSERVER_REGISTER_BASE",
       "enabled": true,
-      "when": { "type": "MUTATION_OBSERVER_REGISTER" },
+      "when": {
+        "type": "MUTATION_OBSERVER_REGISTER"
+      },
       "action": {
         "ruleId": "MUTATION_OBSERVER_REGISTER",
         "scoreDelta": 5,
@@ -385,7 +631,9 @@
       "enabled": true,
       "when": {
         "type": "MUTATION_OBSERVER_REGISTER",
-        "equals": { "targetDesc": "documentElement" }
+        "equals": {
+          "targetDesc": "documentElement"
+        }
       },
       "action": {
         "ruleId": "MUTATION_OBSERVER_REGISTER_WIDE_SCOPE",
@@ -398,7 +646,9 @@
       "enabled": true,
       "when": {
         "type": "MUTATION_OBSERVER_REGISTER",
-        "equals": { "initiatorCrossSite": true }
+        "equals": {
+          "initiatorCrossSite": true
+        }
       },
       "action": {
         "ruleId": "MUTATION_OBSERVER_REGISTER_CROSS_SITE_INITIATOR",
@@ -411,7 +661,9 @@
       "enabled": true,
       "when": {
         "type": "MUTATION_OBSERVER_TRIGGER",
-        "equals": { "summary.addedScripts": 1 }
+        "equals": {
+          "summary.addedScripts": 1
+        }
       },
       "action": {
         "ruleId": "MUTATION_OBSERVER_TRIGGER_SCRIPT_OR_IFRAME_ADDED",
@@ -424,7 +676,10 @@
       "enabled": true,
       "when": {
         "type": "LINK_HREF_SWAP_DETECTED",
-        "equals": { "within200ms": true, "crossOriginChanged": true }
+        "equals": {
+          "within200ms": true,
+          "crossOriginChanged": true
+        }
       },
       "action": {
         "ruleId": "LINK_HREF_SWAP_CROSS_ORIGIN",
@@ -437,7 +692,10 @@
       "enabled": true,
       "when": {
         "type": "LINK_HREF_SWAP_DETECTED",
-        "equals": { "within50ms": true, "reverted": true }
+        "equals": {
+          "within50ms": true,
+          "reverted": true
+        }
       },
       "action": {
         "ruleId": "LINK_HREF_SWAP_PRECLICK_REVERTED",
@@ -450,7 +708,10 @@
       "enabled": true,
       "when": {
         "type": "LINK_HREF_SWAP_DETECTED",
-        "equals": { "within50ms": true, "crossOriginChanged": false }
+        "equals": {
+          "within50ms": true,
+          "crossOriginChanged": false
+        }
       },
       "action": {
         "ruleId": "LINK_HREF_SWAP_SAME_ORIGIN",
@@ -461,12 +722,14 @@
     {
       "id": "LINK_HREF_SWAP_BASE",
       "enabled": true,
-      "when": { "type": "LINK_HREF_SWAP_DETECTED" },
+      "when": {
+        "type": "LINK_HREF_SWAP_DETECTED"
+      },
       "action": {
         "ruleId": "LINK_HREF_SWAP",
         "scoreDelta": 10,
         "severity": "LOW"
-      }      
+      }
     }
   ]
 }
