@@ -141,14 +141,14 @@ function pickItem(it) {
     type: it.type,
     ruleId: it.ruleId,
     severity: it.severity,
-    scoreDelta: it.scoreDelta,
+    scoreClient: it.scoreClient,
+    scoreServer: it.scoreServer,
     sessionId: it.sessionId,
     origin: it.origin,
-    page: it.page,
-    targetOrigin: it.targetOrigin,
+    top_domain: it.top_domain,
+    page_host: it.page_host,
+    page_path_masked: it.page_path_masked,
     eventId: it.eventId,
-    // data: it.data,
-    // evidence: it.evidence,
   };
 }
 
