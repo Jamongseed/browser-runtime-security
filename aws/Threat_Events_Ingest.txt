@@ -2,16 +2,19 @@
 // deps: @aws-sdk/client-dynamodb @aws-sdk/lib-dynamodb 
 import crypto from "crypto";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { DynamoDBDocumentClient, PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 
 const TABLE = process.env.TABLE_NAME || "Threat_Events";
 const AGG_TABLE = process.env.AGG_TABLE_NAME || "Threat_Aggregates";
+const DUMP_BUCKET = process.env.DUMP_BUCKET || "";
+const DUMP_PREFIX = process.env.DUMP_PREFIX || "dumps/";
 const TTL_DAYS = Number(process.env.TTL_DAYS || 30);
 const MAX_JSON_BYTES = Number(process.env.MAX_JSON_BYTES || 20000);            
 const EVENT_SHARDS = Number(process.env.EVENT_SHARDS || 8);      // Events hot partition 완화
 const AGG_SHARDS   = Number(process.env.AGG_SHARDS || 4);        // Aggregates hot partition 완화
 const EVENT_SCORE_CAP = Number(process.env.EVENT_SCORE_CAP || 50); // server score cap (1차 보정)
-
+const s3 = new S3Client({});
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || "*";
 const ALLOW_HEADERS = "content-type";
 const ALLOW_METHODS = "POST,OPTIONS";
@@ -269,6 +272,29 @@ function ttlFromDay(day, plusDays) {
   return Math.floor(ttlMs / 1000);
 }
 
+function isDumpType(type) {
+  const t = String(type || "").toUpperCase();
+  if (t === "SCRIPT_DUMP") return true;
+  // 확장 가능: *_DUMP 전부 dump 취급
+  if (t.endsWith("_DUMP")) return true;
+  return false;
+}
+
+function safeS3KeyPart(s, maxLen = 200) {
+  return String(s || "")
+    .replace(/[^A-Za-z0-9._\-=/]/g, "_")
+    .slice(0, maxLen);
+}
+
+async function putTextToS3({ bucket, key, text, contentType }) {
+  await s3.send(new PutObjectCommand({
+    Bucket: bucket,
+    Key: key,
+    Body: text ?? "",
+    ContentType: contentType || "text/plain; charset=utf-8",
+  }));
+}
+
 export const handler = async (event) => {
   // 0. CORS preflight 처리
   const method =
@@ -455,6 +481,80 @@ export const handler = async (event) => {
   // 5 TTL 계산
   const ttl = ttlFromDay(day, TTL_DAYS);
 
+  // 6 dump
+  const isDump = isDumpType(type);
+
+  let dumpS3 = null; // { bucket, keyJs, keyMeta }
+
+  if (isDump) {
+    if (!DUMP_BUCKET) {
+      return resp(500, { ok: false, error: "DUMP_BUCKET not configured", code: "MISCONFIG_DUMP_BUCKET" });
+    }
+
+    const sha256 = safeStr(payload?.data?.sha256, 128);
+    const text = payload?.data?.text; // 원문 스크립트
+    const contentType = safeStr(payload?.data?.contentType, 200) || "application/javascript; charset=utf-8";
+
+    // key 구성(너 운영 방식에 맞게 바꿔도 됨)
+    const keyBase = [
+      DUMP_PREFIX.replace(/^\//, "").replace(/\/?$/, "/"),
+      "origin=", safeS3KeyPart(origin || "UNKNOWN"), "/",
+      "day=", safeS3KeyPart(day), "/",
+      "install=", safeS3KeyPart(installId), "/",
+      "eventId=", safeS3KeyPart(eventId), "/",
+      sha256 ? `sha256=${safeS3KeyPart(sha256)}/` : ""
+    ].join("");
+
+    const keyJs = `${keyBase}body.js`;
+    const keyMeta = `${keyBase}meta.json`;
+
+    // 1) 원문 저장
+    await putTextToS3({
+      bucket: DUMP_BUCKET,
+      key: keyJs,
+      text: typeof text === "string" ? text : "",
+      contentType
+    });
+
+    // 2) 메타 저장(원본 payload에서 text만 제거한 사본)
+    const payloadNoText = {
+      ...payload,
+      data: payload?.data ? { ...payload.data, text: undefined } : payload?.data
+    };
+
+    await putTextToS3({
+      bucket: DUMP_BUCKET,
+      key: keyMeta,
+      text: JSON.stringify(payloadNoText),
+      contentType: "application/json; charset=utf-8"
+    });
+
+    dumpS3 = { bucket: DUMP_BUCKET, keyJs, keyMeta };
+  }
+
+  // dump면 DDB BODY에는 원문(text) 대신 S3 포인터 + 프리뷰만 남김
+  let bodyData = dataPack.json;
+  let dataTruncated = dataPack.truncated;
+
+  if (isDump && dumpS3) {
+    const text = typeof payload?.data?.text === "string" ? payload.data.text : "";
+    // data에는 원문 제거(중복 저장 방지)
+    const dataNoText = payload?.data ? { ...payload.data, text: undefined } : payload?.data;
+
+    bodyData = {
+      ...(dataNoText || null),
+      __dump_in_s3__: true,
+      s3_bucket: dumpS3.bucket,
+      s3_key_js: dumpS3.keyJs,
+      s3_key_meta: dumpS3.keyMeta,
+      text_preview: text.slice(0, 1000),
+      text_len: text.length,
+    };
+    // 프리뷰 구조로 직접 만들었으니 truncation은 false로 처리
+    dataTruncated = false;
+  }
+
+
   const item = {
     pk, sk,
     eventId,
@@ -464,11 +564,13 @@ export const handler = async (event) => {
     ruleId: ruleId || type,
     sessionId,
     installId,
+    tabId,
     
     ii_pk: `INSTALL#${installId}`,
     ii_sk: `T#${revTs}#E#${eventIdShort}`,
     
     origin,
+    targetOrigin,
     top_domain,
     page_host, page_path_masked,
     severity,
@@ -490,9 +592,9 @@ export const handler = async (event) => {
     tsMs, day,
     installId,
 
-    data: dataPack.json,
+    data: bodyData,
     evidence: evPack.json,
-    dataTruncated: dataPack.truncated,
+    dataTruncated: dataTruncated,
     evidenceTruncated: evPack.truncated,
 
     ttl,

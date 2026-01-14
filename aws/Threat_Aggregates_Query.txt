@@ -1,7 +1,5 @@
 // index.mjs (Node.js 24 / ESM) - Threat_Aggregates Query API
 // deps: @aws-sdk/client-dynamodb @aws-sdk/lib-dynamodb
-//
-// NOTE: 시간 트렌드(HOUR)는 제외(후순위)
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
