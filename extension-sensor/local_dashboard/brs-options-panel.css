@@ -1,0 +1,338 @@
+/* 기본 설정 */
+:root {
+  --primary: #3b82f6;
+  --bg-sidebar: #f8f9fa;
+  --bg-content: #ffffff;
+  --text-main: #333;
+  --text-sub: #666;
+  --border: #e5e7eb;
+  --danger: #ef4444;
+  --sidebar-width: 260px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: var(--text-main);
+  background: var(--bg-content);
+  height: 100vh;
+  overflow: hidden; /* 전체 스크롤 방지 */
+}
+
+.layout-container {
+  display: flex;
+  height: 100%;
+}
+
+/* --- 왼쪽 사이드바 --- */
+.sidebar {
+  width: var(--sidebar-width);
+  background-color: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 20px 0;
+}
+
+.brand {
+  padding: 0 24px 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+.brand h1 { font-size: 1.2rem; margin: 0; color: #1e293b; }
+.logo-icon { font-size: 1.5rem; }
+
+.menu { flex: 1; }
+.menu ul { list-style: none; padding: 0; margin: 0; }
+.menu-item {
+  padding: 12px 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-sub);
+  font-weight: 500;
+  transition: all 0.2s;
+  border-left: 4px solid transparent;
+}
+.menu-item:hover { background-color: #e2e8f0; color: var(--text-main); }
+.menu-item.active {
+  background-color: #eff6ff;
+  color: var(--primary);
+  border-left-color: var(--primary);
+}
+
+.sidebar-footer {
+  padding: 20px 24px;
+  font-size: 0.8rem;
+  color: #9ca3af;
+  text-align: center;
+}
+
+/* --- 오른쪽 컨텐츠 영역 --- */
+.content-area {
+  flex: 1;
+  padding: 40px 60px;
+  overflow-y: auto; /* 컨텐츠만 스크롤 */
+  background-color: var(--bg-content);
+}
+
+.section-header { margin-bottom: 30px; border-bottom: 2px solid #f1f1f1; padding-bottom: 15px; }
+.section-header h2 { margin: 0 0 8px 0; font-size: 1.8rem; }
+.section-header p { margin: 0; font-size: 0.9rem; color: var(--text-sub); }
+
+.main-instruction {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 15px;
+    display: block;
+}
+
+/* 탭 전환 로직 */
+.tab-content { display: none; animation: fadeIn 0.3s ease; }
+.tab-content.active { display: block; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 설정 리스트 스타일 */
+.setting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border);
+}
+.setting-info { display: flex; gap: 15px; align-items: flex-start; }
+.badge {
+  padding: 4px 8px; border-radius: 4px; color: white;
+  font-size: 0.75rem; font-weight: bold; min-width: 60px; text-align: center;
+}
+.badge.low { background: #10b981; }
+.badge.medium { background: #f59e0b; }
+.badge.high { background: #ef4444; }
+
+.setting-desc strong { display: block; margin-bottom: 4px; font-size: 1rem; }
+.setting-desc p { margin: 0; font-size: 0.85rem; color: var(--text-sub); }
+
+/* Danger Zone */
+.danger-box { border-radius: 8px; padding: 20px; background: #fef2f2; background-color: #ffffff;}
+.danger-box h3 { margin-top: 0; }
+.danger-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 15px 0; border-bottom: 1px solid;
+}
+.danger-row:last-child { border-bottom: none; }
+.btn-danger { background: var(--danger); color: white; }
+.btn-danger-outline { background: white; border: 1px solid var(--danger); color: var(--danger); }
+
+/* 토글 스위치 CSS */
+.toggle-switch { position: relative; width: 50px; height: 26px; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.slider {
+  position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+  background-color: #ccc; transition: .4s; border-radius: 34px;
+}
+.slider:before {
+  position: absolute; content: ""; height: 20px; width: 20px;
+  left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%;
+}
+input:checked + .slider { background-color: var(--primary); }
+input:checked + .slider:before { transform: translateX(24px); }
+
+/* --- Whitelist Editor Style --- */
+.whitelist-editor-container {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.editor-desc {
+  margin-bottom: 30px;
+}
+
+.editor-desc p {
+  font-size: 1.05rem;
+  line-height: 1.5;
+  color: var(--text-main); 
+}
+
+.editor-desc .sub-text {
+  font-size: 0.95rem;
+  color: #666;
+  margin-top: 5px;
+}
+
+.styled-textarea {
+  width: 100%;
+  min-height: 450px;
+  padding: 15px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background-color: #ffffff;
+  color: #1e293b;
+  resize: vertical; /* 세로 크기 조절만 허용 */
+  transition: all 0.2s ease;
+}
+
+.styled-textarea:disabled {
+  background-color: #f8fafc;
+  color: #94a3b8;
+  border-color: #e2e8f0;
+  cursor: default; /* 입력 불가 표시 */
+}
+
+.styled-textarea:not(:disabled) {
+  background-color: #fff;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.editor-controls {
+  margin-top: 15px;
+  display: flex;
+  justify-content: flex-end; /* 오른쪽 정렬 */
+  gap: 10px;
+}
+
+#editActions {
+  display: flex;
+  gap: 10px;
+}
+
+.example-box {
+  background-color: #f1f5f9; /* 연한 회색 배경 */
+  padding: 12px 16px;
+  border-radius: 6px;
+  margin-top: 10px;
+  border-left: 4px solid var(--primary); /* 왼쪽 파란색 강조선 */
+}
+
+.example-box .sub-text {
+  margin: 4px 0; /* 예시 문구 간격 조정 */
+}
+
+.example-box code {
+  background-color: #e2e8f0;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-family: 'Consolas', monospace;
+  color: #1e293b;
+}
+
+/* --- [UI Component] Modern Buttons --- */
+
+/* 1. 버튼 공통 스타일 (Base) */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.btn:active {
+  transform: scale(0.98);
+  box-shadow: none;
+}
+
+/* 2. 편집 버튼 (Secondary) */
+.btn-secondary {
+  background-color: #f1f5f9;
+  color: #334155;
+  border: 1px solid #e2e8f0;
+}
+.btn-secondary:hover {
+  background-color: #e2e8f0;
+  color: #0f172a;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+/* 3. 저장 버튼 (Primary) */
+.btn-primary {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
+}
+.btn-primary:hover {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 10px -2px rgba(37, 99, 235, 0.3);
+}
+
+/* 4. 취소 버튼 (Outline) */
+.btn-outline {
+  background-color: transparent;
+  color: #64748b;
+  border: 1px solid transparent;
+}
+.btn-outline:hover {
+  background-color: #fee2e2;
+  color: #ef4444;
+  border-color: #fecaca;
+}
+/* 컨텐츠 영역 스크롤바 커스텀 */
+.content-area::-webkit-scrollbar {
+  width: 8px;
+}
+
+.content-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.content-area::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+
+.content-area::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+
+/* '모든 위협 로그 삭제' 같은 주요 제목 */
+.danger-row strong {
+  display: block;
+  font-size: 1rem;
+  margin-bottom: 6px;
+  color: #1e293b;
+}
+
+.danger-row p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #475569;
+  line-height: 1.5;
+}
+
+/* 로그 삭제 버튼용 */
+.btn-slate {
+  background-color: #64748b;
+  color: white;
+  border: 1px solid #64748b;
+}
+
+.btn-slate:hover {
+  background-color: #475569;
+}

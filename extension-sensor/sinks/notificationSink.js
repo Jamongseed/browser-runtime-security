@@ -10,6 +10,37 @@ const THREAT_MESSAGES = {
 
 let lastNotiTimestamp = 0;
 
+// 운영체제 이름 반환
+async function getOSName() {
+	const info = await chrome.runtime.getPlatformInfo();
+	return info.os;		// // 'win', 'mac', 'linux' 등
+}
+
+// OS별 알림 옵션 빌드
+function buildNotificationOptions(threat, os) {
+	const message = THREAT_MESSAGES[threat.ruleId] || THREAT_MESSAGES["DEFAULT"];
+	const displayUrl = threat.browserUrl || threat.page || "";
+
+	// 공통 옵션
+	const options = {
+    type: 'basic',
+    iconUrl: 'icon/notification_icon.png',
+    title: `보안 위협 알림 (${threat.severity})`,
+    message: message,
+    contextMessage: displayUrl.substring(0, 40) + "...",
+    priority: 2,
+    requireInteraction: true
+  };
+
+	// if (os === 'win') {
+	// } else if (os === 'mac') {
+	// } else if ( os === 'linux') {
+	// }
+
+	return options;
+
+}
+
 chrome.notifications.onClicked.addListener(async (notificationId) => {
     const { dashboardUrl } = await chrome.storage.local.get("dashboardUrl");
     if (dashboardUrl) {
@@ -29,10 +60,19 @@ export function createNotificationSink({ dashboardUrl }) {
 		name: "NotificationSink",
 
 		shouldHandle(threat) {
-			return threat.severity === "HIGH";
+			return !!threat.severity;
 		},
 
 		async send(threat) {
+			const storage = await chrome.storage.local.get("notification_settings");
+			const settings = storage.notification_settings || { low: false, medium: false, high: true };
+
+			const severityKey = (threat.severity || "LOW").toLowerCase();
+			
+			if (!settings[severityKey]) {
+        return { status: "ignored_user_setting", severity: threat.severity };
+      }
+
 			const now = Date.now();
 
       if (now - lastNotiTimestamp <= NOTIFICATION_COOLDOWN) {
@@ -47,19 +87,12 @@ export function createNotificationSink({ dashboardUrl }) {
 
       lastNotiTimestamp = now;
 
-			const message = THREAT_MESSAGES[threat.ruleId] || THREAT_MESSAGES["DEFAULT"];
-			const reportId = threat.reportId || `noti_${now}`;
-      const displayUrl = threat.browserUrl || threat.page || "";
+			const os = await getOSName();
+			const notificationOptions = buildNotificationOptions(threat, os);
 
-			await chrome.notifications.create(reportId, {
-				type: 'basic',
-				iconUrl: 'icon/notification_icon.png',
-				title: `보안 위협 알림 (${threat.severity})`,
-				message: message,
-				contextMessage: displayUrl.substring(0, 40) + "...",
-				priority: 2,
-				requireInteraction: true
-			});
+			const reportId = threat.reportId || `noti_${now}`;
+
+			await chrome.notifications.create(reportId, notificationOptions);
 
 			await chrome.storage.local.set({ lastNotiTime: now });
 

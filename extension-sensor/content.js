@@ -301,6 +301,49 @@
   }
 
   async function init() {
+    // page_hook 주입 전 화이트리스트 확인 로직 추가
+    try {
+      const currentDomain = window.location.hostname.replace(/^www\./, '').toLowerCase();
+
+      const result = await new Promise((resolve, reject) => {
+        // 타이머 안전 장치
+        const timeoutId = setTimeout(() => {
+          console.warn("[BRS] Storage access timed out. Proceeding with default settings.");
+          resolve({}); 
+        }, 2000);
+
+        chrome.storage.local.get(['whitelist'], (res) => {
+          clearTimeout(timeoutId);
+
+          if (chrome.runtime.lastError) {
+            return reject(new Error(chrome.runtime.lastError.message));
+          }
+          resolve(res || {});
+        });
+      });
+      const whitelist = result.whitelist || [];
+
+
+      const isWhitelisted = whitelist.some(domain => {
+        // 와일드카드 패턴인 경우 예) *.google.com
+        if (domain.startsWith('*.')) {
+          const actualDomain = domain.slice(2).toLowerCase();
+          return currentDomain === actualDomain || currentDomain.endsWith('.' + actualDomain);
+        }
+
+        // 일반 도메인인 경우 예) google.com
+        return currentDomain === domain;
+      });
+
+      if (isWhitelisted) {
+        console.log(`[BRS] Whitelisted site. Disabling detector for: (${currentDomain})`);
+        return; 
+      }
+
+    } catch (e) {
+      console.warn("Whitelist check failed. Proceeding with detection.", e);
+    }
+
     const ruleEngine = window.BRS_RuleEngine || null;
 
     const reporterFactory = window.BRS_Reporter && window.BRS_Reporter.createReporter;

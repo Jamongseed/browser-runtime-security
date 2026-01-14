@@ -9,6 +9,7 @@
     "notifications",
     "alarms"
   ],
+  "options_page": "local_dashboard/brs-options-panel.html",
   "host_permissions": [
     "<all_urls>"
   ],
