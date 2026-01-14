@@ -16,19 +16,9 @@ import DoughnutChart from './components/DoughnutChart'
 import { useEffect, useState } from 'react'
 import { getServerity, getDomain } from '../aws/AwsSearch'
 
-const statsData = [
-    {title : "New Users", value : "34.7k", icon : <UserGroupIcon className='w-8 h-8'/>, description : "↗︎ 2300 (22%)"},
-    {title : "Total Sales", value : "$34,545", icon : <CreditCardIcon className='w-8 h-8'/>, description : "Current month"},
-    {title : "Pending Leads", value : "450", icon : <CircleStackIcon className='w-8 h-8'/>, description : "50 in hot leads"},
-    {title : "Active Users", value : "5.6k", icon : <UsersIcon className='w-8 h-8'/>, description : "↙ 300 (18%)"},
-]
-
-
-
 function Dashboard(){
 
-    const dispatch = useDispatch()
- 
+    const dispatch = useDispatch() 
 
     const updateDashboardPeriod = (newRange) => {
         // Dashboard range changed, write code to refresh your values
@@ -40,7 +30,7 @@ function Dashboard(){
         // ✅ 2. 화면이 켜질 때 데이터를 가져오라고 명령합니다.
         useEffect(() => {
             // getDomain() 함수를 실행해서 나온 결과를 domainData에 넣습니다.
-            getDomain().then(res => {
+            getDomain("").then(res => {
                 setDomainData(res);
             });
         }, []); // 처음 한 번만 실행
@@ -50,7 +40,8 @@ function Dashboard(){
         // ✅ 2. 화면이 켜질 때 데이터를 가져오라고 명령합니다.
         useEffect(() => {
             // getDomain() 함수를 실행해서 나온 결과를 domainData에 넣습니다.
-            getServerity().then(res => {
+            // 임시 데이터
+            getServerity("ORG", "2026-01-10").then(res => {
                 setseverityData(res);
             });
         }, []); // 처음 한 번만 실행
@@ -61,34 +52,22 @@ function Dashboard(){
             <DashboardTopBar updateDashboardPeriod={updateDashboardPeriod}/>
         
         {/** ---------------------- Different stats content 1 ------------------------- */}
-            <div className="grid lg:grid-cols-4 mt-2 md:grid-cols-2 grid-cols-1 gap-6">
-                {
-                    statsData.map((d, k) => {
-                        return (
-                            <DashboardStats key={k} {...d} colorIndex={k}/>
-                        )
-                    })
-                }
-            </div>
-
-
 
         {/** ---------------------- Different charts ------------------------- */}
             <div className="grid lg:grid-cols-2 mt-0 grid-cols-1 gap-6">
-                {domainData ? (
+                {severityData?.labels ? (
                     <BarChart
-                        title="도메인별 트렌드" 
-                        labels={domainData.labels} 
-                        datasets={domainData.datasets} 
+                        title="위험도별 분포" 
+                        label={severityData.labels} 
                     />
                 ) : (
                     <div>차트 로딩 중...</div>
                 )}
-                {domainData ? (
+ 
+                {domainData?.labels ? (
                     <BarChart 
-                        title="위험도별 분포" 
-                        labels={severityData.labels} 
-                        datasets={severityData.datasets} 
+                        title="도메인별 트랜드" 
+                        labels={domainData.labels}
                     />
                 ) : (
                     <div>차트 로딩 중...</div>
