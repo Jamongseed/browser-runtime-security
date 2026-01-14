@@ -9,6 +9,7 @@
     "notifications",
     "alarms"
   ],
+  "options_page": "local_dashboard/brs-options-panel.html",
   "host_permissions": [
     "<all_urls>"
   ],
@@ -47,7 +48,6 @@
         "detectors/invisible_layer.js",
         "detectors/postmessage.js",
         "detectors/form_submit_prototype_tamper.js",
-        "detectors/xhr_prototype_tamper.js",
         "detectors/sw_persistence.js",
         "detectors/mutation_observer.js",
         "detectors/link_href_swap.js",

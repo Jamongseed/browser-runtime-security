@@ -14,46 +14,6 @@
       if (e.source !== window || !e.data.__BRS__) return;
       const { type, data } = e.data;
 
-      // (추가)XHR mirroring correlation state
-      const XHR_MIRROR_WINDOW_MS = 8000;
-      const XHR_MIRROR_THROTTLE_MS = 600;
-
-      const corr = window.__BRS_XHR_MIRROR_CORR_STATE__ =
-        window.__BRS_XHR_MIRROR_CORR_STATE__ || {
-          seen: false,
-          ts: 0,
-          lastProto: null,     // PROTO_TAMPER(data)
-          lastProtoMeta: null, // PROTO_TAMPER(meta)
-          lastEmitTs: 0,
-        };
-
-      const isXhrProtoTamper = (d) => {
-        try { return String(d && d.target || "").startsWith("XMLHttpRequest.prototype."); }
-        catch (_) { return false; }
-      };
-
-      const bandFromScore = (s) => (s >= 7 ? "HIGH" : s >= 4 ? "MEDIUM" : "LOW");
-
-      const computeSuspicion = (net, dtMs, protoMeta) => {
-        let score = 0;
-        score += 4; // 후킹 + crossSite 전송 조합 자체
-        if (dtMs <= 1000) score += 2;
-        else if (dtMs <= 3000) score += 1;
-
-        const api = String(net && net.api || "");
-        if (api === "fetch") score += 1;
-        if (api === "sendBeacon") score += 1;
-
-        const sev = String(protoMeta && protoMeta.severity || "");
-        if (sev === "HIGH") score += 2;
-        else if (sev === "MEDIUM") score += 1;
-
-        const sh = String(net && (net.stackHead || net.initiatorLine || "") || "");
-        if (sh && /XMLHttpRequest|xhr|open\W|send\W/i.test(sh)) score += 1;
-
-        return score;
-      };
-
       // (추가) form.submit/requestSubmit 후킹 이벤트를 기존 FORM_SUBMIT 이벤트로 변환
       if (type === "FORM_NATIVE_SUBMIT") {
         const d = data || {};
@@ -210,15 +170,6 @@
         return;
       }
 
-      // (추가) XHR PROTO_TAMPER 상관분석용 상태 갱신 (기존 전송은 그대로)
-      if (type === "PROTO_TAMPER" && isXhrProtoTamper(data)) {
-        try {
-          corr.seen = true;
-          corr.ts = Date.now();
-          corr.lastProto = data || null;
-        } catch (_) {}
-      }
-
       let scoreDelta = 0;
       let ruleId = type;
 
@@ -235,72 +186,54 @@
       const matched = ruleEngine ? ruleEngine.match({ type, data: eventData, ctx: {} }) : null;
       const meta = matched ? ruleEngine.apply(matched, baseMeta) : baseMeta;
 
-      // (추가) XHR PROTO_TAMPER meta 저장(룰 적용된 severity 반영)
-      if (type === "PROTO_TAMPER" && isXhrProtoTamper(eventData)) {
-        try { corr.lastProtoMeta = meta || null; } catch (_) {}
-      }
-
-      // (추가) XHR mirroring correlation: PROTO_TAMPER 이후 N초 이내 crossSite 전송이면 1회 시그널 emit
-      if (type === "SUSP_NETWORK_CALL") {
-        try {
-          const net = eventData || {};
-          if (net.crossSite === true && corr.seen && corr.ts) {
-            const now = Date.now();
-            const dtMs = now - corr.ts;
-
-            if (dtMs >= 0 && dtMs <= XHR_MIRROR_WINDOW_MS) {
-              if (now - (corr.lastEmitTs || 0) >= XHR_MIRROR_THROTTLE_MS) {
-
-                const suspicionScore = computeSuspicion(net, dtMs, corr.lastProtoMeta);
-                const suspicionBand = bandFromScore(suspicionScore);
-
-                const ev = {
-                  windowMs: XHR_MIRROR_WINDOW_MS,
-                  dtMs,
-                  proto: {
-                    ts: corr.ts,
-                    target: String(corr.lastProto && corr.lastProto.target || ""),
-                    ruleId: String(corr.lastProtoMeta && corr.lastProtoMeta.ruleId || ""),
-                    severity: String(corr.lastProtoMeta && corr.lastProtoMeta.severity || ""),
-                  },
-                  network: {
-                    api: String(net.api || ""),
-                    url: String(net.url || ""),
-                    abs: String(net.abs || ""),
-                    targetOrigin: String(net.targetOrigin || ""),
-                    crossSite: !!net.crossSite,
-                    method: String(net.method || ""),
-                    mode: String(net.mode || ""),
-                    size: net.size,
-                  },
-                  analysis: { suspicionScore, suspicionBand },
-                  evidence: { stackHead: String(net.stackHead || net.initiatorLine || "") }
-                };
-
-                const baseMeta2 = {
-                  ruleId: "XHR_MIRRORING_SUSPECT",
-                  scoreDelta: 0,
-                  severity: "LOW",
-                  targetOrigin: String(net.targetOrigin || ""),
-                  evidence: { dtMs, suspicionScore, suspicionBand }
-                };
-
-                const matched2 = ruleEngine ? ruleEngine.match({ type: "XHR_MIRRORING_SUSPECT", data: ev, ctx: {} }) : null;
-                const meta2 = matched2 ? ruleEngine.apply(matched2, baseMeta2) : baseMeta2;
-
-                reporter.send("XHR_MIRRORING_SUSPECT", ev, meta2);
-                corr.lastEmitTs = now;
-              }
-            }
-          }
-        } catch (_) {}
-      }
-
       reporter.send(type, eventData, meta);
     });
   }
 
   async function init() {
+    // page_hook 주입 전 화이트리스트 확인 로직 추가
+    try {
+      const currentDomain = window.location.hostname.replace(/^www\./, '').toLowerCase();
+
+      const result = await new Promise((resolve, reject) => {
+        // 타이머 안전 장치
+        const timeoutId = setTimeout(() => {
+          console.warn("[BRS] Storage access timed out. Proceeding with default settings.");
+          resolve({}); 
+        }, 2000);
+
+        chrome.storage.local.get(['whitelist'], (res) => {
+          clearTimeout(timeoutId);
+
+          if (chrome.runtime.lastError) {
+            return reject(new Error(chrome.runtime.lastError.message));
+          }
+          resolve(res || {});
+        });
+      });
+      const whitelist = result.whitelist || [];
+
+
+      const isWhitelisted = whitelist.some(domain => {
+        // 와일드카드 패턴인 경우 예) *.google.com
+        if (domain.startsWith('*.')) {
+          const actualDomain = domain.slice(2).toLowerCase();
+          return currentDomain === actualDomain || currentDomain.endsWith('.' + actualDomain);
+        }
+
+        // 일반 도메인인 경우 예) google.com
+        return currentDomain === domain;
+      });
+
+      if (isWhitelisted) {
+        console.log(`[BRS] Whitelisted site. Disabling detector for: (${currentDomain})`);
+        return; 
+      }
+
+    } catch (e) {
+      console.warn("Whitelist check failed. Proceeding with detection.", e);
+    }
+
     const ruleEngine = window.BRS_RuleEngine || null;
 
     const reporterFactory = window.BRS_Reporter && window.BRS_Reporter.createReporter;
@@ -360,11 +293,6 @@
     const moDetector = detectors.mutationObserver;
     if (moDetector && typeof moDetector.start === "function") {
       try { moDetector.start(reporter.send, ruleEngine); } catch (_) {}
-    }
-    
-    const xhrProtoTamperDetector = detectors.xhrPrototypeTamper;
-    if (xhrProtoTamperDetector && typeof xhrProtoTamperDetector.start === "function") {
-      try { xhrProtoTamperDetector.start(reporter.send, ruleEngine); } catch (_) {}
     }
 
     // SENSOR_READY

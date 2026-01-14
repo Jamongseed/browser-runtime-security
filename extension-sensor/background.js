@@ -85,11 +85,11 @@ const DASHBOARD_URL =
 const dispatcher = createDispatcher([
   createHttpSink({
     url: CONFIG.API_ENDPOINT,
-    targets: ["HIGH", "MEDIUM"],
+    targets: ["LOW", "MEDIUM", "HIGH"],
   }),
   createLocalStorageSink({
     maxLogCount: 200,
-    targets: ["HIGH", "MEDIUM", "LOW"],
+    targets: ["LOW", "MEDIUM", "HIGH"],
   }),
   createBadgeSink(),
   createNotificationSink({
@@ -98,6 +98,24 @@ const dispatcher = createDispatcher([
 ]);
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // 화이트리스트 업데이트 요청 처리
+  if (message.action === "UPDATE_WHITELIST") {
+    const newWhitelist = message.data || [];
+    
+    // 크롬 저장소에 저장
+  chrome.storage.local.set({ whitelist: newWhitelist }, () => {
+    if (chrome.runtime.lastError) {
+      console.error("[BRS] Save error:", chrome.runtime.lastError);
+      sendResponse({ status: "error", message: "Failed to save to storage" });
+    } else {
+      console.log(`[BRS] Whitelist updated: ${newWhitelist.length} domains`);
+      sendResponse({ status: "success" });
+    }
+  });
+
+    return true;
+  }
+
   // 1) 덤프 저장 (2번 코드 합침)
   if (message.action === "BRS_SAVE_DUMP") {
     (async () => {

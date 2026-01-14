@@ -15,6 +15,18 @@ function renderEmpty(element, msg) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  // 설정 버튼 추가
+  const settingsBtn = document.getElementById('go-settings');
+  if (settingsBtn) {
+    settingsBtn.addEventListener('click', () => {
+      if (chrome.runtime.openOptionsPage) {
+        chrome.runtime.openOptionsPage();
+      } else {
+        window.open(chrome.runtime.getURL('local_dashboard/brs-options-panel.html'));
+      }
+    });
+  }
+  
   chrome.storage.local.get({ 
     brs_threat_logs: [],
     brs_installId: null
@@ -45,18 +57,27 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const currentTabId = tab.id;
-    const sessionLogs = logs.filter(log => log.tabId === currentTabId);
+    const sessionLogs = logs.filter(log => {
+    const severity = log.severity.toUpperCase();
+    const isTargetSeverity = ['MEDIUM', 'HIGH'].includes(severity);
+    
+    return log.tabId === currentTabId && isTargetSeverity;
+  });
 
     if (sessionLogs.length === 0) {
-      renderEmpty(logArea, "이 탭과 관련된 위협 로그가 없습니다.");
+      renderEmpty(logArea, "현재 탭에서 탐지된<br>주요 위협(Medium 이상)이 없습니다.");
       return;
     }
 
-    const logsToDisplay = sessionLogs.sort((a, b) => b.ts - a.ts);
+    const logsToDisplay = sessionLogs
+      .sort((a, b) => b.ts - a.ts)
+      .slice(0, 20);
   
 
     logArea.innerHTML = '';
     logsToDisplay.forEach(log => {
+      const siteInfo = log?.browserUrl || log?.targetOrigin || "Internal/Page";
+
       const timeStr = new Date(log.ts).toLocaleTimeString();
       let dataStr = "";
       try {
@@ -81,6 +102,11 @@ document.addEventListener('DOMContentLoaded', () => {
       headerDiv.appendChild(typeSpan);
       headerDiv.appendChild(timeSpan);
 
+      const originDiv = document.createElement('div');
+      originDiv.style.fontSize = '11px';
+      originDiv.style.marginTop = '4px';
+      originDiv.textContent = `SITE: ${siteInfo}`;
+
       const dataDiv = document.createElement('div');
       dataDiv.className = 'log-data';
       dataDiv.textContent = dataStr;
@@ -99,7 +125,9 @@ document.addEventListener('DOMContentLoaded', () => {
       footerDiv.appendChild(document.createTextNode(` (점수: ${log.scoreDelta})`));
 
       itemDiv.appendChild(headerDiv);
-      itemDiv.appendChild(dataDiv);
+      itemDiv.appendChild(originDiv);
+      // rawdata는 안 넣는 게 더 나을 것 같아서 일단 주석 처리
+      // itemDiv.appendChild(dataDiv);
       itemDiv.appendChild(footerDiv);
       logArea.appendChild(itemDiv);
     });
