@@ -44,17 +44,17 @@ function buildNotificationOptions(threat, os) {
 chrome.notifications.onClicked.addListener(async (notificationId) => {
     const { dashboardUrl } = await chrome.storage.local.get("dashboardUrl");
     if (dashboardUrl) {
-      const targetUrl = `${dashboardUrl}?reportId=${notificationId}`;
-      chrome.tabs.create({ url: targetUrl });
-      chrome.notifications.clear(notificationId);
+		const targetUrl = `${dashboardUrl}?reportId=${notificationId}`;
+		chrome.tabs.create({ url: targetUrl });
+		chrome.notifications.clear(notificationId);
     }
 });
 
 
 export function createNotificationSink({ dashboardUrl }) {
 	if (dashboardUrl) {
-    chrome.storage.local.set({ dashboardUrl });
-  }
+    	chrome.storage.local.set({ dashboardUrl });
+  	}
 
 	return {
 		name: "NotificationSink",
@@ -70,22 +70,22 @@ export function createNotificationSink({ dashboardUrl }) {
 			const severityKey = (threat.severity || "LOW").toLowerCase();
 			
 			if (!settings[severityKey]) {
-        return { status: "ignored_user_setting", severity: threat.severity };
-      }
+				return { status: "ignored_user_setting", severity: threat.severity };
+			}
 
 			const now = Date.now();
 
-      if (now - lastNotiTimestamp <= NOTIFICATION_COOLDOWN) {
-        return { status: "ignored_cooldown_memory" };
-      }
+			if (now - lastNotiTimestamp <= NOTIFICATION_COOLDOWN) {
+				return { status: "ignored_cooldown_memory" };
+			}
 
 			const { lastNotiTime } = await chrome.storage.local.get({ lastNotiTime: 0 });
 			if (now - lastNotiTime <= NOTIFICATION_COOLDOWN) {
-        lastNotiTimestamp = lastNotiTime;
+				lastNotiTimestamp = lastNotiTime;
 				return { status: "ignored_cooldown" };
 			}
 
-      lastNotiTimestamp = now;
+			lastNotiTimestamp = now;
 
 			const os = await getOSName();
 			const notificationOptions = buildNotificationOptions(threat, os);
