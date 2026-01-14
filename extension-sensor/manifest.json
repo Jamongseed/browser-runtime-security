@@ -25,7 +25,8 @@
     {
       "matches": [
         "http://localhost:3000/*",
-        "http://127.0.0.1:3000/*"
+        "http://127.0.0.1:3000/*",
+        "https://brs-poc-hub.onrender.com/*"
       ],
       "js": [
         "page_hook_sw_boot.js",
@@ -38,7 +39,8 @@
     {
       "matches": [
         "http://localhost:3000/*",
-        "http://127.0.0.1:3000/*"
+        "http://127.0.0.1:3000/*",
+        "https://brs-poc-hub.onrender.com/*"
       ],
       "js": [
         "engine/rule_engine.js",
