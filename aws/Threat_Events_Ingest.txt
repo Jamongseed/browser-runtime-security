@@ -1,703 +1,499 @@
 // index.mjs (AWS Lambda - Node.js 24)
-// deps: @aws-sdk/client-dynamodb @aws-sdk/lib-dynamodb 
+// deps: @aws-sdk/client-dynamodb @aws-sdk/lib-dynamodb
+
+/* =========================================================
+ * Imports
+ * =======================================================*/
 import crypto from "crypto";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { DynamoDBDocumentClient, PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 
+/* =========================================================
+ * Environment & Constants
+ * =======================================================*/
 const TABLE = process.env.TABLE_NAME || "Threat_Events";
 const AGG_TABLE = process.env.AGG_TABLE_NAME || "Threat_Aggregates";
-const DUMP_BUCKET = process.env.DUMP_BUCKET || "";
-const DUMP_PREFIX = process.env.DUMP_PREFIX || "dumps/";
+
+const DUMP_BUCKET = process.env.DUMP_BUCKET || "brs-threat-dumps-prod";
+const DUMP_PREFIX = process.env.DUMP_PREFIX || "events";
+
 const TTL_DAYS = Number(process.env.TTL_DAYS || 30);
-const MAX_JSON_BYTES = Number(process.env.MAX_JSON_BYTES || 20000);            
-const EVENT_SHARDS = Number(process.env.EVENT_SHARDS || 8);      // Events hot partition 완화
-const AGG_SHARDS   = Number(process.env.AGG_SHARDS || 4);        // Aggregates hot partition 완화
-const EVENT_SCORE_CAP = Number(process.env.EVENT_SCORE_CAP || 50); // server score cap (1차 보정)
-const s3 = new S3Client({});
+const MAX_JSON_BYTES = Number(process.env.MAX_JSON_BYTES || 20_000);
+const MAX_PAYLOAD_BYTES = Number(process.env.MAX_PAYLOAD_BYTES || 350_000);
+
+const EVENT_SHARDS = Number(process.env.EVENT_SHARDS || 8);
+const AGG_SHARDS = Number(process.env.AGG_SHARDS || 4);
+
+const EVENT_SCORE_CAP = Number(process.env.EVENT_SCORE_CAP || 50);
+
+const REQUIRE_HMAC =
+  String(process.env.REQUIRE_HMAC || "false").toLowerCase() === "true";
+const HMAC_KEY = process.env.HMAC_KEY || "";
+const HMAC_VERSION = process.env.HMAC_VERSION || "v1";
+
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || "*";
 const ALLOW_HEADERS = "content-type";
 const ALLOW_METHODS = "POST,OPTIONS";
 
+/* =========================================================
+ * AWS Clients
+ * =======================================================*/
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
 });
+const s3 = new S3Client({});
 
-// ---------- HMAC integrity (2차 방어) ----------
-const REQUIRE_HMAC = String(process.env.REQUIRE_HMAC || "false").toLowerCase() === "true";
-const HMAC_KEY = process.env.HMAC_KEY || "";               // 완전 비밀이 아니라도 "위조 난이도 상승" 목적
-const HMAC_VERSION = process.env.HMAC_VERSION || "v1";     // 스키마/서명 문자열 바뀔 때 롤링용
+/* =========================================================
+ * Basic Helpers
+ * =======================================================*/
+const safeStr = (v, max = 400) =>
+  (v == null ? "" : String(v)).slice(0, max);
 
-function hmacHex(key, msg) {
-  return crypto.createHmac("sha256", key).update(msg, "utf8").digest("hex");
-}
+const jsonByteLength = (obj) =>
+  Buffer.byteLength(JSON.stringify(obj ?? null), "utf8");
 
-function timingSafeEqHex(a, b) {
-  // a,b: hex string
-  if (typeof a !== "string" || typeof b !== "string") return false;
-  if (a.length !== b.length) return false;
-  try {
-    const ba = Buffer.from(a, "hex");
-    const bb = Buffer.from(b, "hex");
-    if (ba.length !== bb.length) return false;
-    return crypto.timingSafeEqual(ba, bb);
-  } catch {
-    return false;
-  }
-}
-
-function getHeader(event, name) {
-  const h = event?.headers || {};
-  // API GW는 대소문자 섞여 올 수 있음
-  return h[name] ?? h[name.toLowerCase()] ?? h[name.toUpperCase()] ?? "";
-}
-
-function buildCanonicalV1({
-  eventId, tsMs, installId, sessionId, type, ruleId, top_domain, severity, scoreClient, scoreServer,
-}) {
-  // null/undefined를 빈값으로 고정 (클라/서버 동일 규칙 필요)
-  const sc = Number.isFinite(scoreClient) ? String(scoreClient) : "";
-  return [
-    "v1",
-    String(eventId || ""),
-    String(tsMs || ""),
-    String(installId || ""),
-    String(sessionId || ""),
-    String(type || ""),
-    String(ruleId || ""),
-    String(top_domain || ""),
-    String(severity || ""),
-    sc,
-  ].join("|");
-}
-// ---------------------------------------------
-
-
-// API Gateway/Lambda URL용 공통 CORS 헤더 생성
-function corsHeaders(/* event */) {
-  return {
-    "content-type": "application/json",
-    "access-control-allow-origin": ALLOW_ORIGIN,
-    "access-control-allow-methods": ALLOW_METHODS,
-    "access-control-allow-headers": ALLOW_HEADERS,
-    "access-control-max-age": "600",
-  };
-}
-
-// JSON 응답 포맷을 통일
-function resp(statusCode, bodyObj, extraHeaders) {
-  return {
-    statusCode,
-    headers: { ...corsHeaders(), ...(extraHeaders || {}) },
-    body: JSON.stringify(bodyObj),
-  };
-}
-
-// 객체를 JSON 문자열로 직렬화했을 때 UTF-8 바이트 길이 계산
-function jsonByteLength(obj) {
-  try {
-    return Buffer.byteLength(JSON.stringify(obj ?? null), "utf8");
-  } catch {
-    return 0;
-  }
-}
-
-// Ts 13자리 ms timestamp로 정규화
-function toTsMs(tsRaw) {
-  const n = Number(tsRaw);
+const toTsMs = (ts) => {
+  const n = Number(ts);
   if (!Number.isFinite(n) || n <= 0) return NaN;
-  // seconds(10자리대) -> ms
-  if (n > 0 && n < 1e12) return Math.trunc(n * 1000);
-  return Math.trunc(n);
-}
+  return n < 1e12 ? Math.trunc(n * 1000) : Math.trunc(n);
+};
 
-// timestamp(ms)를 13자리 문자열로 zero-pad
-function padTs13(tsMs) {
-  return String(Math.trunc(tsMs)).padStart(13, "0");
-}
+const padTs13 = (ts) => String(ts).padStart(13, "0");
 
-// 문자열 변환 + 최대 길이 제한 (DynamoDB 저장 안정성용)
-function safeStr(v, maxLen) {
-  const s = v == null ? "" : String(v);
-  return s.length > maxLen ? s.slice(0, maxLen) : s;
-}
-
-function normLower(s, maxLen = 400) {
-  return safeStr(s, maxLen).trim().toLowerCase();
-}
-
-function stripPort(host) {
-  const h = String(host || "").trim();
-  // IPv6는 단순 처리(포트 제거만)
-  if (h.startsWith("[")) {
-    const i = h.indexOf("]");
-    return i >= 0 ? h.slice(0, i + 1) : h;
+/* =========================================================
+ * URL / Domain Helpers
+ * =======================================================*/
+const stripPort = (host) => {
+  if (!host) return "";
+  if (host.startsWith("[")) {
+    const i = host.indexOf("]");
+    return i >= 0 ? host.slice(0, i + 1) : host;
   }
-  const idx = h.lastIndexOf(":");
-  if (idx > 0 && /^\d+$/.test(h.slice(idx + 1))) return h.slice(0, idx);
-  return h;
-}
+  const idx = host.lastIndexOf(":");
+  return idx > 0 && /^\d+$/.test(host.slice(idx + 1))
+    ? host.slice(0, idx)
+    : host;
+};
 
-function extractHostFromUrl(urlStr) {
+const extractHostFromUrl = (url) => {
   try {
-    const u = new URL(String(urlStr || ""));
-    return stripPort(u.host || u.hostname || "");
+    const u = new URL(url);
+    return stripPort(u.hostname);
   } catch {
     return "";
   }
-}
+};
 
-function extractPathFromUrl(urlStr) {
+const extractPathFromUrl = (url) => {
   try {
-    const u = new URL(String(urlStr || ""));
-    return u.pathname || "";
+    return new URL(url).pathname || "";
   } catch {
     return "";
   }
-}
+};
 
-// 매우 단순한 path 마스킹(PII/식별자 노출 방지 목적)
-function maskPath(path) {
-  const p = String(path || "");
-  if (!p) return "";
-  return p
+const maskPath = (path = "") =>
+  path
     .split("/")
-    .map(seg => {
-      if (!seg) return "";
+    .map((seg) => {
       if (/^\d+$/.test(seg)) return ":n";
-      if (/^[A-Za-z0-9\-_]{16,}$/.test(seg)) return ":tok";
-      // email/uuid 등은 필요 시 추가
+      if (/^[A-Za-z0-9_-]{16,}$/.test(seg)) return ":tok";
       return seg;
     })
     .join("/")
     .slice(0, 2000);
-}
 
+export const deriveTopDomainFromPageUrl = (pageUrl) => {
+  try {
+    const host = new URL(pageUrl).hostname.toLowerCase();
+    const parts = host.split(".").filter(Boolean);
+    if (parts.length <= 2) return host;
+    return `${parts.at(-2)}.${parts.at(-1)}`;
+  } catch {
+    return "UNKNOWN";
+  }
+};
 
-// PSL(정확) 라이브러리 없이도 "위조 난이도 상승/무결성" 목적에 충분한 수준의 보수적 추정
-const TWO_LEVEL_SUFFIX = new Set([
-  "co.uk", "org.uk", "ac.uk",
-  "com.au", "net.au", "org.au",
-  "co.jp", "ne.jp", "or.jp",
-  "co.kr", "or.kr", "go.kr", "ac.kr",
-]);
+/* =========================================================
+ * Time Helpers (Asia/Seoul)
+ * =======================================================*/
+const isoDayFromTs = (ts) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    dateStyle: "short",
+  }).format(ts);
 
-function deriveTopDomainFromHost(hostOrDomain) {
-  const h0 = normLower(stripPort(hostOrDomain), 400).replace(/\.$/, "");
-  if (!h0) return "";
-  // 이미 domain 형태로 온 경우도 처리
-  const parts = h0.split(".").filter(Boolean);
-  if (parts.length <= 2) return h0;
-  const last2 = parts.slice(-2).join(".");
-  const last3 = parts.slice(-3).join(".");
-  // 예: news.example.co.uk -> example.co.uk
-  if (TWO_LEVEL_SUFFIX.has(last2)) return parts.slice(-3).join(".");
-  if (TWO_LEVEL_SUFFIX.has(parts.slice(-2).join("."))) return last3;
-  return last2;
-}
-
-// Asia/Seoul 기준 시간 단위 집계를 위한 YYYYMMDDHH 키 생성
-function isoDayFromTs(ts) {
-  const d = new Date(ts);
+const isoHourKeyFromTs = (ts) => {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Seoul",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(d);
-
-  const yyyy = parts.find(p => p.type === "year")?.value ?? "0000";
-  const mm   = parts.find(p => p.type === "month")?.value ?? "00";
-  const dd   = parts.find(p => p.type === "day")?.value ?? "00";
-
-  return `${yyyy}-${mm}-${dd}`; // YYYY-MM-DD
-}
-
-// Asia/Seoul 기준 시간 단위 집계를 위한 YYYYMMDDHH 키 생성
-function isoHourKeyFromTs(ts) {
-  // Asia/Seoul 기준 YYYYMMDDHH
-  const d = new Date(ts);
-  const parts = new Intl.DateTimeFormat("en-CA", {
-   timeZone: "Asia/Seoul",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
     hour: "2-digit",
     hour12: false,
-  }).formatToParts(d);
-  const yyyy = parts.find(p => p.type === "year")?.value ?? "0000";
-  const mm   = parts.find(p => p.type === "month")?.value ?? "00";
-  const dd   = parts.find(p => p.type === "day")?.value ?? "00";
-  const hh   = parts.find(p => p.type === "hour")?.value ?? "00";
-  return `${yyyy}${mm}${dd}${hh}`; // YYYYMMDDHH
-}
+  }).formatToParts(ts);
+  const g = (t) => parts.find((p) => p.type === t)?.value ?? "00";
+  return `${g("year")}${g("month")}${g("day")}${g("hour")}`;
+};
 
-/*
-* NOTE(scoreBucket):
-* ------------------
-* severity 받아오기 때문에 안 씀
-* function scoreBucket(scoreClient) {
-*   const x = Number(scoreClient ?? 0);
-*   if (x >= 50) return "HIGH";
-*   if (x >= 10) return "MIDDLE";
-*   return "LOW";
-* }
-*/
-
-// JSON payload가 최대 바이트를 넘으면 preview만 저장하고 truncation 표시
-function truncateJsonByBytes(obj, maxBytes) {
-  try {
-    const s = JSON.stringify(obj ?? null);
-    const bytes = Buffer.byteLength(s, "utf8");
-    if (bytes <= maxBytes) {
-      return { json: obj ?? null, truncated: false, bytes };
-    }
-    // preview는 문자열 일부만(바이트 정확 컷까진 안 하고 “대략적인 프리뷰”)
-    return {
-      json: { __truncated__: true, preview: s.slice(0, Math.min(2000, s.length)) },
-      truncated: true,
-      bytes,
-    };
-  } catch {
-    return { json: { __invalid_json__: true }, truncated: true, bytes: 0 };
-  }
-}
-
-// day(YYYY-MM-DD) 기준 Asia/Seoul 23:59:59 + N일 TTL 계산
-function ttlFromDay(day, plusDays) {
+const ttlFromDay = (day, plusDays) => {
   const [y, m, d] = day.split("-").map(Number);
-  // Asia/Seoul 기준 day 끝
-  const endOfDaySeoul = Date.UTC(y, m - 1, d, 15, 59, 59);
-  const ttlMs = endOfDaySeoul + plusDays * 86400 * 1000;
-  return Math.floor(ttlMs / 1000);
-}
+  const endSeoul = Date.UTC(y, m - 1, d, 15, 59, 59);
+  return Math.floor((endSeoul + plusDays * 86400e3) / 1000);
+};
 
-function isDumpType(type) {
-  const t = String(type || "").toUpperCase();
-  if (t === "SCRIPT_DUMP") return true;
-  // 확장 가능: *_DUMP 전부 dump 취급
-  if (t.endsWith("_DUMP")) return true;
-  return false;
-}
+/* =========================================================
+ * Security (HMAC)
+ * =======================================================*/
+const hmacHex = (key, msg) =>
+  crypto.createHmac("sha256", key).update(msg).digest("hex");
 
-function safeS3KeyPart(s, maxLen = 200) {
-  return String(s || "")
+const timingSafeEqHex = (a, b) => {
+  try {
+    return (
+      a.length === b.length &&
+      crypto.timingSafeEqual(Buffer.from(a, "hex"), Buffer.from(b, "hex"))
+    );
+  } catch {
+    return false;
+  }
+};
+
+const buildCanonicalV1 = ({
+  eventId,
+  tsMs,
+  installId,
+  sessionId,
+  type,
+  ruleId,
+  severity,
+  scoreDelta,
+}) =>
+  [
+    "v1",
+    eventId,
+    tsMs,
+    installId,
+    sessionId,
+    type,
+    ruleId,
+    severity,
+    scoreDelta,
+  ].join("|");
+
+/* =========================================================
+ * CORS / Response Helpers
+ * =======================================================*/
+const corsHeaders = () => ({
+  "content-type": "application/json",
+  "access-control-allow-origin": ALLOW_ORIGIN,
+  "access-control-allow-methods": ALLOW_METHODS,
+  "access-control-allow-headers": ALLOW_HEADERS,
+  "access-control-max-age": "600",
+});
+
+const resp = (statusCode, body) => ({
+  statusCode,
+  headers: corsHeaders(),
+  body: JSON.stringify(body),
+});
+
+/* =========================================================
+ * Payload Storage Helpers
+ * =======================================================*/
+const stableStringify = (obj) => {
+  // 일반 JSON.stringify면 충분하지만, 키 순서를 고정하고 싶으면 별도 구현 필요
+  return JSON.stringify(obj ?? null);
+};
+
+const limitUtf8 = (s, maxBytes) => {
+  const buf = Buffer.from(String(s ?? ""), "utf8");
+  if (buf.byteLength <= maxBytes) return { text: buf.toString("utf8"), truncated: false };
+  return { text: buf.subarray(0, maxBytes).toString("utf8"), truncated: true };
+};
+
+const sha256Hex = (s) =>
+  crypto.createHash("sha256").update(String(s ?? ""), "utf8").digest("hex");
+
+
+/* =========================================================
+ * AGG Helpers
+ * =======================================================*/
+const aggShardFor = (s) =>
+  parseInt(
+    crypto.createHash("sha256").update(String(s || "")).digest("hex").slice(0, 8),
+    16
+  ) % AGG_SHARDS;
+
+const toNum = (v, def = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : def;
+};
+
+/* =========================================================
+ * S3 Helpers
+ * =======================================================*/
+const safeS3KeyPart = (s, max = 200) =>
+  String(s || "")
     .replace(/[^A-Za-z0-9._\-=/]/g, "_")
-    .slice(0, maxLen);
-}
+    .slice(0, max);
 
-async function putTextToS3({ bucket, key, text, contentType }) {
-  await s3.send(new PutObjectCommand({
-    Bucket: bucket,
-    Key: key,
-    Body: text ?? "",
-    ContentType: contentType || "text/plain; charset=utf-8",
-  }));
-}
+const putTextToS3 = async ({ bucket, key, text, contentType }) =>
+  s3.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: text ?? "",
+      ContentType: contentType || "text/plain; charset=utf-8",
+    })
+  );
 
+/* =========================================================
+ * Main Handler
+ * =======================================================*/
 export const handler = async (event) => {
-  // 0. CORS preflight 처리
   const method =
-    event?.requestContext?.http?.method ||
-    event?.requestContext?.httpMethod ||
-    event?.httpMethod ||
-    "";
+    event?.requestContext?.http?.method || event?.httpMethod || "";
 
-  if (String(method).toUpperCase() === "OPTIONS") {
-    return {
-      statusCode: 204,
-      headers: corsHeaders(event),
-      body: "",
-    };
+  if (method === "OPTIONS") {
+    return { statusCode: 204, headers: corsHeaders(), body: "" };
   }
 
-  // 1. 요청 body 파싱 및 JSON 검증
   let payload;
   try {
-    payload =
-      typeof event?.body === "string"
-        ? JSON.parse(event.body)
-        : (event?.body ?? event);
+    payload = JSON.parse(event.body);
   } catch {
-    return resp(400, { ok: false, error: "Invalid JSON body", code: "INVALID_JSON"});
+    return resp(400, { ok: false, error: "INVALID_JSON" });
   }
 
-  // 최상위 payload 자체도 너무 크면 컷/거절
-  // API Gateway/Lambda URL 자체 제한이 있긴 하지만, 방어적으로 추가
-  const payloadBytes = jsonByteLength(payload);
-  const MAX_PAYLOAD_BYTES = Number(process.env.MAX_PAYLOAD_BYTES || 450_000); // 여유치(약 450KB)
-  if (payloadBytes > MAX_PAYLOAD_BYTES) {
-    return resp(413, { ok: false, error: "Payload too large", code: "PAYLOAD_TOO_LARGE"});
+  if (jsonByteLength(payload) > MAX_PAYLOAD_BYTES) {
+    return resp(413, { ok: false, error: "PAYLOAD_TOO_LARGE" });
   }
 
-  // 2. 필수 필드 최소 검증 (type, sessionId, ts)
-  const type = safeStr(payload?.type, 120);
-  const ruleId = safeStr(payload?.ruleId, 200);
-  const sessionId = safeStr(payload?.sessionId, 120);
-  const installId = safeStr(payload?.installId, 120); 
-  const tsMs = toTsMs(payload?.ts);
-  const eventId = safeStr(payload?.eventId, 200) || safeStr(payload?.reportId, 200);       // 길이는 운영 기준으로 조절
+  /* ---------- validate ---------- */
+  const type = safeStr(payload.type, 120);
+  const eventId = safeStr(payload.reportId, 200);
+  const installId = safeStr(payload.installId, 120);
+  const sessionId = safeStr(payload.sessionId, 120);
+  const tsMs = toTsMs(payload.ts);
+  const severity = safeStr(payload.severity, 40);
+  const ruleId = safeStr(payload.ruleId, 200);
+  const origin = safeStr(payload.origin, 80) || "UNKNOWN";
+  const targetOrigin = safeStr(payload.targetOrigin, 80) || "UNKNOWN";
+  const ua = safeStr(payload.ua, 400);
+  const page = safeStr(payload.page, 2000);
+  const scoreDelta = safeStr(payload.scoreDelta, 200)  || "UNKNOWN";
+  const domain = page ? deriveTopDomainFromPageUrl(page) : "UNKNOWN";
 
-  if (!type) {
-    return resp(400, {
-      ok: false,
-      error: "Missing required field: type",
-      code: "MISSING_TYPE",
-    });
+  if (!type || !eventId || !installId || !severity || !ruleId || !Number.isFinite(tsMs)) {
+    return resp(400, { ok: false, error: "MISSING_REQUIRED_FIELD" });
   }
 
-  if (!sessionId) {
-    return resp(400, {
-      ok: false,
-      error: "Missing required field: sessionId",
-      code: "MISSING_SESSION_ID",
-    });
-  }
-
-  if (!installId) {
-    return resp(400, {
-      ok: false,
-      error: "Missing required field: installId",
-      code: "MISSING_INSTALL_ID",
-    });
-  }
-
-  if (!Number.isFinite(tsMs)) {
-    return resp(400, {
-      ok: false,
-      error: "Invalid or missing required field: ts",
-      code: "INVALID_TS",
-    });
-  }
-
-  if (!eventId) {
-    return resp(400, {
-      ok: false,
-      error: "Missing required field: eventId",
-      code: "MISSING_EVENT_ID",
-    });
-  }
-
-  const origin = safeStr(payload?.origin, 400);
-  
-  // ---------------------------
-  // Unified schema (single truth)
-  // ---------------------------
-  const server_received_ts_ms = Date.now();
-
-  const page = safeStr(payload?.page, 2000);
-  const ua = safeStr(payload?.ua, 400);
-  const extension_version = safeStr(payload?.extension_version ?? payload?.extensionVersion ?? "", 100);
-  const tags = Array.isArray(payload?.tags)
-    ? payload.tags.slice(0, 20).map(t => safeStr(t, 32))
-    : undefined;
-
-  // page_host / page_path_masked 는 서버가 URL에서 파생
-  const page_host = normLower(extractHostFromUrl(page), 400);
-  const page_path_masked = maskPath(extractPathFromUrl(page));
-  // top_domain 은 서버가 host 기반으로 계산 (없으면 UNKNOWN)
-  const top_domain = deriveTopDomainFromHost(page_host) || "UNKNOWN";
-
-  // severity 표준화
-  let severity = safeStr(payload?.severity ?? "LOW", 20).toUpperCase();
-  if (!["HIGH", "MEDIUM", "LOW"].includes(severity)) severity = "UNKNOWN";
-
-  // score: 클라는 scoreClient만 보냄 → 서버가 보정 후 scoreServer로 저장
-  const scoreClient = Number(payload?.scoreDelta);
-  const flags = [];
-
-  let baseScore = 0;
-  if (Number.isFinite(scoreClient)) baseScore = scoreClient;
-  else {
-    if (severity === "HIGH") baseScore = 20;
-    else if (severity === "MEDIUM") baseScore = 10;
-    else if (severity === "LOW") baseScore = 2;
-    else baseScore = 0;
-  }
-
-  let scoreServer = Math.max(0, Math.min(baseScore, EVENT_SCORE_CAP));
-  if (scoreServer !== baseScore) flags.push("EVENT_SCORE_CAPPED");
-  scoreServer = Math.round(scoreServer);
-
-  const now = Date.now();
-  const MAX_SKEW_MS = Number(process.env.MAX_TS_SKEW_MS || 7 * 86400 * 1000);
-  if (Math.abs(tsMs - now) > MAX_SKEW_MS) {
-    return resp(400, { ok: false, error: "ts is out of acceptable range", code: "TS_OUT_OF_RANGE" });
-  }
-
-  // ---------- 2차 방어: HMAC 무결성 체크 ----------
+  /* ---------- HMAC ---------- */
   if (REQUIRE_HMAC) {
-    if (!HMAC_KEY) {
-      // 배포 설정 실수 방지
-      return resp(500, { ok: false, error: "HMAC_KEY not configured", code: "MISCONFIG_HMAC_KEY" });
-    }
-
-    // 서명은 헤더 우선, 없으면 payload.sig 허용
-    const sig = safeStr(getHeader(event, "x-sig"), 200) || safeStr(payload?.sig, 200);
-    const sigV = safeStr(getHeader(event, "x-sig-v"), 20) || safeStr(payload?.sig_v, 20) || HMAC_VERSION;
-
-    // 현재는 v1만 지원 (필요하면 v2 추가)
-    if (sigV !== "v1") {
-      return resp(401, { ok: false, error: "Unsupported signature version", code: "SIG_VERSION_UNSUPPORTED" });
-    }
-    if (!sig) {
-      return resp(401, { ok: false, error: "Missing signature", code: "MISSING_SIGNATURE" });
-    }
-
+    const headers = event.headers || {};
+    const sig = headers["x-sig"] || headers["X-Sig"] || headers["X-SIG"];
     const canonical = buildCanonicalV1({
-      eventId, tsMs, installId, sessionId, type, ruleId: (ruleId || type), top_domain, severity,
-      scoreClient,
+      eventId, tsMs, installId, sessionId, type,ruleId, severity, scoreDelta,
     });
-    const expected = hmacHex(HMAC_KEY, canonical);
-    if (!timingSafeEqHex(expected, sig)) {
-      return resp(401, { ok: false, error: "Invalid signature", code: "INVALID_SIGNATURE" });
+
+    if (!timingSafeEqHex(hmacHex(HMAC_KEY, canonical), sig)) {
+      return resp(401, { ok: false, error: "INVALID_SIGNATURE" });
     }
   }
-  // ----------------------------------------------
 
+  /* ---------- keys ---------- */
   const day = isoDayFromTs(tsMs);
-  const hourKey = isoHourKeyFromTs(tsMs);
-  
-  // eventId 기반 해시 (결정적 shard 계산)
-  const eventIdHash = crypto.createHash("sha256").update(eventId).digest("hex");
+  const revTs = padTs13(9999999999999 - tsMs);
+  const shard =
+    parseInt(
+      crypto.createHash("sha256").update(eventId).digest("hex").slice(0, 8),
+      16
+    ) % EVENT_SHARDS;
 
-  // Events shard: 항상 동일 eventId -> 동일 shard
-  const eventShard = Number.parseInt(eventIdHash.slice(0, 8), 16) % EVENT_SHARDS;
+  const pk = `ORG#${origin}#DAY#${day}#S#${shard}`;
+  const sk = `T#${revTs}#E#${eventId}`;
 
-  // SK 길이 제한용 short id (원본도 함께 저장하니 SK는 짧게)
-  const eventIdShort = eventIdHash.slice(0, 16);
+  const payloadStr = stableStringify(payload);
+  const limited = limitUtf8(payloadStr, MAX_JSON_BYTES);
 
-  // 3. 이벤트 식별 키
-  // shard (핫파티션 방지)
-  const revTs = String(9999999999999 - tsMs).padStart(13, "0");
+  const payloadJson = limited.text;                 // DynamoDB에 저장할 원문(또는 일부)
+  const payloadTruncated = limited.truncated;       // 잘렸는지 여부
+  const payloadHash = sha256Hex(payloadStr);        // 원문 기준 해시(추후 정합성/중복/조회용)
 
-  const pk = `ORG#${origin || "UNKNOWN"}#DAY#${day}#S#${eventShard}`;
-  const sk = `T#${revTs}#E#${eventIdShort}`;
-
-  // 4. payload(data/evidence) 크기 제한
-  const dataPack = truncateJsonByBytes(payload?.data, MAX_JSON_BYTES);
-  const evPack = truncateJsonByBytes(payload?.evidence, MAX_JSON_BYTES);
-
-  // 5 TTL 계산
-  const ttl = ttlFromDay(day, TTL_DAYS);
-
-  // 6 dump
-  const isDump = isDumpType(type);
-
-  let dumpS3 = null; // { bucket, keyJs, keyMeta }
-
-  if (isDump) {
-    if (!DUMP_BUCKET) {
-      return resp(500, { ok: false, error: "DUMP_BUCKET not configured", code: "MISCONFIG_DUMP_BUCKET" });
-    }
-
-    const sha256 = safeStr(payload?.data?.sha256, 128);
-    const text = payload?.data?.text; // 원문 스크립트
-    const contentType = safeStr(payload?.data?.contentType, 200) || "application/javascript; charset=utf-8";
-
-    // key 구성(너 운영 방식에 맞게 바꿔도 됨)
-    const keyBase = [
-      DUMP_PREFIX.replace(/^\//, "").replace(/\/?$/, "/"),
-      "origin=", safeS3KeyPart(origin || "UNKNOWN"), "/",
-      "day=", safeS3KeyPart(day), "/",
-      "install=", safeS3KeyPart(installId), "/",
-      "eventId=", safeS3KeyPart(eventId), "/",
-      sha256 ? `sha256=${safeS3KeyPart(sha256)}/` : ""
-    ].join("");
-
-    const keyJs = `${keyBase}body.js`;
-    const keyMeta = `${keyBase}meta.json`;
-
-    // 1) 원문 저장
-    await putTextToS3({
-      bucket: DUMP_BUCKET,
-      key: keyJs,
-      text: typeof text === "string" ? text : "",
-      contentType
-    });
-
-    // 2) 메타 저장(원본 payload에서 text만 제거한 사본)
-    const payloadNoText = {
-      ...payload,
-      data: payload?.data ? { ...payload.data, text: undefined } : payload?.data
-    };
-
-    await putTextToS3({
-      bucket: DUMP_BUCKET,
-      key: keyMeta,
-      text: JSON.stringify(payloadNoText),
-      contentType: "application/json; charset=utf-8"
-    });
-
-    dumpS3 = { bucket: DUMP_BUCKET, keyJs, keyMeta };
-  }
-
-  // dump면 DDB BODY에는 원문(text) 대신 S3 포인터 + 프리뷰만 남김
-  let bodyData = dataPack.json;
-  let dataTruncated = dataPack.truncated;
-
-  if (isDump && dumpS3) {
-    const text = typeof payload?.data?.text === "string" ? payload.data.text : "";
-    // data에는 원문 제거(중복 저장 방지)
-    const dataNoText = payload?.data ? { ...payload.data, text: undefined } : payload?.data;
-
-    bodyData = {
-      ...(dataNoText || null),
-      __dump_in_s3__: true,
-      s3_bucket: dumpS3.bucket,
-      s3_key_js: dumpS3.keyJs,
-      s3_key_meta: dumpS3.keyMeta,
-      text_preview: text.slice(0, 1000),
-      text_len: text.length,
-    };
-    // 프리뷰 구조로 직접 만들었으니 truncation은 false로 처리
-    dataTruncated = false;
-  }
-
-
-  const item = {
-    pk, sk,
-    eventId,
-    tsMs, day,
-
-    type,
-    ruleId: ruleId || type,
-    sessionId,
-    installId,
-    tabId,
-    
-    ii_pk: `INSTALL#${installId}`,
-    ii_sk: `T#${revTs}#E#${eventIdShort}`,
-    
-    origin,
-    targetOrigin,
-    top_domain,
-    page_host, page_path_masked,
-    severity,
-    scoreClient,
-    scoreServer,
-    extension_version,
-    ua,
-    tags,
-    server_received_ts_ms,
-
-    ttl,
-    flags,
-  };
-
-  const bodyItem = {
-    pk: `EVENT#${eventId}`,
-    sk: "BODY",
-
-    tsMs, day,
-    installId,
-
-    data: bodyData,
-    evidence: evPack.json,
-    dataTruncated: dataTruncated,
-    evidenceTruncated: evPack.truncated,
-
-    ttl,
-  };
-
-  // Aggregates shard
-  const aggShard = Number.parseInt(eventIdHash.slice(8, 16), 16) % AGG_SHARDS;
+  /* ----- Aggregates shard ----- */
   const orgKey = origin || "UNKNOWN";
-  const ruleKey = (ruleId || type) || "UNKNOWN";
-  const domainKey = top_domain || "UNKNOWN";
+  const ruleKey = ruleId  || "UNKNOWN";
+  const domainKey = domain || "UNKNOWN";
   const sevKey = severity || "LOW";
 
+  // scoreDelta numeric (optional aggregate metric)
+  const score = Math.min(Math.max(toNum(payload.scoreDelta, 0), 0), EVENT_SCORE_CAP);
+
+  // NOTE: shard는 aggregate "대상 키"로 분산시키는 게 핫파티션 방지에 유리
+  const aggShardDomain = aggShardFor(`D|${orgKey}|${domainKey}`);
+  const aggShardRule   = aggShardFor(`R|${orgKey}|${ruleKey}`);
+  const aggShardSev    = aggShardFor(`S|${orgKey}|${sevKey}`);
+
+  const aggTtl = ttlFromDay(day, TTL_DAYS);
+  const nowMs = Date.now();
+
+  const updateAgg = async ({ pk, sk, cntDelta = 1, scoreDelta = 0 }) => {
+    return ddb.send(
+      new UpdateCommand({
+        TableName: AGG_TABLE,
+        Key: { pk, sk },
+        UpdateExpression:
+          "ADD #cnt :dc, #scoreSum :ds " +
+          "SET #ttl = if_not_exists(#ttl, :ttl), #updatedAt = :now",
+        ExpressionAttributeNames: {
+          "#cnt": "cnt",
+          "#scoreSum": "scoreSum",
+          "#ttl": "ttl",
+          "#updatedAt": "updatedAt",
+        },
+        ExpressionAttributeValues: {
+          ":dc": cntDelta,
+          ":ds": scoreDelta,
+          ":ttl": aggTtl,
+          ":now": nowMs,
+        },
+      })
+    );
+  };
+
+  /* ---------- write ---------- */
   try {
-    // 1 메타 Put
-    await ddb.send(new PutCommand({
-      TableName: TABLE,
-      Item: item,
-      ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)",
-    }));
+    await ddb.send(
+      new PutCommand({
+        TableName: TABLE,
+        Item: {
+          pk,
+          sk,
+          eventId,
+          severity,
+          type,
+          page,
+          ruleId,
+          installId,
+          sessionId,
+          domain,
+          origin,
+          targetOrigin,
+          scoreDelta,
+          ua,
+          tsMs,
+          day,
+          ttl: ttlFromDay(day, TTL_DAYS),
 
-    // 2 BODY Put
-    await ddb.send(new PutCommand({
-      TableName: TABLE,
-      Item: bodyItem,
-    }));
-    
-    // 3 Aggregates UpdateItem들 (카운터/합계 누적)
-    //    - 도메인 랭킹: DAY 단위 DOMAIN 카운트+점수합
-    //    - 룰 빈도: DAY 단위 RULE 카운트
-    //    - severity: severity 이벤트 카운트
-    //
-    // NOTE: Put 성공한 경우에만 집계를 수행(멱등/중복 방지)
+          ii_pk: `INSTALL#${installId}`,
+          ii_sk: `TS#${padTs13(tsMs)}#${eventId}`,
+
+          domain_pk: `ORG#${origin}#DOMAIN#${domain}`,
+          domain_sk: `DAY#${day}#T#${revTs}#E#${eventId}`,
+
+          rule_pk: `ORG#${origin}#RULE#${ruleId}`,
+          rule_sk: `DAY#${day}#T#${revTs}#E#${eventId}`,
+
+          sev_pk: `ORG#${origin}#SEV#${severity}`,
+          sev_sk: `DAY#${day}#T#${revTs}#E#${eventId}`,
+
+          payloadJson,         // string (최대 MAX_JSON_BYTES)
+          payloadTruncated,    // boolean
+          payloadHash,         // string (sha256 hex)
+        },
+        ConditionExpression:
+          "attribute_not_exists(pk) AND attribute_not_exists(sk)",
+      })
+    );
+    /* ---------- bodyItem write (TABLE) ---------- */
+    await ddb.send(
+      new PutCommand({
+        TableName: TABLE,
+        Item: {
+          pk: `EVENT#${eventId}`,
+          sk: "META",
+          // 원본 위치 포인터
+          pkMain: pk,
+          skMain: sk,
+
+          // 운영/디버깅 및 검증용 메타
+          origin: orgKey,              // = origin || "UNKNOWN"
+          day,
+          shard,                       // event shard
+          tsMs,
+          ttl: ttlFromDay(day, TTL_DAYS),
+
+          // payload 관련
+          payloadHash,
+          payloadTruncated,
+        },
+        ConditionExpression:
+          "attribute_not_exists(pk) AND attribute_not_exists(sk)",
+      })
+    );
+
+    /* ---------- aggregate write (AGG_TABLE) ---------- */
     const aggUpdates = [];
-
-    // (A) Domain DAY ranking
-    aggUpdates.push(ddb.send(new UpdateCommand({
-      TableName: AGG_TABLE,
-      Key: {
-        pk: `ORG#${orgKey}#DAY#${day}#S#${aggShard}`,
+    
+    // DAY / DOMAIN  (하루-도메인 카운트: Top N Domains / 도메인별 합산용)
+    aggUpdates.push(
+      updateAgg({
+        pk: `ORG#${orgKey}#DAY#${day}#S#${aggShardDomain}`,
         sk: `DOMAIN#${domainKey}`,
-      },
-      UpdateExpression: "SET #ttl = if_not_exists(#ttl, :ttl) ADD #cnt :one, #scoreSum :sd",
-      ExpressionAttributeNames: { "#cnt": "cnt", "#scoreSum": "scoreSum", "#ttl": "ttl" },
-      ExpressionAttributeValues: { ":one": 1, ":sd": Number(scoreServer || 0), ":ttl": ttl },
-    })));
+        cntDelta: 1,
+        scoreDelta: score,
+      })
+    );
 
-    // (B) Rule DAY topN
-    aggUpdates.push(ddb.send(new UpdateCommand({
-      TableName: AGG_TABLE,
-      Key: {
-        pk: `ORG#${orgKey}#DAY#${day}#S#${aggShard}`,
+    // DAY / RULE (하루-룰 카운트: Top N Rules / 룰별 합산용)
+    aggUpdates.push(
+      updateAgg({
+        pk: `ORG#${orgKey}#DAY#${day}#S#${aggShardRule}`,
         sk: `RULE#${ruleKey}`,
-      },
-      UpdateExpression: "SET #ttl = if_not_exists(#ttl, :ttl) ADD #cnt :one",
-      ExpressionAttributeNames: { "#cnt": "cnt", "#ttl": "ttl" },
-      ExpressionAttributeValues: { ":one": 1, ":ttl": ttl },
-    })));
+        cntDelta: 1,
+        scoreDelta: score,
+      })
+    );
 
-    // (C) Severity counts
-    aggUpdates.push(ddb.send(new UpdateCommand({
-      TableName: AGG_TABLE,
-      Key: {
-        pk: `ORG#${orgKey}#DAY#${day}#S#${aggShard}`,
+    // DAY / SEV (하루-위험도 카운트: Severity 분포용)
+    aggUpdates.push(
+      updateAgg({
+        pk: `ORG#${orgKey}#DAY#${day}#S#${aggShardSev}`,
         sk: `SEV#${sevKey}`,
-      },
-      UpdateExpression: "SET #ttl = if_not_exists(#ttl, :ttl) ADD #cnt :one",
-      ExpressionAttributeNames: { "#cnt": "cnt", "#ttl": "ttl" },
-      ExpressionAttributeValues: { ":one": 1, ":ttl": ttl },
-    })));
+        cntDelta: 1,
+        scoreDelta: score,
+      })
+    );
 
-    // (D) RULE trend (DAY x SEV) - stacked bars
-    aggUpdates.push(ddb.send(new UpdateCommand({
-      TableName: AGG_TABLE,
-      Key: {
-        pk: `ORG#${orgKey}#TREND#RULE#K#${ruleKey}#S#${aggShard}`,
+    // TREND / RULE (룰 트렌드: day × sev)
+    aggUpdates.push(
+      updateAgg({
+        pk: `ORG#${orgKey}#TREND#RULE#K#${ruleKey}#S#${aggShardRule}`,
         sk: `DAY#${day}#SEV#${sevKey}`,
-      },
-      UpdateExpression: "SET #ttl = if_not_exists(#ttl, :ttl) ADD #cnt :one",
-      ExpressionAttributeNames: { "#cnt": "cnt", "#ttl": "ttl" },
-      ExpressionAttributeValues: { ":one": 1, ":ttl": ttl },
-    })));
+        cntDelta: 1,
+        scoreDelta: score,
+      })
+    );
 
-    // (E) DOMAIN trend (DAY x SEV) - stacked bars
-    aggUpdates.push(ddb.send(new UpdateCommand({
-      TableName: AGG_TABLE,
-      Key: {
-        pk: `ORG#${orgKey}#TREND#DOMAIN#K#${domainKey}#S#${aggShard}`,
+    // TREND / DOMAIN (도메인 트렌드: day × sev)
+    aggUpdates.push(
+      updateAgg({
+        pk: `ORG#${orgKey}#TREND#DOMAIN#K#${domainKey}#S#${aggShardDomain}`,
         sk: `DAY#${day}#SEV#${sevKey}`,
-      },
-      UpdateExpression: "SET #ttl = if_not_exists(#ttl, :ttl) ADD #cnt :one",
-      ExpressionAttributeNames: { "#cnt": "cnt", "#ttl": "ttl" },
-      ExpressionAttributeValues: { ":one": 1, ":ttl": ttl },
-    })));
+        cntDelta: 1,
+        scoreDelta: score,
+      })
+    );
 
     await Promise.all(aggUpdates);
+    
   } catch (e) {
-    // 중복 이벤트는 성공 처리, 그 외 에러는 실패 반환
-    const name = String(e?.name || "");
-    if (name.includes("ConditionalCheckFailed")) {
-      return resp(200, { ok: true, dedup: true, eventId });
+    if (String(e?.name).includes("ConditionalCheckFailed")) {
+      return resp(200, { ok: true, dedup: true });
     }
-    console.error("ddb_put_failed", e);
-    return resp(500, { ok: false, error: "Failed to persist event", code: "DDB_WRITE_FAILED"});
+    return resp(500, { ok: false, error: "DDB_WRITE_FAILED" });
   }
 
   return resp(200, { ok: true, eventId });

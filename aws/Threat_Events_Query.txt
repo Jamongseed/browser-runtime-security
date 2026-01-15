@@ -10,6 +10,7 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
 
 const TABLE_NAME = process.env.TABLE_NAME || "Threat_Events";
 const EVENT_SHARDS = Number(process.env.EVENT_SHARDS || 8);
+const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || "*";
 
 // Guardrails
 const DEFAULT_LIMIT = 50;
@@ -18,7 +19,7 @@ const DEFAULT_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": ALLOW_ORIGIN,
   "Access-Control-Allow-Methods": "OPTIONS,GET",
   "Access-Control-Allow-Headers":
     "Content-Type, X-Amz-Date, Authorization, X-Api-Key, X-Amz-Security-Token",
@@ -66,7 +67,7 @@ function revTs13FromMs(tsMs) {
 
 function skUpperBoundFromSinceMs(sinceMs) {
   // sinceMs 이상(최근)만: revTs <= revTs(sinceMs)
-  return `T#${revTs13FromMs(sinceMs)}`;
+  return `T#${revTs13FromMs(sinceMs)}~`;
 }
 
 function normDay(s) {
@@ -75,11 +76,32 @@ function normDay(s) {
   return day;
 }
 
+function addDaysIso(isoDay, deltaDays) {
+  const [y, m, d] = isoDay.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + deltaDays));
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getUTCDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+function clampDayRange(startDay, endDay, maxDays = 90) {
+  let count = 0;
+  let cur = startDay;
+  while (cur <= endDay) {
+    count++;
+    if (count > maxDays) return { ok: false, reason: "DAY_RANGE_TOO_LARGE" };
+    cur = addDaysIso(cur, 1);
+  }
+  return { ok: true };
+}
+
 function normSeverity(s) {
+  // ingest에서 severity 표준화 제거했으므로,
+  // query도 raw 값 그대로 받는다(빈 값만 null)
   if (!s) return null;
-  const v = String(s).trim().toUpperCase();
-  if (v === "HIGH" || v === "MEDIUM" || v === "LOW") return v;
-  return "__INVALID__";
+  const v = String(s).trim();
+  return v ? v : null;
 }
 
 function safeStr(s, max = 4000) {
@@ -91,6 +113,15 @@ function safeStr(s, max = 4000) {
 function encodeNextToken(key) {
   if (!key) return null;
   return Buffer.from(JSON.stringify(key), "utf8").toString("base64url");
+}
+
+// GSI detail SK range helper
+function detailSkFromDay(day) {
+  // ingest detail SK: "DAY#YYYY-MM-DD#T#<revTs>#E#..."
+  return `DAY#${day}`;
+}
+function detailSkToDay(day) {
+  return `DAY#${day}~`; // '~'로 해당 day prefix의 모든 값 포함
 }
 
 function isPlainObject(v) {
@@ -134,6 +165,29 @@ function decodeLekToken(token) {
   return { ok: true, lek: obj };
 }
 
+// token = { day: "YYYY-MM-DD", lek: <LastEvaluatedKey or null> }
+function encodeDayFanoutToken(obj) {
+  if (!obj) return null;
+  return Buffer.from(JSON.stringify(obj), "utf8").toString("base64url");
+}
+function decodeDayFanoutToken(token) {
+  if (!token) return { ok: true, t: undefined };
+  let obj;
+  try {
+    obj = JSON.parse(Buffer.from(token, "base64url").toString("utf8"));
+  } catch {
+    return { ok: false, reason: "INVALID_nextToken" };
+  }
+  if (!isPlainObject(obj)) return { ok: false, reason: "INVALID_nextToken" };
+  if (obj.day && !normDay(obj.day)) return { ok: false, reason: "INVALID_nextToken" };
+  return { ok: true, t: obj };
+}
+
+function pickLekForIndex(lek) {
+  // 그대로 넣어도 되지만, 최소 형태로 유지하고 싶으면 이 함수에서 축소 가능
+  return lek;
+}
+
 function pickItem(it) {
   return {
     ts: it.tsMs,
@@ -141,13 +195,11 @@ function pickItem(it) {
     type: it.type,
     ruleId: it.ruleId,
     severity: it.severity,
-    scoreClient: it.scoreClient,
-    scoreServer: it.scoreServer,
+    scoreDelta: it.scoreDelta,
     sessionId: it.sessionId,
     origin: it.origin,
-    top_domain: it.top_domain,
-    page_host: it.page_host,
-    page_path_masked: it.page_path_masked,
+    domain: it.domain,
+    page: it.page,
     eventId: it.eventId,
   };
 }
@@ -199,7 +251,7 @@ function mergeByRevTs(itemsA, itemsB, limit) {
 // ORG + DAY 기준 이벤트 리스트 조회 (샤드 fan-out + pagination)
 async function handleEvents(event) {
   const qs = event.queryStringParameters || {};
-  const origin = safeStr(qs.origin, 400);
+  const origin = safeStr(qs.origin, 200);
   const day = normDay(qs.day);
 
   if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
@@ -273,13 +325,39 @@ async function handleBody(event) {
   const eventId = safeStr(qs.eventId, 200);
   if (!eventId) return json(400, { ok: false, reason: "MISSING_eventId" });
 
-  const res = await ddb.send(new GetCommand({
-    TableName: TABLE_NAME,
-    Key: { pk: `EVENT#${eventId}`, sk: "BODY" },
-  }));
+  // eventId -> 메인 아이템 위치(META) 조회
+  const metaRes = await ddb.send(
+    new GetCommand({
+      TableName: TABLE_NAME,
+      Key: { pk: `EVENT#${eventId}`, sk: "META" },
+    })
+  );
+  if (!metaRes.Item) return json(404, { ok: false, reason: "NOT_FOUND" });
 
-  if (!res.Item) return json(404, { ok: false, reason: "NOT_FOUND" });
-  return json(200, { ok: true, eventId, body: res.Item });
+  const { pkMain, skMain } = metaRes.Item || {};
+  if (!pkMain || !skMain) {
+    return json(500, { ok: false, reason: "META_MISSING_POINTER" });
+  }
+
+  // 메인 아이템에서 payloadJson/payloadHash 등 실제 본문 조회
+  const mainRes = await ddb.send(
+    new GetCommand({
+      TableName: TABLE_NAME,
+      Key: { pk: pkMain, sk: skMain },
+    })
+  );
+
+  if (!mainRes.Item) {
+    return json(404, { ok: false, reason: "MAIN_NOT_FOUND" });
+  }
+
+  const { payloadJson, payloadTruncated, payloadHash } = mainRes.Item;
+  return json(200, {
+    ok: true,
+    eventId,
+    meta: metaRes.Item,
+    payload: { payloadJson, payloadTruncated, payloadHash },
+  });
 }
 
 async function handleEventsByInstall(event) {
@@ -288,34 +366,350 @@ async function handleEventsByInstall(event) {
   if (!installId) return json(400, { ok: false, reason: "MISSING_installId" });
 
   const sinceMs = toSinceMs(qs);
+  const nowMs = Date.now();
   const limit = clampInt(qs.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
   const nextToken = qs.nextToken ? String(qs.nextToken) : undefined;
 
   const decoded = decodeLekToken(nextToken);
   if (!decoded.ok) return json(400, { ok: false, reason: decoded.reason });
+
+  
+  const skFrom = `TS#${padTs13(sinceMs)}`;
+  const skTo = `TS#${padTs13(nowMs)}~`;
  
   const res = await ddb.send(new QueryCommand({
     TableName: TABLE_NAME,
     IndexName: "install_ID",
-    KeyConditionExpression: "#pk = :pk AND #sk <= :skUpper",
-    ExpressionAttributeNames: {
-      "#pk": "ii_pk",
-      "#sk": "ii_sk",
-    },
+    KeyConditionExpression: "#pk = :pk AND #sk BETWEEN :a AND :b",
+    ExpressionAttributeNames: {"#pk": "ii_pk", "#sk": "ii_sk", },
     ExpressionAttributeValues: {
       ":pk": `INSTALL#${installId}`,
-      ":skUpper": skUpperBoundFromSinceMs(sinceMs),
+      ":a": skFrom,
+      ":b": skTo,
     },
     Limit: limit,
-    ScanIndexForward: true,
+    ScanIndexForward: false,
     ExclusiveStartKey: decoded.lek,
   }));
 
   return json(200, {
     ok: true,
-    query: { installId, sinceMs, limit },
+    query: { installId, sinceMs, nowMs, limit },
     items: (res.Items || []).map(pickItem),
     nextToken: encodeLekToken(res.LastEvaluatedKey),
+  });
+}
+
+// ----- Operator detail pages (GSI queries) -----
+async function handleEventsByDomain(event) {
+  const qs = event.queryStringParameters || {};
+  const origin = safeStr(qs.origin, 200);
+  const domain = safeStr(qs.domain, 400); // top_domain 값
+  const startDay = normDay(qs.startDay);
+  const endDay = normDay(qs.endDay);
+  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
+  if (!domain) return json(400, { ok: false, reason: "MISSING_domain" });
+  if (!startDay || !endDay) return json(400, { ok: false, reason: "MISSING_or_INVALID_day_range" });
+
+  const limit = clampInt(qs.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
+  
+  const newest = String(qs.newest || "").toLowerCase();
+  const isNewestMode = newest === "1" || newest === "true" || newest === "yes";
+
+  const rangeOk = clampDayRange(startDay, endDay, 120);
+  if (!rangeOk.ok) return json(400, { ok: false, reason: rangeOk.reason });
+
+  if (!isNewestMode) {
+    // 기본: 기간 BETWEEN (day 오름차순)
+    const decoded = decodeLekToken(qs.nextToken ? String(qs.nextToken) : undefined);
+    if (!decoded.ok) return json(400, { ok: false, reason: decoded.reason });
+
+    const pk = `ORG#${origin}#DOMAIN#${domain}`;
+    const res = await ddb.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      IndexName: "DOMAIN",
+      KeyConditionExpression: "#pk = :pk AND #sk BETWEEN :a AND :b",
+      ExpressionAttributeNames: { "#pk": "domain_pk", "#sk": "domain_sk" },
+      ExpressionAttributeValues: {
+        ":pk": pk,
+        ":a": detailSkFromDay(startDay),
+        ":b": detailSkToDay(endDay),
+      },
+      Limit: limit,
+      ExclusiveStartKey: decoded.lek,
+    }));
+
+    return json(200, {
+      ok: true,
+      query: { origin, domain, startDay, endDay, limit, newest: false },
+      items: (res.Items || []).map(pickItem),
+      nextToken: encodeLekToken(res.LastEvaluatedKey),
+    });
+  }
+
+  // newest mode: day=endDay부터 역순
+  const tok = qs.nextToken ? String(qs.nextToken) : undefined;
+  const dt = decodeDayFanoutToken(tok);
+  if (!dt.ok) return json(400, { ok: false, reason: dt.reason });
+
+  let curDay = dt.t?.day || endDay;
+  let curLek = dt.t?.lek || undefined;
+
+  const pk = `ORG#${origin}#DOMAIN#${domain}`;
+  const out = [];
+
+  // day당 가져올 최대량(너무 많이 가져오면 비용↑)
+  const perDayLimit = Math.max(1, Math.min(50, Math.ceil(limit / 2)));
+
+  while (out.length < limit && curDay >= startDay) {
+    const res = await ddb.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      IndexName: "DOMAIN",
+      KeyConditionExpression: "#pk = :pk AND #sk BETWEEN :a AND :b",
+      ExpressionAttributeNames: { "#pk": "domain_pk", "#sk": "domain_sk" },
+      ExpressionAttributeValues: {
+        ":pk": pk,
+        ":a": detailSkFromDay(curDay),
+        ":b": detailSkToDay(curDay),
+      },
+      Limit: perDayLimit,
+      ScanIndexForward: true, // DAY#...#T#revTs... 에서 revTs 오름차순 = 최신 우선
+      ExclusiveStartKey: curLek,
+    }));
+
+    for (const it of (res.Items || [])) {
+      out.push(it);
+      if (out.length >= limit) break;
+    }
+
+    if (out.length >= limit) {
+      // 아직 같은 day에서 더 남았으면 그 자리에서 이어가기
+      const next = res.LastEvaluatedKey
+        ? { day: curDay, lek: pickLekForIndex(res.LastEvaluatedKey) }
+        : { day: addDaysIso(curDay, -1), lek: undefined };
+      return json(200, {
+        ok: true,
+        query: { origin, domain, startDay, endDay, limit, newest: true },
+        items: out.map(pickItem),
+        nextToken: encodeDayFanoutToken(next),
+      });
+    }
+
+    // day를 다 소진했으면 전날로
+    if (res.LastEvaluatedKey) {
+      // limit을 못 채웠는데 LEK가 남아있다? perDayLimit이 작아서 그런 것 → 같은 day 계속
+      curLek = res.LastEvaluatedKey;
+    } else {
+      curDay = addDaysIso(curDay, -1);
+      curLek = undefined;
+    }
+  }
+
+  return json(200, {
+    ok: true,
+    query: { origin, domain, startDay, endDay, limit, newest: true },
+    items: out.map(pickItem),
+    nextToken: null,
+  }); 
+}
+
+async function handleEventsByRule(event) {
+  const qs = event.queryStringParameters || {};
+  const origin = safeStr(qs.origin, 200);
+  const ruleId = safeStr(qs.ruleId, 200);
+  const startDay = normDay(qs.startDay);
+  const endDay = normDay(qs.endDay);
+  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
+  if (!ruleId) return json(400, { ok: false, reason: "MISSING_ruleId" });
+  if (!startDay || !endDay) return json(400, { ok: false, reason: "MISSING_or_INVALID_day_range" });
+
+  const limit = clampInt(qs.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
+  
+  const newest = String(qs.newest || "").toLowerCase();
+  const isNewestMode = newest === "1" || newest === "true" || newest === "yes";
+
+  const rangeOk = clampDayRange(startDay, endDay, 120);
+  if (!rangeOk.ok) return json(400, { ok: false, reason: rangeOk.reason });
+
+  const pk = `ORG#${origin}#RULE#${ruleId}`;
+
+  if (!isNewestMode) {
+    const decoded = decodeLekToken(qs.nextToken ? String(qs.nextToken) : undefined);
+    if (!decoded.ok) return json(400, { ok: false, reason: decoded.reason });
+
+    const res = await ddb.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      IndexName: "RULE",
+      KeyConditionExpression: "#pk = :pk AND #sk BETWEEN :a AND :b",
+      ExpressionAttributeNames: { "#pk": "rule_pk", "#sk": "rule_sk" },
+      ExpressionAttributeValues: {
+        ":pk": pk,
+        ":a": detailSkFromDay(startDay),
+        ":b": detailSkToDay(endDay),
+      },
+      Limit: limit,
+      ExclusiveStartKey: decoded.lek,
+    }));
+
+    return json(200, {
+      ok: true,
+      query: { origin, ruleId, startDay, endDay, limit, newest: false },
+      items: (res.Items || []).map(pickItem),
+      nextToken: encodeLekToken(res.LastEvaluatedKey),
+    });
+  }
+
+  const tok = qs.nextToken ? String(qs.nextToken) : undefined;
+  const dt = decodeDayFanoutToken(tok);
+  if (!dt.ok) return json(400, { ok: false, reason: dt.reason });
+  let curDay = dt.t?.day || endDay;
+  let curLek = dt.t?.lek || undefined;
+
+  const out = [];
+  const perDayLimit = Math.max(1, Math.min(50, Math.ceil(limit / 2)));
+
+  while (out.length < limit && curDay >= startDay) {
+    const res = await ddb.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      IndexName: "RULE",
+      KeyConditionExpression: "#pk = :pk AND #sk BETWEEN :a AND :b",
+      ExpressionAttributeNames: { "#pk": "rule_pk", "#sk": "rule_sk" },
+      ExpressionAttributeValues: {
+        ":pk": pk,
+        ":a": detailSkFromDay(curDay),
+        ":b": detailSkToDay(curDay),
+      },
+      Limit: perDayLimit,
+      ScanIndexForward: true,
+      ExclusiveStartKey: curLek,
+    }));
+
+    for (const it of (res.Items || [])) {
+      out.push(it);
+      if (out.length >= limit) break;
+    }
+
+    if (out.length >= limit) {
+      const next = res.LastEvaluatedKey
+        ? { day: curDay, lek: pickLekForIndex(res.LastEvaluatedKey) }
+        : { day: addDaysIso(curDay, -1), lek: undefined };
+      return json(200, {
+        ok: true,
+        query: { origin, ruleId, startDay, endDay, limit, newest: true },
+        items: out.map(pickItem),
+        nextToken: encodeDayFanoutToken(next),
+      });
+    }
+
+    if (res.LastEvaluatedKey) curLek = res.LastEvaluatedKey;
+    else { curDay = addDaysIso(curDay, -1); curLek = undefined; }
+  }
+
+  return json(200, {
+    ok: true,
+    query: { origin, ruleId, startDay, endDay, limit, newest: true },
+    items: out.map(pickItem),
+    nextToken: null,
+  });
+}
+
+async function handleEventsBySev(event) {
+  const qs = event.queryStringParameters || {};
+  const origin = safeStr(qs.origin, 200);
+  const severity = normSeverity(qs.severity);
+  const startDay = normDay(qs.startDay);
+  const endDay = normDay(qs.endDay);
+  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
+  if (!severity) return json(400, { ok: false, reason: "MISSING_severity" });
+  if (!startDay || !endDay) return json(400, { ok: false, reason: "MISSING_or_INVALID_day_range" });
+
+  const limit = clampInt(qs.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
+  
+  const newest = String(qs.newest || "").toLowerCase();
+  const isNewestMode = newest === "1" || newest === "true" || newest === "yes";
+
+  const rangeOk = clampDayRange(startDay, endDay, 120);
+  if (!rangeOk.ok) return json(400, { ok: false, reason: rangeOk.reason });
+
+  const pk = `ORG#${origin}#SEV#${severity}`;
+
+  if (!isNewestMode) {
+    const decoded = decodeLekToken(qs.nextToken ? String(qs.nextToken) : undefined);
+    if (!decoded.ok) return json(400, { ok: false, reason: decoded.reason });
+
+    const res = await ddb.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      IndexName: "SEV",
+      KeyConditionExpression: "#pk = :pk AND #sk BETWEEN :a AND :b",
+      ExpressionAttributeNames: { "#pk": "sev_pk", "#sk": "sev_sk" },
+      ExpressionAttributeValues: {
+        ":pk": pk,
+        ":a": detailSkFromDay(startDay),
+        ":b": detailSkToDay(endDay),
+      },
+      Limit: limit,
+      ExclusiveStartKey: decoded.lek,
+    }));
+
+    return json(200, {
+      ok: true,
+      query: { origin, severity, startDay, endDay, limit, newest: false },
+      items: (res.Items || []).map(pickItem),
+      nextToken: encodeLekToken(res.LastEvaluatedKey),
+    });
+  }
+
+  const tok = qs.nextToken ? String(qs.nextToken) : undefined;
+  const dt = decodeDayFanoutToken(tok);
+  if (!dt.ok) return json(400, { ok: false, reason: dt.reason });
+  let curDay = dt.t?.day || endDay;
+  let curLek = dt.t?.lek || undefined;
+
+  const out = [];
+  const perDayLimit = Math.max(1, Math.min(50, Math.ceil(limit / 2)));
+
+  while (out.length < limit && curDay >= startDay) {
+    const res = await ddb.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      IndexName: "SEV",
+      KeyConditionExpression: "#pk = :pk AND #sk BETWEEN :a AND :b",
+      ExpressionAttributeNames: { "#pk": "sev_pk", "#sk": "sev_sk" },
+      ExpressionAttributeValues: {
+        ":pk": pk,
+        ":a": detailSkFromDay(curDay),
+        ":b": detailSkToDay(curDay),
+      },
+      Limit: perDayLimit,
+      ScanIndexForward: true,
+      ExclusiveStartKey: curLek,
+    }));
+
+    for (const it of (res.Items || [])) {
+      out.push(it);
+      if (out.length >= limit) break;
+    }
+
+    if (out.length >= limit) {
+      const next = res.LastEvaluatedKey
+        ? { day: curDay, lek: pickLekForIndex(res.LastEvaluatedKey) }
+        : { day: addDaysIso(curDay, -1), lek: undefined };
+      return json(200, {
+        ok: true,
+        query: { origin, severity, startDay, endDay, limit, newest: true },
+        items: out.map(pickItem),
+        nextToken: encodeDayFanoutToken(next),
+      });
+    }
+
+    if (res.LastEvaluatedKey) curLek = res.LastEvaluatedKey;
+    else { curDay = addDaysIso(curDay, -1); curLek = undefined; }
+  }
+
+  return json(200, {
+    ok: true,
+    query: { origin, severity, startDay, endDay, limit, newest: true },
+    items: out.map(pickItem),
+    nextToken: null,
   });
 }
 
@@ -344,10 +738,14 @@ export const handler = async (event) => {
     }
 
     const path = getPath(event);
-    // stage prefix가 붙어도 동작하도록 endsWith    
+    // stage prefix가 붙어도 동작하도록 endsWith  
+    if (path.endsWith("/events")) return await handleEvents(event);  
     if (path.endsWith("/events/body")) return await handleBody(event);
-    if (path.endsWith("/events")) return await handleEvents(event);
+    //if (path.endsWith("/events/search")) return await handleBody(event);
     if (path.endsWith("/events/by-install")) return await handleEventsByInstall(event);
+    if (path.endsWith("/events/by-domain")) return await handleEventsByDomain(event);
+    if (path.endsWith("/events/by-rule")) return await handleEventsByRule(event);
+    if (path.endsWith("/events/by-sev")) return await handleEventsBySev(event);
 
     return json(404, { ok: false, reason: "NOT_FOUND" });
   } catch (err) {
