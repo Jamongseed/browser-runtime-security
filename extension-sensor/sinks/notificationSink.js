@@ -1,3 +1,5 @@
+import { STORAGE_KEYS, DEFAULT_SETTINGS } from '../config.js';
+
 const NOTIFICATION_COOLDOWN = 5000;
 const NOTIFICATION_DURATION = 10000;
 
@@ -10,64 +12,110 @@ const THREAT_MESSAGES = {
 
 let lastNotiTimestamp = 0;
 
-chrome.notifications.onClicked.addListener(async (notificationId) => {
-    const { dashboardUrl } = await chrome.storage.local.get("dashboardUrl");
-    if (dashboardUrl) {
-      const targetUrl = `${dashboardUrl}?reportId=${notificationId}`;
-      chrome.tabs.create({ url: targetUrl });
-      chrome.notifications.clear(notificationId);
-    }
+// OS별 알림 옵션 빌드
+function buildNotificationOptions(threat, os) {
+	const message = THREAT_MESSAGES[threat.ruleId] || THREAT_MESSAGES["DEFAULT"];
+	const displayUrl = threat.browserUrl || threat.page || "";
+
+	// 공통 옵션
+	const options = {
+  	type: 'basic',
+    iconUrl: 'icon/notification_icon.png',
+    title: `보안 위협 알림 (${threat.severity})`,
+    message: message,
+    contextMessage: displayUrl.substring(0, 40) + "...",
+    priority: 2,
+    requireInteraction: true
+  };
+
+	// if (os === 'win') {
+	// } else if (os === 'mac') {
+	// } else if ( os === 'linux') {
+	// }
+
+	return options;
+
+}
+
+chrome.notifications.onClicked.addListener((notificationId) => {
+  chrome.storage.local.get(STORAGE_KEYS.DASHBOARD_URL, (result) => {
+    const dashboardUrl = result[STORAGE_KEYS.DASHBOARD_URL];
+    	if (dashboardUrl) {
+        	const targetUrl = `${dashboardUrl}?reportId=${notificationId}`;
+        	chrome.tabs.create({ url: targetUrl });
+        	chrome.notifications.clear(notificationId);
+      	}
+	});
 });
 
 
 export function createNotificationSink({ dashboardUrl }) {
 	if (dashboardUrl) {
-    chrome.storage.local.set({ dashboardUrl });
-  }
+    	chrome.storage.local.set({ [STORAGE_KEYS.DASHBOARD_URL]: dashboardUrl });
+		if (chrome.runtime.lastError) console.error(chrome.runtime.lastError);
+  	}
 
 	return {
 		name: "NotificationSink",
 
 		shouldHandle(threat) {
-			return threat.severity === "HIGH";
+			return !!threat.severity;
 		},
 
-		async send(threat) {
-			const now = Date.now();
+		send(threat) {
+			const query = {
+				...DEFAULT_SETTINGS, 
+				[STORAGE_KEYS.LAST_NOTI_TIME]: 0 
+			};
 
-      if (now - lastNotiTimestamp <= NOTIFICATION_COOLDOWN) {
-        return { status: "ignored_cooldown_memory" };
-      }
+			chrome.storage.local.get(query, (storage) => {
+				if (chrome.runtime.lastError) {
+					console.error("[BRS] Storage Error:", chrome.runtime.lastError);
+					return;
+				}
 
-			const { lastNotiTime } = await chrome.storage.local.get({ lastNotiTime: 0 });
-			if (now - lastNotiTime <= NOTIFICATION_COOLDOWN) {
-        lastNotiTimestamp = lastNotiTime;
-				return { status: "ignored_cooldown" };
-			}
+				const settings = storage[STORAGE_KEYS.NOTIFICATIONS];
+				const lastNotiTimeStore = storage[STORAGE_KEYS.LAST_NOTI_TIME];
+				const severityKey = (threat.severity || "LOW").toLowerCase();
 
-      lastNotiTimestamp = now;
+				if (!settings || !settings[severityKey]) {
+                    return; 
+                }
 
-			const message = THREAT_MESSAGES[threat.ruleId] || THREAT_MESSAGES["DEFAULT"];
-			const reportId = threat.reportId || `noti_${now}`;
-      const displayUrl = threat.browserUrl || threat.page || "";
+				const now = Date.now();
 
-			await chrome.notifications.create(reportId, {
-				type: 'basic',
-				iconUrl: 'icon/notification_icon.png',
-				title: `보안 위협 알림 (${threat.severity})`,
-				message: message,
-				contextMessage: displayUrl.substring(0, 40) + "...",
-				priority: 2,
-				requireInteraction: true
-			});
+				if (now - lastNotiTimestamp <= NOTIFICATION_COOLDOWN) {
+					return;
+				}
+				if (now - lastNotiTimeStore <= NOTIFICATION_COOLDOWN) {
+                    lastNotiTimestamp = lastNotiTimeStore;
+                    return;
+                }
 
-			await chrome.storage.local.set({ lastNotiTime: now });
+				lastNotiTimestamp = now;
 
-			setTimeout(() => {
-				chrome.notifications.clear(reportId);
-			}, NOTIFICATION_DURATION);
+				chrome.runtime.getPlatformInfo((info) => {
+                    const os = info.os; 
+                    const notificationOptions = buildNotificationOptions(threat, os);
+                    const reportId = threat.reportId || `noti_${now}`;
 
-			return { status: "shown", reportId };
+					chrome.notifications.create(reportId, notificationOptions, (createdId) => {
+                        if (chrome.runtime.lastError) {
+                            console.error("[BRS] Notification Error:", chrome.runtime.lastError);
+                            return;
+                        }
+
+						lastNotiTimestamp = now;
+                        chrome.storage.local.set({ [STORAGE_KEYS.LAST_NOTI_TIME]: now });
+
+						setTimeout(() => {
+                            chrome.notifications.clear(createdId);
+                        }, NOTIFICATION_DURATION);
+                    });
+                });
+            });
+		
+			return { status: "processing" };
 		}
 	};
 }

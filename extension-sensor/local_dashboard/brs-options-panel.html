@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BRS 설정 (Settings)</title>
+  <link rel="stylesheet" href="brs-options-panel.css">
+</head>
+<body>
+
+  <div class="layout-container">
+    
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo-icon">🛡️</div>
+        <h1>BRS Security</h1>
+      </div>
+      
+      <nav class="menu">
+        <ul>
+          <li class="menu-item active" data-target="tab-general">
+            <span class="icon">⚙️</span> 일반 설정
+          </li>
+          <li class="menu-item" data-target="tab-whitelist">
+            <span class="icon">✅</span> 허용 목록 (Whitelist)
+          </li>
+          <li class="menu-item" data-target="tab-data">
+            <span class="icon">⚠️</span> 데이터 관리
+          </li>
+        </ul>
+      </nav>
+
+      <div class="sidebar-footer">
+        <p>Version 1.0.0</p>
+      </div>
+    </aside>
+
+    <main class="content-area">
+
+      <section id="tab-general" class="tab-content active">
+        <div class="section-header">
+          <h2>알림 설정 (Notifications)</h2>
+          <p>탐지된 위협 등급에 따라 알림을 받을지 선택하세요.</p>
+        </div>
+
+        <div class="settings-list">
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="badge low">LOW</span>
+              <div class="setting-desc">
+                <strong>경미한 위협</strong>
+                <p>단순 추적기나 정보 수집 시도 등 낮은 단계의 위협입니다.</p>
+              </div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="notifyLow">
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="badge medium">MEDIUM</span>
+              <div class="setting-desc">
+                <strong>의심스러운 활동</strong>
+                <p>피싱 의심 사이트나 비정상적인 스크립트 동작입니다.</p>
+              </div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="notifyMedium">
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="badge high">HIGH</span>
+              <div class="setting-desc">
+                <strong>치명적 위협</strong>
+                <p>멀웨어 배포, 개인정보 탈취 시도 등 즉각 차단이 필요한 위협입니다.</p>
+              </div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="notifyHigh">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-whitelist" class="tab-content">
+        <div class="section-header">
+          <h2>허용 목록 관리 (WhiteList)</h2>
+          <p>신뢰할 수 있는 도메인을 등록하면 탐지 및 경고 대상에서 제외됩니다.</p>
+        </div>
+        <div class="whitelist-editor-container">
+        <div class="editor-desc">
+            <div class="example-box"> 
+                <p class="sub-text main-instruction">신뢰할 수 있는 도메인을 한 줄에 하나씩 입력하세요.</p>
+                <p class="sub-text"><strong>단일 도메인:</strong> <code>google.com</code></p>
+                <p class="sub-text"><strong>서브도메인 포함:</strong> <code>*.google.com</code></p>
+            </div>
+        </div>
+
+        <label for="whitelistArea" class="sr-only"></label>
+        <textarea id="whitelistArea" class="styled-textarea" rows="15" 
+                placeholder="example.com&#10;*.google.com" 
+                spellcheck="false" disabled></textarea>
+        
+        <div class="editor-controls">
+            <button id="btnEdit" class="btn btn-secondary">편집</button>
+            <div id="editActions" style="display: none;">
+            <button id="btnCancel" class="btn btn-outline">취소</button>
+            <button id="btnSave" class="btn btn-primary">저장</button>
+            </div>
+        </div>
+        </div>
+
+      </section>
+
+      <section id="tab-data" class="tab-content">
+        <div class="section-header">
+          <h2>데이터 및 초기화</h2>
+          <p>저장된 로그를 관리하거나 설정을 초기 상태로 되돌립니다.</p>
+        </div>
+
+        <div class="danger-box">
+          <div class="danger-row">
+            <div>
+              <strong>모든 위협 로그 삭제</strong>
+              <p>로컬 저장소에 쌓인 탐지 기록을 모두 영구 삭제합니다.</p>
+            </div>
+            <button id="clearLogsBtn" class="btn btn-slate">로그 삭제</button>
+          </div>
+          <div class="danger-row">
+            <div>
+              <strong>설정 초기화</strong>
+              <p>화이트리스트와 알림 설정을 초기값으로 되돌립니다.</p>
+            </div>
+            <button id="resetSettingsBtn" class="btn btn-slate">초기화</button>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script type="module" src="brs-options-panel.js"></script>
+</body>
+</html>

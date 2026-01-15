@@ -9,6 +9,7 @@
     "notifications",
     "alarms"
   ],
+  "options_page": "local_dashboard/brs-options-panel.html",
   "host_permissions": [
     "<all_urls>"
   ],
@@ -24,7 +25,8 @@
     {
       "matches": [
         "http://localhost:3000/*",
-        "http://127.0.0.1:3000/*"
+        "http://127.0.0.1:3000/*",
+        "https://*.onrender.com/*"
       ],
       "js": [
         "page_hook_sw_boot.js",
@@ -37,7 +39,8 @@
     {
       "matches": [
         "http://localhost:3000/*",
-        "http://127.0.0.1:3000/*"
+        "http://127.0.0.1:3000/*",
+        "https://*.onrender.com/*"
       ],
       "js": [
         "engine/rule_engine.js",

@@ -4,8 +4,19 @@
   <meta charset="UTF-8">
   <style>
     body { width: 350px; padding: 15px; font-family: 'Segoe UI', sans-serif; margin: 0; background-color: #f9f9f9; }
-    header { display: flex; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
-    h2 { margin: 0; color: #333; font-size: 18px; }
+    
+    /* 헤더 레이아웃 수정: 양쪽 정렬 */
+    header { 
+      display: flex; 
+      justify-content: space-between; 
+      align-items: center; 
+      margin-bottom: 15px; 
+      border-bottom: 2px solid #eee; 
+      padding-bottom: 10px; 
+    }
+    
+    .title-group { display: flex; align-items: center; }
+        h2 { margin: 0; color: #333; font-size: 18px; }
     .badge { background-color: #d32f2f; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px; margin-left: 10px; }
     #log-area { max-height: 400px; overflow-y: auto; }
     .log-item { background: white; padding: 10px; border-radius: 8px; margin-bottom: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-left: 5px solid #ccc; font-size: 13px; }
@@ -16,16 +27,45 @@
     .log-time { color: #999; font-size: 11px; }
     .log-data { background-color: #f1f1f1; padding: 5px; border-radius: 4px; font-family: monospace; white-space: pre-wrap; word-break: break-all; font-size: 11px; color: #333; }
     .empty-state { text-align: center; color: #999; padding: 20px 0; }
+    
+    /* 버튼 그룹 스타일 */
+    .btn-group {
+      display: flex;
+      gap: 5px; /* 버튼 사이 간격 */
+    }
+
+    .icon-btn {
+      background: none;
+      border: none;
+      font-size: 1.2rem;
+      cursor: pointer;
+      padding: 5px;
+      border-radius: 50%;
+      transition: background-color 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .icon-btn:hover { background-color: #e0e0e0; }
   </style>
 </head>
 <body>
   <header>
-    <h2>🛡️ BRS 보안 센터</h2>
-    <span class="badge">Active</span>
+    <div class="title-group">
+      <h2>🛡️ BRS 센터</h2>
+      <!-- <span class="badge">Active</span> -->
+    </div>
+    
+    <div class="btn-group">
+      <button id="go-dashboard" class="icon-btn" title="전체 로그 보기 (Dashboard)">📊</button>
+      <button id="go-settings" class="icon-btn" title="보안 설정 (Options)">⚙️</button>
+    </div>
   </header>
+
   <div id="log-area">
     <div class="empty-state">로그를 불러오는 중...</div>
   </div>
-  <script src="popup.js"></script>
+
+  <script type="module" src="popup.js"></script>
 </body>
 </html>
