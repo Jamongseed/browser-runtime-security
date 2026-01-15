@@ -1,128 +1,133 @@
 import moment from "moment"
-import { useEffect, useState } from "react"
-import { useDispatch, useSelector } from "react-redux"
-import { showNotification } from "../common/headerSlice"
+import React, { useEffect, useState } from "react"
 import TitleCard from "../../components/Cards/TitleCard"
-import { RECENT_TRANSACTIONS } from "../../utils/dummyData"
-import FunnelIcon from '@heroicons/react/24/outline/FunnelIcon'
 import XMarkIcon from '@heroicons/react/24/outline/XMarkIcon'
 import SearchBar from "../../components/Input/SearchBar"
+import { getEvents } from "../aws/AwsSearch" // 아까 만든 함수 임포트
 
-const TopSideButtons = ({removeFilter, applyFilter, applySearch}) => {
-
-    const [filterParam, setFilterParam] = useState("")
-    const [searchText, setSearchText] = useState("")
-    const locationFilters = ["Paris", "London", "Canada", "Peru", "Tokyo"]
-
-    const showFiltersAndApply = (params) => {
-        applyFilter(params)
-        setFilterParam(params)
-    }
-
-    const removeAppliedFilter = () => {
-        removeFilter()
-        setFilterParam("")
-        setSearchText("")
-    }
-
-    useEffect(() => {
-        if(searchText == ""){
-            removeAppliedFilter()
-        }else{
-            applySearch(searchText)
-        }
-    }, [searchText])
-
-    return(
+const TopSideButtons = ({ applySearch, removeFilter, searchText, setSearchText }) => {
+    return (
         <div className="inline-block float-right">
-            <SearchBar searchText={searchText} styleClass="mr-4" setSearchText={setSearchText}/>
-            {filterParam != "" && <button onClick={() => removeAppliedFilter()} className="btn btn-xs mr-2 btn-active btn-ghost normal-case">{filterParam}<XMarkIcon className="w-4 ml-2"/></button>}
-            <div className="dropdown dropdown-bottom dropdown-end">
-                <label tabIndex={0} className="btn btn-sm btn-outline"><FunnelIcon className="w-5 mr-2"/>Filter</label>
-                <ul tabIndex={0} className="dropdown-content menu p-2 text-sm shadow bg-base-100 rounded-box w-52">
-                    {
-                        locationFilters.map((l, k) => {
-                            return  <li key={k}><a onClick={() => showFiltersAndApply(l)}>{l}</a></li>
-                        })
-                    }
-                    <div className="divider mt-0 mb-0"></div>
-                    <li><a onClick={() => removeAppliedFilter()}>Remove Filter</a></li>
-                </ul>
-            </div>
+            <SearchBar searchText={searchText} styleClass="mr-4" setSearchText={setSearchText} />
+            {searchText !== "" && (
+                <button onClick={removeFilter} className="btn btn-xs mr-2 btn-active btn-ghost normal-case">
+                    Clear <XMarkIcon className="w-4 ml-2" />
+                </button>
+            )}
         </div>
     )
 }
 
+function EventTransactions() {
+    const [groupedList, setGroupedList] = useState([]); // 세션별 그룹 데이터
+    const [originalList, setOriginalList] = useState([]); // 필터링 전 전체 데이터
+    const [searchText, setSearchText] = useState("");
+    const installId = "e025b1ff-be5b-429e-87bf-00f0b0b05f59"; // 테스트용 ID
 
-function Transactions(){
+    // 1. 데이터 가져오기
+    useEffect(() => {
+        fetchEvents();
+    }, []);
 
+    const fetchEvents = async () => {
+        const res = await getEvents({ installId });
+        setGroupedList(res.groupedList || []);
+        setOriginalList(res.groupedList || []);
+    };
 
-    const [trans, setTrans] = useState(RECENT_TRANSACTIONS)
-
-    const removeFilter = () => {
-        setTrans(RECENT_TRANSACTIONS)
-    }
-
-    const applyFilter = (params) => {
-        let filteredTransactions = RECENT_TRANSACTIONS.filter((t) => {return t.location == params})
-        setTrans(filteredTransactions)
-    }
-
-    // Search according to name
-    const applySearch = (value) => {
-        let filteredTransactions = RECENT_TRANSACTIONS.filter((t) => {return t.email.toLowerCase().includes(value.toLowerCase()) ||  t.email.toLowerCase().includes(value.toLowerCase())})
-        setTrans(filteredTransactions)
-    }
-
-    return(
-        <>
+    // 2. 검색 로직 (도메인이나 RuleId로 검색)
+    useEffect(() => {
+        if (searchText === "") {
+            setGroupedList(originalList);
+        } else {
+            const filtered = originalList.map(session => ({
+                ...session,
+                events: session.events.filter(e => 
+                    e.domain.toLowerCase().includes(searchText.toLowerCase()) ||
+                    e.ruleId.toLowerCase().includes(searchText.toLowerCase())
+                )
+            })).filter(session => session.events.length > 0);
             
-            <TitleCard title="Recent Transactions" topMargin="mt-2" TopSideButtons={<TopSideButtons applySearch={applySearch} applyFilter={applyFilter} removeFilter={removeFilter}/>}>
+            setGroupedList(filtered);
+        }
+    }, [searchText]);
 
-                {/* Team Member list in table format loaded constant */}
-            <div className="overflow-x-auto w-full">
-                <table className="table w-full">
-                    <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Email Id</th>
-                        <th>Location</th>
-                        <th>Amount</th>
-                        <th>Transaction Date</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                        {
-                            trans.map((l, k) => {
-                                return(
-                                    <tr key={k}>
-                                    <td>
-                                        <div className="flex items-center space-x-3">
-                                            <div className="avatar">
-                                                <div className="mask mask-circle w-12 h-12">
-                                                    <img src={l.avatar} alt="Avatar" />
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <div className="font-bold">{l.name}</div>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td>{l.email}</td>
-                                    <td>{l.location}</td>
-                                    <td>${l.amount}</td>
-                                    <td>{moment(l.date).format("D MMM")}</td>
+    const removeFilter = () => setSearchText("");
+
+    return (
+        <>
+            <TitleCard 
+                title="개인 이벤트 탐지 이력" 
+                topMargin="mt-2" 
+                TopSideButtons={
+                    <TopSideButtons 
+                        searchText={searchText} 
+                        setSearchText={setSearchText} 
+                        removeFilter={removeFilter}
+                    />
+                }
+            >
+                <div className="overflow-x-auto w-full">
+                    <table className="table w-full">
+                        <thead>
+                            <tr>
+                                <th>탐지 시간</th>
+                                <th>위험도 / 유형</th>
+                                <th>도메인 / 페이지</th>
+                                <th>Score</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {groupedList.map((session, sIdx) => (
+                                <React.Fragment key={session.sessionId}>
+                                    {/* 세션 구분선 */}
+                                    <tr className="bg-slate-200/70 border-y-2 border-slate-300">
+                                        <td colSpan="4" className="py-2 text-xs font-bold text-primary">
+                                            SESSION: {session.sessionId}
+                                        </td>
                                     </tr>
-                                )
-                            })
-                        }
-                    </tbody>
-                </table>
-            </div>
+                                    {/* 세션 내 이벤트 리스트 */}
+                                    {session.events.map((e, eIdx) => (
+                                        <tr key={e.eventId} className="hover">
+                                            <td>
+                                                <div className="font-bold text-sm">
+                                                    {moment(e.ts).format("HH:mm:ss")}
+                                                </div>
+                                                <div className="text-xs opacity-50">
+                                                    {moment(e.ts).format("YYYY-MM-DD")}
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div className={`badge badge-sm mb-1 ${
+                                                    e.severity === 'HIGH' ? 'badge-error' : 
+                                                    e.severity === 'MEDIUM' ? 'badge-warning' : 'badge-success'
+                                                }`}>
+                                                    {e.severity}
+                                                </div>
+                                                <div className="text-xs font-mono">{e.ruleId}</div>
+                                            </td>
+                                            <td>
+                                                <div className="text-sm font-bold">{e.domain}</div>
+                                                <div className="text-xs opacity-50 truncate w-48" title={e.page}>
+                                                    {e.page}
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <span className="font-mono text-orange-600">+{e.scoreDelta}</span>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </React.Fragment>
+                            ))}
+                        </tbody>
+                    </table>
+                    {groupedList.length === 0 && (
+                        <div className="text-center py-10 text-gray-400">조회된 이벤트가 없습니다.</div>
+                    )}
+                </div>
             </TitleCard>
         </>
     )
 }
 
-
-export default Transactions
+export default EventTransactions;
