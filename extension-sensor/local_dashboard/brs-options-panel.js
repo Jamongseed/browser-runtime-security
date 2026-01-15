@@ -1,6 +1,4 @@
-const KEY_WHITELIST = 'whitelist';
-const KEY_NOTIFICATIONS = 'notification_settings';
-const KEY_LOGS = 'brs_threat_logs';
+import { STORAGE_KEYS, DEFAULT_SETTINGS } from '../config.js';
 
 document.addEventListener('DOMContentLoaded', () => {
     // 탭 메뉴 관련
@@ -109,7 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
         clearLogsBtn.removeEventListener('click', handleClearLogs);
         clearLogsBtn.disabled = true;
 
-        chrome.storage.local.set({ [KEY_LOGS]: [] }, () => {
+        chrome.storage.local.set({ [STORAGE_KEYS.LOGS]: [] }, () => {
             // 작업 완료 후 리스너 복구
             clearLogsBtn.addEventListener('click', handleClearLogs);
             clearLogsBtn.disabled = false;
@@ -129,12 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
         resetSettingsBtn.removeEventListener('click', handleResetSettings);
         resetSettingsBtn.disabled = true;
 
-        const defaultSettings = {
-            [KEY_WHITELIST]: [],
-            [KEY_NOTIFICATIONS]: { low: false, medium: false, high: true }
-        };
-
-        chrome.storage.local.set(defaultSettings, () => {
+        chrome.storage.local.set(DEFAULT_SETTINGS, () => {
             resetSettingsBtn.addEventListener('click', handleResetSettings);
             resetSettingsBtn.disabled = false;
 
@@ -151,22 +144,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 셋팅값 로드
     function loadSettings() {
-        chrome.storage.local.get({
-            [KEY_WHITELIST]: [],
-            [KEY_NOTIFICATIONS]: { low: false, medium: true, high: true }
-        }, (result) => {
+        chrome.storage.local.get(DEFAULT_SETTINGS, (result) => {
 
             if (chrome.runtime.lastError) {
                 console.error("[BRS] Failed to load settings:", chrome.runtime.lastError);
                 return;
             }
             // 화이트 리스트
-            const list = result[KEY_WHITELIST] || [];
+            const list = result[STORAGE_KEYS.WHITELIST] || [];
             originalWhitelistText = list.join('\n'); 
             whitelistArea.value = originalWhitelistText;
 
             // 체크박스
-            const notiSettings = result[KEY_NOTIFICATIONS];
+            const notiSettings = result[STORAGE_KEYS.NOTIFICATIONS];
             notifyLow.checked = !!notiSettings?.low;
             notifyMedium.checked = !!notiSettings?.medium;
             notifyHigh.checked = !!notiSettings?.high;
@@ -202,7 +192,7 @@ document.addEventListener('DOMContentLoaded', () => {
             medium: notifyMedium.checked,
             high: notifyHigh.checked
         };
-        chrome.storage.local.set({ [KEY_NOTIFICATIONS]: settings });
+        chrome.storage.local.set({ [STORAGE_KEYS.NOTIFICATIONS]: settings });
     }
 
     [notifyLow, notifyMedium, notifyHigh].forEach(el => {

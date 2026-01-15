@@ -1,6 +1,6 @@
 import { runWithLock } from "../utils/lock.js";
+import { STORAGE_KEYS } from '../config.js';
 
-const STORAGE_KEY = "brs_threat_logs";
 const STORAGE_LOCK = "brs_local_storage_lock";
 
 export function createLocalStorageSink({ maxLogCount = 200, targets = [] } = {}) {
@@ -14,8 +14,8 @@ export function createLocalStorageSink({ maxLogCount = 200, targets = [] } = {})
     async send(threat) {
       return runWithLock(STORAGE_LOCK, async (lock) => {
         try {
-          let { [STORAGE_KEY]: logs } = await chrome.storage.local.get({
-            [STORAGE_KEY]: [],  
+          let { [STORAGE_KEYS.LOGS]: logs } = await chrome.storage.local.get({
+            [STORAGE_KEYS.LOGS]: [],  
           });
 
           const logEntry = { ...threat, savedAt: Date.now() };
@@ -23,7 +23,7 @@ export function createLocalStorageSink({ maxLogCount = 200, targets = [] } = {})
 
           if (logs.length > maxLogCount) logs = logs.slice(-maxLogCount);
 
-          await chrome.storage.local.set({ [STORAGE_KEY]: logs });
+          await chrome.storage.local.set({ [STORAGE_KEYS.LOGS]: logs });
 
           return { status: "saved", totalLogs: logs.length };
 

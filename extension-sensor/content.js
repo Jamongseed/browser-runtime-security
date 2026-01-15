@@ -1,3 +1,15 @@
+const STORAGE_KEYS = {
+	WHITELIST: 'whitelist',
+  NOTIFICATIONS: 'notification_settings',
+  LOGS: 'brs_threat_logs',
+  DASHBOARD_URL: 'dashboardUrl',
+  LAST_NOTI_TIME: 'lastNotiTime',
+  TAB_SESSIONS: 'tabSessions',
+  INSTALL_ID: "brs_installId",
+  FAILED_QUEUE: "failed_log_queue",
+  HTTP_SINK_URL: "httpSinkUrl"
+};
+
 (function () {
   // page_hook 주입
   function startHooks() {
@@ -312,7 +324,7 @@
           resolve({}); 
         }, 2000);
 
-        chrome.storage.local.get(['whitelist'], (res) => {
+        chrome.storage.local.get({ [STORAGE_KEYS.WHITELIST]: [] }, (res) => {
           clearTimeout(timeoutId);
 
           if (chrome.runtime.lastError) {
@@ -321,8 +333,8 @@
           resolve(res || {});
         });
       });
-      const whitelist = result.whitelist || [];
 
+      const whitelist = result[STORAGE_KEYS.WHITELIST] || [];
 
       const isWhitelisted = whitelist.some(domain => {
         // 와일드카드 패턴인 경우 예) *.google.com

@@ -1,6 +1,6 @@
 import { runWithLock } from "../utils/lock.js";
+import { STORAGE_KEYS } from '../config.js';
 
-const FAILED_QUEUE_KEY = "failed_log_queue";
 const ALARM_NAME = "retry_failed_logs";
 const MAX_FAILED_QUEUE_SIZE = 100;
 const FETCH_TIMEOUT_MS = 5000;
@@ -51,14 +51,14 @@ async function fetchWithTimeout(url, options, timeoutMs) {
 
 async function popFromQueue(limit) {
   return runWithLock(QUEUE_LOCK, async () => {
-    let { [FAILED_QUEUE_KEY]: queue } = await chrome.storage.local.get({ [FAILED_QUEUE_KEY]: [] });
+    let { [STORAGE_KEYS.FAILED_QUEUE]: queue } = await chrome.storage.local.get({ [STORAGE_KEYS.FAILED_QUEUE]: [] });
     
     if (!queue || queue.length === 0) return [];
 
     const toSend = queue.slice(0, limit);
     const remain = queue.slice(limit);
 
-    await chrome.storage.local.set({ [FAILED_QUEUE_KEY]: remain });
+    await chrome.storage.local.set({ [STORAGE_KEYS.FAILED_QUEUE]: remain });
 
     return toSend;
   });
@@ -69,7 +69,7 @@ async function pushToQueue(items) {
   if (itemsArray.length === 0) return;
 
   return runWithLock(QUEUE_LOCK, async () => {
-    let { [FAILED_QUEUE_KEY]: queue } = await chrome.storage.local.get({ [FAILED_QUEUE_KEY]: [] });
+    let { [STORAGE_KEYS.FAILED_QUEUE]: queue } = await chrome.storage.local.get({ [STORAGE_KEYS.FAILED_QUEUE]: [] });
     
     const newQueue = queue.concat(itemsArray);
 
@@ -77,7 +77,7 @@ async function pushToQueue(items) {
       ? newQueue.slice(-MAX_FAILED_QUEUE_SIZE) 
       : newQueue;
 
-    await chrome.storage.local.set({ [FAILED_QUEUE_KEY]: finalQueue });
+    await chrome.storage.local.set({ [STORAGE_KEYS.FAILED_QUEUE]: finalQueue });
   });
 }
 
@@ -137,7 +137,8 @@ async function transmitWithRetry(url, threat) {
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === ALARM_NAME) {
-    const { httpSinkUrl } = await chrome.storage.local.get("httpSinkUrl");
+    const result = await chrome.storage.local.get(STORAGE_KEYS.HTTP_SINK_URL);
+    const httpSinkUrl = result[STORAGE_KEYS.HTTP_SINK_URL];
     if (httpSinkUrl) {
       await flushFailedQueue(httpSinkUrl); 
     }
@@ -146,7 +147,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
 export function createHttpSink({ url, targets }) {
   if (url) {
-    chrome.storage.local.set({ httpSinkUrl: url });
+    chrome.storage.local.set({ [STORAGE_KEYS.HTTP_SINK_URL]: url });
   }
 
   async function enqueueFailed(threat) {

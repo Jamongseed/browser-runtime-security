@@ -1,3 +1,5 @@
+import { STORAGE_KEYS } from './config.js';
+
 function openDashboard(installId) {
   const dashboardUrl = chrome.runtime.getURL("local_dashboard/dashboard.html");
   const params = new URLSearchParams();
@@ -28,12 +30,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   
   chrome.storage.local.get({ 
-    brs_threat_logs: [],
-    brs_installId: null
+    [STORAGE_KEYS.LOGS]: [],
+    [STORAGE_KEYS.INSTALL_ID]: null
   }, async (result) => {
 
-    const logs = result.brs_threat_logs;
-    const installId = result.brs_installId;
+    const logs = result[STORAGE_KEYS.LOGS];
+    const installId = result[STORAGE_KEYS.INSTALL_ID];
 
     const logArea = document.getElementById('log-area');
     const btn = document.getElementById('go-dashboard');

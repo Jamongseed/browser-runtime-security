@@ -6,19 +6,11 @@ import { createNotificationSink } from "./sinks/notificationSink.js";
 import { generateReportHash } from "./utils/crypto.js";
 import { updateTabSession, removeTabSession } from "./utils/sessionManager.js";
 import { getOrCreateInstallId, initInstallId } from "./utils/installIdManager.js";
+import { SYSTEM_CONFIG, STORAGE_KEYS } from "./config.js";
 
 import "./dump_fetcher.js";
 
 initInstallId();
-
-const CONFIG = {
-  API_ENDPOINT: "http://localhost:8080/events",
-  DUMPS_ENDPOINT: "http://localhost:8080/dumps",
-  // API_ENDPOINT: "https://tatnbs1wq5.execute-api.ap-northeast-2.amazonaws.com/prod/events",
-  USE_SERVER_DASHBOARD: false,
-  AWS_DASHBOARD_URL: "",
-  LOCAL_DASHBOARD_PATH: "local_dashboard/dashboard.html",
-};
 
 // ---- dumps 전송용(간단 재시도) ----
 const FETCH_TIMEOUT_MS = 5000;
@@ -77,14 +69,14 @@ async function postJsonWithRetry(url, bodyObj) {
 
 // ---- dashboard url ----
 const DASHBOARD_URL =
-  CONFIG.USE_SERVER_DASHBOARD && CONFIG.AWS_DASHBOARD_URL
-    ? CONFIG.AWS_DASHBOARD_URL
-    : chrome.runtime.getURL(CONFIG.LOCAL_DASHBOARD_PATH);
+  SYSTEM_CONFIG.USE_SERVER_DASHBOARD && SYSTEM_CONFIG.AWS_DASHBOARD_URL
+    ? SYSTEM_CONFIG.AWS_DASHBOARD_URL
+    : chrome.runtime.getURL(SYSTEM_CONFIG.LOCAL_DASHBOARD_PATH);
 
 // dispatcher 생성
 const dispatcher = createDispatcher([
   createHttpSink({
-    url: CONFIG.API_ENDPOINT,
+    url: SYSTEM_CONFIG.API_ENDPOINT,
     targets: ["LOW", "MEDIUM", "HIGH"],
   }),
   createLocalStorageSink({
@@ -103,7 +95,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const newWhitelist = message.data || [];
     
     // 크롬 저장소에 저장
-  chrome.storage.local.set({ whitelist: newWhitelist }, () => {
+  chrome.storage.local.set({ [STORAGE_KEYS.WHITELIST]: newWhitelist }, () => {
     if (chrome.runtime.lastError) {
       console.error("[BRS] Save error:", chrome.runtime.lastError);
       sendResponse({ status: "error", message: "Failed to save to storage" });
@@ -158,7 +150,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           },
         };
 
-        await postJsonWithRetry(CONFIG.DUMPS_ENDPOINT, dumpEvent);
+        await postJsonWithRetry(SYSTEM_CONFIG.DUMPS_ENDPOINT, dumpEvent);
         sendResponse({ ok: true });
       } catch (e) {
         console.error("[BRS] dump transmit failed:", e);
@@ -218,6 +210,6 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
-  await chrome.storage.local.set({ tabSessions: {} });
+  await chrome.storage.local.set({ [STORAGE_KEYS.TAB_SESSIONS]: {} });
   console.log("[BRS] Extension installed. Session map initialized.");
 });
