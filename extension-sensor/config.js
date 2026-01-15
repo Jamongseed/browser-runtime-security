@@ -17,11 +17,13 @@ export const STORAGE_KEYS = {
     TAB_SESSIONS: 'tabSessions',
     INSTALL_ID: "brs_installId",
     FAILED_QUEUE: "failed_log_queue",
-    HTTP_SINK_URL: "httpSinkUrl"
+    HTTP_SINK_URL: "httpSinkUrl",
+    IS_ENABLED: "brs_is_enabled"
 };
 
 
 export const DEFAULT_SETTINGS = {
+    [STORAGE_KEYS.IS_ENABLED]: true,
     [STORAGE_KEYS.WHITELIST]: [],
     [STORAGE_KEYS.NOTIFICATIONS]: { 
         low: false, 
@@ -29,4 +31,3 @@ export const DEFAULT_SETTINGS = {
         high: true 
     }
 };
-

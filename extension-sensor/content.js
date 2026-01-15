@@ -1,13 +1,14 @@
 const STORAGE_KEYS = {
 	WHITELIST: 'whitelist',
-  NOTIFICATIONS: 'notification_settings',
-  LOGS: 'brs_threat_logs',
-  DASHBOARD_URL: 'dashboardUrl',
-  LAST_NOTI_TIME: 'lastNotiTime',
-  TAB_SESSIONS: 'tabSessions',
-  INSTALL_ID: "brs_installId",
-  FAILED_QUEUE: "failed_log_queue",
-  HTTP_SINK_URL: "httpSinkUrl"
+	NOTIFICATIONS: 'notification_settings',
+	LOGS: 'brs_threat_logs',
+	DASHBOARD_URL: 'dashboardUrl',
+	LAST_NOTI_TIME: 'lastNotiTime',
+	TAB_SESSIONS: 'tabSessions',
+	INSTALL_ID: "brs_installId",
+	FAILED_QUEUE: "failed_log_queue",
+	HTTP_SINK_URL: "httpSinkUrl",
+	IS_ENABLED: "brs_is_enabled"
 };
 
 (function () {
@@ -313,26 +314,36 @@ const STORAGE_KEYS = {
   }
 
   async function init() {
-    // page_hook 주입 전 화이트리스트 확인 로직 추가
     try {
-      const currentDomain = window.location.hostname.replace(/^www\./, '').toLowerCase();
-
       const result = await new Promise((resolve, reject) => {
-        // 타이머 안전 장치
+				// 타이머 안전 장치
         const timeoutId = setTimeout(() => {
           console.warn("[BRS] Storage access timed out. Proceeding with default settings.");
           resolve({}); 
         }, 2000);
 
-        chrome.storage.local.get({ [STORAGE_KEYS.WHITELIST]: [] }, (res) => {
+        chrome.storage.local.get({ 
+            [STORAGE_KEYS.WHITELIST]: [],
+            [STORAGE_KEYS.IS_ENABLED]: true
+        }, (res) => {
           clearTimeout(timeoutId);
-
           if (chrome.runtime.lastError) {
             return reject(new Error(chrome.runtime.lastError.message));
           }
           resolve(res || {});
         });
       });
+
+			// 1. ON/OFF 확인 로직
+      const isEnabled = result[STORAGE_KEYS.IS_ENABLED] !== false;
+
+      if (!isEnabled) {
+        console.log("[BRS] Monitoring OFF.");
+        return;
+      }
+
+			// 2. 화이트리스트 확인 로직
+      const currentDomain = window.location.hostname.replace(/^www\./, '').toLowerCase();
 
       const whitelist = result[STORAGE_KEYS.WHITELIST] || [];
 
