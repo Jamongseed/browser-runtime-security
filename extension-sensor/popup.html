@@ -13,12 +13,19 @@
       margin-bottom: 15px; 
       border-bottom: 2px solid #eee; 
       padding-bottom: 10px; 
+      position: relative;
+      z-index: 1000;
     }
     
     .title-group { display: flex; align-items: center; }
         h2 { margin: 0; color: #333; font-size: 18px; }
     .badge { background-color: #d32f2f; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px; margin-left: 10px; }
-    #log-area { max-height: 400px; overflow-y: auto; }
+    #log-area { 
+      max-height: 400px; 
+      overflow-y: auto; 
+      position: relative;
+      z-index: 1;
+    }
     
     /* 로그 클릭시 효과 추가 */
     .log-item { 
@@ -89,7 +96,60 @@
       align-items: center;
       gap: 6px;
       margin-left: 10px;
+      position: relative;
+      cursor: help;
     }
+
+    /* --- 툴팁 디자인  --- */
+    .toggle-wrapper::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      top: 140%;        /* 스위치보다 확실히 아래에 위치 */
+      left: 50%;       /* 중앙 정렬의 시작 */
+      transform: translateX(-50%); /* 정확히 자신의 너비 절반만큼 왼쪽으로 이동 */
+      
+      /* 기존 스타일 유지 */
+      background-color: #333;
+      color: #fff;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      white-space: nowrap; /* 글자가 줄바꿈되지 않게 함 */
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.2s ease-in-out;
+      z-index: 9999;    /* 최상단으로 올림 */
+    }
+
+    /* 말풍선 아래 뾰족한 삼각형(꼬리) */
+    .toggle-wrapper::before {
+      content: "";
+      position: absolute;
+      top: 115%;       /* 툴팁 몸통 바로 위에 붙도록 설정 */
+      left: 50%;
+      transform: translateX(-50%);
+      border: 6px solid transparent;
+      border-bottom-color: #333; /* 아래쪽으로 화살표가 생기도록 수정 */
+      
+      /* 기존 스타일 유지 */
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.2s ease-in-out;
+      z-index: 9999;
+    }
+
+    /* 마우스를 올렸을 때(Hover) 나타나게 함 */
+    .toggle-wrapper:hover::after,
+    .toggle-wrapper:hover::before {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    /* 삼각형 꼬리 위치도 같이 조절 */
+    .toggle-wrapper:hover::before {
+      bottom: 110%;
+    }
+
     .switch {
       position: relative;
       display: inline-block;
@@ -131,7 +191,7 @@
   <header>
     <div class="title-group">
       <h2>🛡️ BRS 센터</h2>
-      <div class="toggle-wrapper">
+      <div class="toggle-wrapper" data-tooltip="변경 시 새로고침 필요">
         <label class="switch">
           <input type="checkbox" id="master-toggle">
           <span class="slider"></span>
