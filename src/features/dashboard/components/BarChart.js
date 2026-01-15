@@ -17,11 +17,10 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 
 const serverityKeywords = ['HIGH', 'MEDIUM', 'LOW'];
 
-function BarChart({ title, labels }) { // props 이름을 labels로 받습니다.
+function BarChart({ title, chartData }) { 
   const chartRef = useRef(null);
   const navigate = useNavigate();
 
-  // 클릭 이벤트 핸들러
   const onClick = (event) => {
     const { current: chart } = chartRef;
     if (!chart) return;
@@ -29,12 +28,10 @@ function BarChart({ title, labels }) { // props 이름을 labels로 받습니다
     const element = getElementAtEvent(chart, event);
     if (element.length > 0) {
       const { index } = element[0];
-      
-      // 아래 정의한 data 객체의 labels 배열에서 값을 가져옵니다.
-      const clickedLabel = data.labels[index];
+      // 넘어온 데이터의 labels에서 클릭한 값을 가져옵니다.
+      const clickedLabel = chartData.labels[index];
 
       if (serverityKeywords.includes(clickedLabel)) {
-        // 경로(URL)는 프로젝트 설정에 맞게 수정하세요 (예: /app/detail/severity)
         navigate("/app/detail/severity", { 
           state: { value: clickedLabel, title: title } 
         });
@@ -45,36 +42,27 @@ function BarChart({ title, labels }) { // props 이름을 labels로 받습니다
   const options = {
     responsive: true,
     maintainAspectRatio: false,
-    onClick, // 옵션에 클릭 핸들러 등록
+    onClick,
     plugins: {
-      legend: {
-        position: 'top',
-      }
+      legend: { display: false } // 범례가 필요 없으면 끕니다.
     },
   };
 
-  // Chart.js가 요구하는 필수 데이터 구조
-  const data = {
-    labels: labels || [], // 부모로부터 받은 labels가 없으면 빈 배열
-    datasets: [
-      {
-        label: title || '위험도',
-        // datasets를 안 쓰더라도 구조상 data 배열은 labels 개수만큼 존재해야 합니다.
-        data: (labels || []).map(() => 0), 
-        backgroundColor: 'rgba(53, 162, 235, 0.5)',
-      }
-    ],
+  // 중요: 부모가 준 데이터가 있으면 그대로 쓰고, 없으면 기본 구조를 잡습니다.
+  const data = chartData || {
+    labels: [],
+    datasets: [{ label: title, data: [], backgroundColor: 'rgba(53, 162, 235, 0.5)' }]
   };
 
   return (
     <TitleCard title={title || "Chart Title"} topMargin="mt-2">
       <div style={{ height: '300px' }}> 
-        {/* labels가 들어온 경우에만 차트를 그리고, 아니면 로딩 표시 */}
-        {labels && labels.length > 0 ? (
+        {/* 데이터의 실제 숫자(datasets[0].data)가 있는지 확인 */}
+        {data.datasets[0].data.length > 0 ? (
           <Bar ref={chartRef} options={options} data={data} />
         ) : (
           <div className="flex items-center justify-center h-full text-gray-400">
-            데이터를 불러오는 중...
+            데이터를 불러오는 중이거나 결과가 없습니다.
           </div>
         )}
       </div>
