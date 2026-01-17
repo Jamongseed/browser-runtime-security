@@ -1,0 +1,829 @@
+// index.mjs (AWS Lambda - Node.js 24)
+// deps: @aws-sdk/client-dynamodb @aws-sdk/lib-dynamodb
+
+/* =========================================================
+ * Imports
+ * =======================================================*/
+import crypto from "crypto";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+
+/* =========================================================
+ * Environment & Constants
+ * =======================================================*/
+const TABLE = process.env.TABLE_NAME || "Threat_Events";
+if (!TABLE) throw new Error("TABLE_NAME env required");
+const AGG_TABLE = process.env.AGG_TABLE_NAME || "Threat_Aggregates";
+
+const DUMP_BUCKET = process.env.DUMP_BUCKET || "brs-threat-dumps-prod";
+const DUMP_PREFIX = process.env.DUMP_PREFIX || "events";
+
+const TTL_DAYS = Number(process.env.TTL_DAYS || 30);
+const MAX_JSON_BYTES = Number(process.env.MAX_JSON_BYTES || 20_000);
+const MAX_PAYLOAD_BYTES = Number(process.env.MAX_PAYLOAD_BYTES || 350_000);
+const MAX_INLINE_DUMP_BYTES = Number(process.env.MAX_INLINE_DUMP_BYTES || 200_000);
+
+const EVENT_SHARDS = Number(process.env.EVENT_SHARDS || 8);
+const AGG_SHARDS = Number(process.env.AGG_SHARDS || 4);
+
+const EVENT_SCORE_CAP = Number(process.env.EVENT_SCORE_CAP || 50);
+
+const REQUIRE_HMAC = String(process.env.REQUIRE_HMAC || "false").toLowerCase() === "true";
+const HMAC_KEY = process.env.HMAC_KEY || "";
+const HMAC_VERSION = process.env.HMAC_VERSION || "v1";
+
+const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || "*";
+const ALLOW_HEADERS = "content-type, x-signature, x-timestamp, x-hmac-version";
+const ALLOW_METHODS = "POST,OPTIONS";
+
+/* =========================================================
+ * AWS Clients
+ * =======================================================*/
+const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+const s3 = new S3Client({});
+
+/* =========================================================
+ * Utils
+ * =======================================================*/
+const safeStr = (v, max = 400) => (v == null ? "" : String(v)).slice(0, max);
+
+const jsonByteLength = (obj) => Buffer.byteLength(JSON.stringify(obj ?? null), "utf8");
+
+const toTsMs = (ts) => {
+  const n = Number(ts);
+  if (!Number.isFinite(n) || n <= 0) return NaN;
+  return n < 1e12 ? Math.trunc(n * 1000) : Math.trunc(n);
+};
+
+const padTs13 = (ts) => String(ts).padStart(13, "0");
+
+const isDumpType = (type) =>
+  typeof type === "string" && type === "SCRIPT_DUMP";
+
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+const toKstDay = (tsMs) => {
+  const d = new Date(tsMs + KST_OFFSET_MS);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}${m}${day}`; // "YYYYMMDD"
+};
+
+// =====================
+// HMAC
+// =====================
+const hmacHex = (key, msg) =>
+  crypto.createHmac("sha256", key).update(msg, "utf8").digest("hex");
+
+const timingSafeEqHex = (a, b) => {
+  if (!a || !b) return false;
+  const aBuf = Buffer.from(String(a), "hex");
+  const bBuf = Buffer.from(String(b), "hex");
+  if (aBuf.length !== bBuf.length) return false;
+  return crypto.timingSafeEqual(aBuf, bBuf);
+};
+
+// event용
+const buildCanonicalEventV1 = ({
+  eventId,
+  tsMs,
+  installId,
+  sessionId,
+  type,
+  ruleId,
+  severity,
+  scoreDelta,
+}) =>
+  `v1|event|${eventId}|${tsMs}|${installId}|${sessionId}|${type}|${ruleId}|${severity}|${scoreDelta}`;
+
+// dump용 - 수정 필수
+const buildCanonicalDumpV1 = ({
+  installId,
+  tsMs,
+  type,
+}) =>
+  `v1|dump|${installId}|${tsMs}|${type}`;
+
+// =====================
+// Keys (Table)
+// =====================
+const Keys = {
+  // Raw event stored by user (install)
+  eventPK: (installId) => `INSTALL#${installId}`,
+  eventSK: (tsMs, eventId) => `E#${padTs(tsMs)}#${eventId}`,
+
+  // Dump pointer stored by user (install)
+  dumpPK: (installId) => `INSTALL#${installId}`,
+  dumpSK: (tsMs, sha256) => `D#${padTs(tsMs)}#${sha256}`,
+
+  // Dedup for eventId = reportId
+  dedupPK: "DEDUP#EVENT",
+  dedupSK: (eventId) => eventId,
+
+  // GSI1: EVENT#eventId (event + dumps)
+  gsi1pkEvent: (eventId) => `EVENT#${eventId}`,
+  gsi1sk: (tsMs, entity, id = "") => `T#${padTs(tsMs)}#${entity}${id ? `#${id}` : ""}`,
+
+  // Raw list for admin (origin/rule/sev by day, sharded)
+  gsi2pkOriginDay: (originKey, kstDay, shard) => `ORIGIN#${originKey}#DAY#${kstDay}#S#${shard}`,
+  gsi2sk: (tsMs, eventId) => `T#${padTs(tsMs)}#${eventId}`,
+
+  gsi3pkRuleDay: (ruleId, kstDay, shard) => `RULE#${ruleId}#DAY#${kstDay}#S#${shard}`,
+  gsi3sk: (tsMs, eventId) => `T#${padTs(tsMs)}#${eventId}`,
+
+  gsi4pkSevDay: (severity, kstDay, shard) => `SEV#${severity}#DAY#${kstDay}#S#${shard}`,
+  gsi4sk: (tsMs, eventId) => `T#${padTs(tsMs)}#${eventId}`,
+};
+
+/* =========================================================
+ * Keys (AGG_TABLE)
+ * =======================================================*/
+const AggKeys = {
+  pkOriginDay: (kstDay, shard) => `AGG#ORIGIN#DAY#${kstDay}#S#${shard}`,
+  skOrigin: (originKey) => `ORIGIN#${originKey}`,
+
+  pkRuleDay: (kstDay, shard) => `AGG#RULE#DAY#${kstDay}#S#${shard}`,
+  skRule: (ruleId) => `RULE#${ruleId}`,
+
+  pkSevDay: (kstDay) => `AGG#SEV#DAY#${kstDay}`,
+  skAll: "ALL",
+};
+
+/* =========================================================
+ * S3 dump key
+ * =======================================================*/
+const buildDumpS3Key = ({ kstDay, installId, sha256, tsMs }) => // 수정 필수
+  `${DUMP_PREFIX}/day=${kstDay}/install=${installId}/sha256=${sha256}/${tsMs}.bin`;
+
+/* =========================================================
+ * Validation
+ * =======================================================*/
+const validateCommon = (payload) => {
+  const type = safeStr(payload?.type, 120);
+  const installId = safeStr(payload?.installId, 120);
+  const sessionId = safeStr(payload?.sessionId, 120); // optional in admin requirements, keep it
+  const tsMs = toTsMs(payload?.ts);
+
+  if (!type || !installId || !Number.isFinite(tsMs)) {
+    return { ok: false, error: "MISSING_REQUIRED_FIELD_COMMON" };
+  }
+
+  return { ok: true, type, installId, sessionId, tsMs, kstDay: toKstDay(tsMs) };
+};
+
+const validateEvent = (payload) => {
+  const eventId = safeStr(payload?.reportId, 200); // eventId 보내주는지 확인 필수
+  const ruleId = safeStr(payload?.ruleId, 200);
+  const severity = sevNorm(payload?.severity);
+  const origin = safeStr(payload?.origin, 2000) || "UNKNOWN";
+  const targetOrigin = safeStr(payload?.targetOrigin, 2000) || "UNKNOWN";
+  const ua = safeStr(payload?.ua, 400);
+  const page = safeStr(payload?.page, 2000);
+
+  const scoreDelta = clampScore(Number(payload?.scoreDelta));
+
+  if (!eventId || !ruleId || !severity || !Number.isFinite(scoreDelta)) {
+    return { ok: false, error: "MISSING_REQUIRED_FIELD_EVENT" };
+  }
+
+  return {
+    ok: true,
+    eventId,
+    ruleId,
+    severity,
+    origin,
+    targetOrigin,
+    ua,
+    page,
+    scoreDelta,
+  };
+};
+
+const validateDump = (payload) => {
+  const data = payload?.data || {};
+  const sha256 = safeStr(data?.sha256, 128);
+  const length = Number(data?.length);
+  const contentType = safeStr(data?.contentType, 120);
+  const truncated = Boolean(data?.truncated);
+  const text = typeof data?.text === "string" ? data.text : ""; // 빈 파일 저장 정책이므로 empty 허용
+
+  const origin = safeStr(payload?.origin, 2000) || "UNKNOWN";
+  const targetOrigin = safeStr(payload?.targetOrigin, 2000) || "UNKNOWN";
+  const ua = safeStr(payload?.ua, 400);
+  const page = safeStr(payload?.page, 2000);
+
+  const refEventId = safeStr(payload?.refEventId, 200) || null;
+
+  const url = safeStr(data?.url, 2000);
+  const norm = safeStr(data?.norm, 2000);
+
+  if (!sha256 || !Number.isFinite(length) || !contentType) {
+    return { ok: false, error: "MISSING_REQUIRED_FIELD_DUMP" };
+  }
+
+  // 일단 빈 파일이라도 저장 - 추후 수정
+  // text가 커도 S3는 가능하지만, 현재 정책상 너무 큰 건 막아두고(추후 gzip/멀티파트로 확장)
+  const bytes = Buffer.byteLength(text || "", "utf8");
+  if (bytes > MAX_INLINE_DUMP_BYTES) {
+    return { ok: false, error: "DUMP_TEXT_TOO_LARGE" };
+  }
+
+  return {
+    ok: true,
+    sha256,
+    length,
+    contentType,
+    truncated,
+    text,
+    origin,
+    targetOrigin,
+    ua,
+    page,
+    refEventId,
+    url,
+    norm,
+  };
+};
+
+/* =========================================================
+ * Storage (Event)
+ * =======================================================*/
+const putEvent = async ({ common, ev }) => {
+  const { type, installId, sessionId, tsMs, kstDay } = common;
+  const {
+    eventId,
+    ruleId,
+    severity,
+    scoreDelta,
+    origin,
+    targetOrigin,
+    ua,
+    page,
+  } = ev;
+
+  // 0 dedup for eventId (=reportId)
+  await ddb.send(
+    new PutCommand({
+      TableName: TABLE,
+      Item: {
+        PK: Keys.dedupPK,
+        SK: Keys.dedupSK(eventId),
+        entityType: "DEDUP_EVENT",
+        createdAt: Date.now(),
+        ttl: epochSecondsAfterDays(TTL_DAYS),
+      },
+      ConditionExpression: "attribute_not_exists(PK)",
+    })
+  );
+
+  // 1 raw event item
+  const eventShard = hashToShard(eventId, EVENT_SHARDS);
+
+  const item = {
+    PK: Keys.eventPK(installId),
+    SK: Keys.eventSK(tsMs, eventId),
+    entityType: "EVENT",
+
+    type,
+    installId,
+    sessionId: sessionId || null,
+
+    eventId,
+    tsMs,
+    kstDay,
+
+    ruleId,
+    severity,
+    scoreDelta,
+
+    origin,
+    targetOrigin,
+    ua,
+    page,
+
+    // eventId 기반 상세(이벤트 + dump) 묶기
+    GSI1_PK: Keys.gsi1pkEvent(eventId),
+    GSI1_SK: Keys.gsi1sk(tsMs, "EVENT"),
+
+    // 운영자 "원본 리스트"용 (오리진/룰/위험도)
+    GSI2_PK: Keys.gsi2pkOriginDay(origin, kstDay, eventShard),
+    GSI2_SK: Keys.gsi2sk(tsMs, eventId),
+
+    GSI3_PK: Keys.gsi3pkRuleDay(ruleId, kstDay, eventShard),
+    GSI3_SK: Keys.gsi3sk(tsMs, eventId),
+
+    GSI4_PK: Keys.gsi4pkSevDay(severity, kstDay, eventShard),
+    GSI4_SK: Keys.gsi4sk(tsMs, eventId),
+
+    createdAt: Date.now(),
+    ttl: epochSecondsAfterDays(TTL_DAYS),
+  };
+
+  await ddb.send(
+    new PutCommand({
+      TableName: TABLE,
+      Item: item,
+    })
+  );
+};
+
+/* =========================================================
+ * Storage (Dump: S3 body + DDB pointer)
+ * =======================================================*/
+const putDump = async ({ common, dump }) => {
+  const { type, installId, sessionId, tsMs, kstDay } = common;
+  const {
+    sha256,
+    length,
+    contentType,
+    truncated,
+    text,
+    origin,
+    targetOrigin,
+    ua,
+    page,
+    refEventId,
+    url,
+    norm,
+  } = dump;
+
+  // 1) Put to S3 (빈 파일 포함)
+  const s3Key = buildDumpS3Key({ kstDay, installId, sha256, tsMs });
+  const bodyBuf = Buffer.from(text || "", "utf8");
+
+  const s3Res = await s3.send(
+    new PutObjectCommand({
+      Bucket: DUMP_BUCKET,
+      Key: s3Key,
+      Body: bodyBuf,
+      ContentType: contentType || "application/octet-stream",
+      ServerSideEncryption: "AES256",
+    })
+  );
+
+  // 2) Save pointer only in DynamoDB
+  const item = {
+    PK: Keys.dumpPK(installId),
+    SK: Keys.dumpSK(tsMs, sha256),
+    entityType: "DUMP",
+
+    dumpType: type,
+    installId,
+    sessionId: sessionId || null,
+    tsMs,
+    kstDay,
+
+    refEventId: refEventId || null,
+    status: refEventId ? "LINKED" : "PENDING",
+
+    origin,
+    targetOrigin,
+    ua,
+    page,
+
+    data: {
+      sha256,
+      length,
+      contentType,
+      truncated,
+      url: url || null,
+      norm: norm || null,
+    },
+
+    payloadPtr: {
+      bucket: DUMP_BUCKET,
+      key: s3Key,
+      bytes: bodyBuf.length,
+      sha256,
+      contentType,
+      etag: s3Res.ETag || null,
+    },
+
+    createdAt: Date.now(),
+    ttl: epochSecondsAfterDays(TTL_DAYS),
+  };
+
+  // 이벤트 상세에서 eventId로 dump 같이 조회 가능하게
+  if (refEventId) {
+    item.GSI1_PK = Keys.gsi1pkEvent(refEventId);
+    item.GSI1_SK = Keys.gsi1sk(tsMs, "DUMP", sha256);
+  }
+
+  await ddb.send(
+    new PutCommand({
+      TableName: TABLE,
+      Item: item,
+    })
+  );
+};
+
+/* =========================================================
+ * Aggregation Updates (AGG_TABLE)
+ * - 운영자 Top/Trend/분포를 위해 day 단위로 증가
+ * =======================================================*/
+const incAggDomain = async ({ kstDay, domain, severity, scoreDelta }) => {
+  const shard = hashToShard(domain, AGG_SHARDS);
+  await ddb.send(
+    new UpdateCommand({
+      TableName: AGG_TABLE,
+      Key: {
+        PK: AggKeys.pkDomainDay(kstDay, shard),
+        SK: AggKeys.skDomain(domain),
+      },
+      UpdateExpression: `
+        ADD #count :one, #scoreSum :sd, #scoreCount :one
+            #sevHigh :h, #sevMedium :m, #sevLow :l
+        SET #updatedAt = :now
+      `,
+      ExpressionAttributeNames: {
+        "#count": "count",
+        "#scoreSum": "scoreSum",
+        "#scoreCount": "scoreCount",
+        "#sevHigh": "sevHigh",
+        "#sevMedium": "sevMedium",
+        "#sevLow": "sevLow",
+        "#updatedAt": "updatedAt",
+      },
+      ExpressionAttributeValues: {
+        ":one": 1,
+        ":sd": scoreDelta,
+        ":h": severity === "high" ? 1 : 0,
+        ":m": severity === "medium" ? 1 : 0,
+        ":l": severity === "low" ? 1 : 0,
+        ":now": Date.now(),
+      },
+    })
+  );
+};
+
+const incAggRule = async ({ kstDay, ruleId, severity, scoreDelta }) => {
+  const shard = hashToShard(ruleId, AGG_SHARDS);
+  await ddb.send(
+    new UpdateCommand({
+      TableName: AGG_TABLE,
+      Key: {
+        PK: AggKeys.pkRuleDay(kstDay, shard),
+        SK: AggKeys.skRule(ruleId),
+      },
+      UpdateExpression: `
+        ADD #count :one, #scoreSum :sd, #scoreCount :one
+            #sevHigh :h, #sevMedium :m, #sevLow :l
+        SET #updatedAt = :now
+      `,
+      ExpressionAttributeNames: {
+        "#count": "count",
+        "#scoreSum": "scoreSum",
+        "#scoreCount": "scoreCount",
+        "#sevHigh": "sevHigh",
+        "#sevMedium": "sevMedium",
+        "#sevLow": "sevLow",
+        "#updatedAt": "updatedAt",
+      },
+      ExpressionAttributeValues: {
+        ":one": 1,
+        ":sd": scoreDelta,
+        ":h": severity === "high" ? 1 : 0,
+        ":m": severity === "medium" ? 1 : 0,
+        ":l": severity === "low" ? 1 : 0,
+        ":now": Date.now(),
+      },
+    })
+  );
+};
+
+const incAggSeverity = async ({ kstDay, severity }) => {
+  await ddb.send(
+    new UpdateCommand({
+      TableName: AGG_TABLE,
+      Key: {
+        PK: AggKeys.pkSevDay(kstDay),
+        SK: AggKeys.skAll,
+      },
+      UpdateExpression: `
+        ADD #total :one, #sevHigh :h, #sevMedium :m, #sevLow :l
+        SET #updatedAt = :now
+      `,
+      ExpressionAttributeNames: {
+        "#total": "total",
+        "#sevHigh": "sevHigh",
+        "#sevMedium": "sevMedium",
+        "#sevLow": "sevLow",
+        "#updatedAt": "updatedAt",
+      },
+      ExpressionAttributeValues: {
+        ":one": 1,
+        ":h": severity === "high" ? 1 : 0,
+        ":m": severity === "medium" ? 1 : 0,
+        ":l": severity === "low" ? 1 : 0,
+        ":now": Date.now(),
+      },
+    })
+  );
+};
+
+/* =========================================================
+ * Handler
+ * =======================================================*/
+export const handler = async (event) => {
+  const method = event?.requestContext?.http?.method || event?.httpMethod || "";
+
+  if (method === "OPTIONS") {
+    return { statusCode: 204, headers: corsHeaders(), body: "" };
+  }
+  if (method !== "POST") {
+    return resp(405, { ok: false, error: "METHOD_NOT_ALLOWED" });
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(event?.body || "null");
+  } catch {
+    return resp(400, { ok: false, error: "INVALID_JSON" });
+  }
+
+  if (jsonByteLength(payload) > MAX_PAYLOAD_BYTES) {
+    return resp(413, { ok: false, error: "PAYLOAD_TOO_LARGE" });
+  }
+
+  // Common
+  const common = validateCommon(payload);
+  if (!common.ok) return resp(400, { ok: false, error: common.error });
+
+  const headers = event?.headers || {};
+  const { sig, ver } = getSigHeaders(headers);
+
+  // Branch: DUMP
+  if (isDumpType(common.type)) {
+    const dump = validateDump(payload);
+    if (!dump.ok) return resp(400, { ok: false, error: dump.error });
+
+    if (REQUIRE_HMAC) {
+      if (ver !== "v1") return resp(401, { ok: false, error: "UNSUPPORTED_HMAC_VERSION" });
+      const canonical = buildCanonicalDumpV1({
+        installId: common.installId,
+        tsMs: common.tsMs,
+        type: common.type,
+        sha256: dump.sha256,
+        length: dump.length,
+        contentType: dump.contentType,
+      });
+      if (!timingSafeEqHex(hmacHex(HMAC_KEY, canonical), sig)) {
+        return resp(401, { ok: false, error: "INVALID_SIGNATURE" });
+      }
+    }
+
+    await putDump({ common, dump });
+    return resp(200, { ok: true, kind: "DUMP", kstDay: common.kstDay });
+  }
+
+  // Branch: EVENT
+  const ev = validateEvent(payload);
+  if (!ev.ok) return resp(400, { ok: false, error: ev.error });
+
+  if (REQUIRE_HMAC) {
+    if (ver !== "v1") return resp(401, { ok: false, error: "UNSUPPORTED_HMAC_VERSION" });
+    const canonical = buildCanonicalEventV1({
+      eventId: ev.eventId,
+      tsMs: common.tsMs,
+      installId: common.installId,
+      sessionId: common.sessionId || "",
+      type: common.type,
+      ruleId: ev.ruleId,
+      severity: ev.severity,
+      scoreDelta: String(ev.scoreDelta),
+    });
+    if (!timingSafeEqHex(hmacHex(HMAC_KEY, canonical), sig)) {
+      return resp(401, { ok: false, error: "INVALID_SIGNATURE" });
+    }
+  }
+
+  try {
+    await putEvent({ common, ev });
+
+    // 집계 업데이트 (운영자 Top/Trend/분포)
+    await Promise.all([
+      incAggOrigin({ kstDay: common.kstDay, origin: ev.origin, severity: ev.severity, scoreDelta: ev.scoreDelta }),
+      incAggRule({ kstDay: common.kstDay, ruleId: ev.ruleId, severity: ev.severity, scoreDelta: ev.scoreDelta }),
+      incAggSeverity({ kstDay: common.kstDay, severity: ev.severity }),
+    ]);
+
+    return resp(200, { ok: true, kind: "EVENT", kstDay: common.kstDay, eventId: ev.eventId });
+  } catch (e) {
+    // dedup 실패(중복 eventId)
+    if (e?.name === "ConditionalCheckFailedException") {
+      return resp(409, { ok: false, error: "DUPLICATE_EVENT_ID" });
+    }
+    console.error("handler error:", e);
+    return resp(500, { ok: false, error: "INTERNAL_ERROR" });
+  }
+};
+
+/* =========================================================
+ * Time Helpers (Asia/Seoul)
+ * - 입력은 항상 tsMs (UTC epoch ms)라고 가정
+ * =======================================================*/
+const seoulParts = (tsMs, opts) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    ...opts,
+  }).formatToParts(new Date(tsMs));
+
+const pick = (parts, type, fallback = "00") =>
+  parts.find((p) => p.type === type)?.value ?? fallback;
+
+// "YYYY-MM-DD" (KST)
+const kstIsoDayFromTsMs = (tsMs) => {
+  const parts = seoulParts(tsMs, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return `${pick(parts, "year")}-${pick(parts, "month")}-${pick(parts, "day")}`;
+};
+
+// "YYYYMMDD" (KST) - AGG 키에 쓰기 좋음
+const kstDayKeyFromTsMs = (tsMs) => kstIsoDayFromTsMs(tsMs).replaceAll("-", "");
+
+// "YYYYMMDDHH" (KST)
+const kstHourKeyFromTsMs = (tsMs) => {
+  const parts = seoulParts(tsMs, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: false,
+  });
+  return `${pick(parts, "year")}${pick(parts, "month")}${pick(parts, "day")}${pick(parts, "hour")}`;
+};
+
+/**
+ * KST day("YYYY-MM-DD") 기준으로 TTL epoch seconds 계산
+ * - 그날 KST 23:59:59.999 이후 plusDays 만큼 더 유지
+ */
+const ttlFromKstIsoDay = (isoDay, plusDays) => {
+  const [y, m, d] = isoDay.split("-").map(Number);
+
+  // KST 23:59:59.999 = UTC 14:59:59.999 (KST는 UTC+9)
+  const endUtcMs = Date.UTC(y, m - 1, d, 14, 59, 59, 999);
+
+  const ttlUtcMs = endUtcMs + plusDays * 86400e3;
+  return Math.floor(ttlUtcMs / 1000);
+};
+
+/* =========================================================
+ * Security (HMAC)
+ * =======================================================*/
+const hmacHex = (key, msg) =>
+  crypto.createHmac("sha256", key).update(msg).digest("hex");
+
+const timingSafeEqHex = (a, b) => {
+  try {
+    return (
+      a.length === b.length &&
+      crypto.timingSafeEqual(Buffer.from(a, "hex"), Buffer.from(b, "hex"))
+    );
+  } catch {
+    return false;
+  }
+};
+
+const buildCanonicalEventV1 = ({
+  eventId,
+  tsMs,
+  installId,
+  sessionId,
+  type,
+  ruleId,
+  severity,
+  scoreDelta,
+}) =>
+  ["v1", "event", eventId, _ts, installId, sessionId, type, ruleId, severity, scoreDelta].join("|");
+
+const buildCanonicalDumpV1 = ({ // 수정 필요
+  installId,
+  tsMs,
+  type,
+  sha256,
+}) =>
+  ["v1", "dump", installId, _ts, type, sha256].join("|");
+
+
+/* =========================================================
+ * CORS / Response Helpers
+ * =======================================================*/
+const corsHeaders = () => ({
+  "content-type": "application/json",
+  "access-control-allow-origin": ALLOW_ORIGIN,
+  "access-control-allow-methods": ALLOW_METHODS,
+  "access-control-allow-headers": ALLOW_HEADERS,
+  "access-control-max-age": "600",
+});
+
+const resp = (statusCode, body) => ({
+  statusCode,
+  headers: { "content-type": "application/json", ...corsHeaders() },
+  body: JSON.stringify(body),
+});
+
+/* =========================================================
+ * Payload Storage Helpers
+ * =======================================================*/
+
+const yyyymmddKstFromTsMs = (tsMs) => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(tsMs));
+
+  const g = (t) => parts.find((p) => p.type === t)?.value ?? "00";
+  return `${g("year")}${g("month")}${g("day")}`; // "YYYYMMDD"
+};
+
+class AlwaysS3PayloadStore {
+  constructor({ s3, bucket, prefix }) {
+    this.s3 = s3;              //
+    this.bucket = bucket;
+    this.prefix = prefix || "events";
+  }
+
+  /**
+   * @param {string} installId
+   * @param {string} dumpId       - 여기서는 sha256 권장
+   * @param {number} tsMs         - UTC epoch ms
+   * @param {string} contentType
+   * @param {string} text         - empty string allowed (빈 파일도 저장)
+   */
+  putText = async ({ installId, dumpId, tsMs, contentType, text }) => {
+    const day = yyyymmddKstFromTsMs(tsMs);
+    const key = `${this.prefix}/day=${day}/install=${installId}/sha256=${dumpId}/${tsMs}.bin`;
+
+    const bodyBuf = Buffer.from(text || "", "utf8");
+    const bytes = bodyBuf.length;
+
+    const res = await this.s3.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: bodyBuf,
+        ContentType: contentType || "application/octet-stream",
+        ServerSideEncryption: "AES256",
+      })
+    );
+
+    return {
+      kind: "S3",
+      bucket: this.bucket,
+      key,
+      bytes,
+      etag: res.ETag || null,
+      contentType: contentType || "application/octet-stream",
+    };
+  };
+}
+
+/* =========================================================
+ * AGG Helpers
+ * =======================================================*/
+const aggShardFor = (s) => {
+  if (!Number.isFinite(AGG_SHARDS) || AGG_SHARDS <= 1) return 0;
+  const hex = crypto.createHash("sha256").update(String(s || ""), "utf8").digest("hex");
+  return (parseInt(hex.slice(0, 8), 16) % AGG_SHARDS);
+};
+
+const toNum = (v, def = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : def;
+};
+
+/* =========================================================
+ * S3 Helpers
+ * =======================================================*/
+const safeS3KeyPart = (s, max = 200) =>
+  String(s || "")
+    .replace(/[^A-Za-z0-9._\-=/]/g, "_")
+    .slice(0, max);
+
+const putTextToS3 = async ({ bucket, key, text, contentType }) => {
+  const bodyBuf = Buffer.from(text ?? "", "utf8");
+  const res = await s3Client.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: bodyBuf, //  bytes 계산/일관성
+      ContentType: contentType || "application/octet-stream",
+      ServerSideEncryption: "AES256", //  권장
+    })
+  );
+
+  return {
+    etag: res.ETag || null,
+    bytes: bodyBuf.length,
+    contentType: contentType || "application/octet-stream",
+  };
+};
+
+const dumpS3Key = ({ prefix, kstDay, installId, sha256, tsMs }) =>
+  `${prefix}/day=${kstDay}/install=${safeS3KeyPart(installId)}/sha256=${sha256}/${tsMs}.bin`;
