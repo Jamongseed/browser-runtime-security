@@ -730,6 +730,21 @@
         "scoreDelta": 10,
         "severity": "LOW"
       }
+    },
+    {
+      "id": "PERSISTENCE_REINJECT_STAGE2_REMOVED",
+      "enabled": true,
+      "when": {
+        "type": "PERSISTENCE_REINJECT",
+        "equals": {
+          "reason": "stage2_removed"
+        }
+      },
+      "action": {
+        "ruleId": "PERSISTENCE_REINJECT",
+        "scoreDelta": 90,
+        "severity": "HIGH"
+      }
     }
   ]
 }
