@@ -3,7 +3,7 @@ import { createHttpSink } from "./sinks/httpSink.js";
 import { createLocalStorageSink } from "./sinks/localStorageSink.js";
 import { createBadgeSink } from "./sinks/badgeSink.js";
 import { createNotificationSink } from "./sinks/notificationSink.js";
-import { generateReportHash } from "./utils/crypto.js";
+import { generateReportHash, stableHash32 } from "./utils/crypto.js";
 import { updateTabSession, removeTabSession } from "./utils/sessionManager.js";
 import { getOrCreateInstallId, initInstallId } from "./utils/installIdManager.js";
 import { SYSTEM_CONFIG, STORAGE_KEYS } from "./config.js";
@@ -11,6 +11,22 @@ import { SYSTEM_CONFIG, STORAGE_KEYS } from "./config.js";
 import "./dump_fetcher.js";
 
 initInstallId();
+
+// chain/incident helpers
+const INCIDENT_TTL_MS = 30_000;
+const dumpIndex = new Map();      // key: `${tabId}|${norm}` -> { sha256, ts }
+const incidentByTab = new Map();  // key: tabId -> { incidentId, startedAt, lastSeenAt, scriptId, reinjectCount, norm }
+
+function normalizeUrl(u) {
+  const s = String(u || "");
+  return s.split("#")[0].split("?")[0];
+}
+
+function pickScriptUrlFromEvent(inputData) {
+  const d = inputData?.data || {};
+  // 우선순위: norm/abs/src/url/injectSrc 등
+  return d.norm || d.abs || d.src || d.url || d.injectSrc || "";
+}
 
 // ---- dumps 전송용(간단 재시도) ----
 const FETCH_TIMEOUT_MS = 5000;
@@ -126,6 +142,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         const tabId = sender?.tab?.id ?? null;
         const installId = await getOrCreateInstallId();
+        // dumpIndex 업데이트 (scriptId 매칭용)
+        if (tabId != null && norm && sha256) {
+          dumpIndex.set(`${tabId}|${norm}`, { sha256, ts: Date.now() });
+
+          const inc = incidentByTab.get(tabId);
+          if (inc) {
+            if (!inc.norm || inc.norm === norm) inc.norm = norm;
+            inc.scriptId = sha256;
+            incidentByTab.set(tabId, inc);
+          }
+        }
 
         const MAX_CHARS = 200_000;
         const clipped = text.length > MAX_CHARS ? text.slice(0, MAX_CHARS) : text;
@@ -185,8 +212,61 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         reportId = await generateReportHash(inputData.sessionId, inputData.ts);
       }
 
+      // incidentId / scriptId / reinjectCount enrichment
+      let chain = null;
+      if (tabId != null && inputData.type !== "SENSOR_READY") {
+        const now = Date.now();
+        const norm = normalizeUrl(pickScriptUrlFromEvent(inputData));
+
+        // scriptId: dump sha256 우선, 없으면 norm 기반 stable hash
+        let scriptId = null;
+        const hit = norm ? dumpIndex.get(`${tabId}|${norm}`) : null;
+        if (hit?.sha256) scriptId = String(hit.sha256);
+        else if (norm) scriptId = await stableHash32(norm);
+
+        // incident: tabId 기준 30초 윈도우(데모용)
+        let inc = incidentByTab.get(tabId);
+        const expired = !inc || (now - inc.lastSeenAt > INCIDENT_TTL_MS);
+        if (expired) {
+          const incidentId = await stableHash32(`${installId}:${tabId}:${now}`);
+          inc = {
+            incidentId,
+            startedAt: now,
+            lastSeenAt: now,
+            scriptId: scriptId || null,
+            reinjectCount: 0,
+            norm: norm || ""
+          };
+        } else {
+          inc.lastSeenAt = now;
+          if (scriptId) inc.scriptId = scriptId; // 최신 scriptId로 갱신
+          if (norm) inc.norm = norm;
+        }
+
+        if (inputData.type === "PERSISTENCE_REINJECT") {
+          inc.reinjectCount = (inc.reinjectCount || 0) + 1;
+        }
+
+        incidentByTab.set(tabId, inc);
+
+        chain = {
+          incidentId: inc.incidentId,
+          scriptId: inc.scriptId,
+          norm: inc.norm,
+          reinjectCount: inc.reinjectCount,
+          startedAt: inc.startedAt
+        };
+      }
+
+      const mergedData = {
+        ...(inputData.data || {}),
+        ...(chain ? { chain } : {})
+      };
+
       const enrichedData = {
         ...inputData,
+        data: mergedData,
+        evidence: mergedData,
         installId,
         reportId,
         tabId,
