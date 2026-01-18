@@ -1,0 +1,358 @@
+// index.mjs (Node.js 24 / ESM) - Threat_Aggregates Query API
+// deps: @aws-sdk/client-dynamodb @aws-sdk/lib-dynamodb
+
+import crypto from "crypto";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
+
+const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
+  marshallOptions: { removeUndefinedValues: true },
+});
+
+const TABLE_NAME = process.env.TABLE_NAME || "Threat_Aggregates";
+const AGG_SHARDS = Number(process.env.AGG_SHARDS || 4);
+
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 200;
+
+// Keep shard selection consistent with ingest (sha256 first 8 hex -> mod)
+const aggShardFor = (s) =>
+  parseInt(
+    crypto.createHash("sha256").update(String(s || "")).digest("hex").slice(0, 8),
+    16
+  ) % AGG_SHARDS;
+
+const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || "*";
+const CORS_HEADERS = {
+  "access-control-allow-origin": ALLOW_ORIGIN,
+  "access-control-allow-headers": "content-type",
+  "access-control-allow-methods": "GET,OPTIONS",
+};
+
+function json(statusCode, body) {
+  return { statusCode, headers: { ...CORS_HEADERS, "content-type": "application/json" }, body: JSON.stringify(body) };
+}
+
+function safeStr(v, maxLen = 200) {
+  if (v == null) return "";
+  const s = String(v);
+  return s.length > maxLen ? s.slice(0, maxLen) : s;
+}
+
+function toInt(v, def) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : def;
+}
+
+function getMethod(event) {
+  return String(event?.httpMethod || event?.requestContext?.http?.method || "").toUpperCase();
+}
+
+function getPath(event) {
+  return String(event?.path || event?.rawPath || "");
+}
+
+function normDayFlexible(s) {
+  const v = String(s || "").trim();
+  if (!v) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  if (/^\d{8}$/.test(v)) return `${v.slice(0, 4)}-${v.slice(4, 6)}-${v.slice(6, 8)}`;
+  return null;
+}
+
+function required(qs, key, maxLen = 200) {
+  const v = safeStr(qs?.[key], maxLen);
+  return v ? v : "";
+}
+
+function parseLimit(qs) {
+  const limit = toInt(qs?.limit, DEFAULT_LIMIT);
+  if (limit <= 0) return DEFAULT_LIMIT;
+  return Math.min(limit, MAX_LIMIT);
+}
+
+function addDaysIso(isoDay, deltaDays) {
+  // isoDay: YYYY-MM-DD
+  const [y, m, d] = isoDay.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + deltaDays));
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getUTCDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+function lastNDaysRange(n) {
+  // Asia/Seoul 기준 today
+  const now = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const yyyy = now.getUTCFullYear();
+  const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(now.getUTCDate()).padStart(2, "0");
+  const end = `${yyyy}-${mm}-${dd}`;
+  const start = addDaysIso(end, -(n - 1));
+  return { start, end };
+}
+
+async function queryShardPkSkBetween({ pk, shard, skFrom, skTo }) {
+  const pkValue = `${pk}#S#${shard}`;
+  const res = await ddb.send(new QueryCommand({
+    TableName: TABLE_NAME,
+    KeyConditionExpression: "#pk = :pk AND #sk BETWEEN :a AND :b",
+    ExpressionAttributeNames: { "#pk": "pk", "#sk": "sk" },
+    ExpressionAttributeValues: { ":pk": pkValue, ":a": skFrom, ":b": skTo },
+  }));
+  return res.Items || [];
+}
+
+async function fanoutTrendBetween({ pkBase, skFrom, skTo, shardKey }) {
+  // For a specific key (ruleId/domain) we can hit exactly one shard, matching ingest's aggShardFor().
+  if (shardKey !== undefined && shardKey !== null && String(shardKey).length > 0) {
+    const shard = aggShardFor(shardKey);
+    return await queryShardPkSkBetween({ pk: pkBase, shard, skFrom, skTo });
+  }
+
+  // Fallback: fan-out (useful if shardKey is unknown or for debugging)
+  const all = [];
+  for (let s = 0; s < AGG_SHARDS; s++) {
+    const items = await queryShardPkSkBetween({ pk: pkBase, shard: s, skFrom, skTo });
+    all.push(...items);
+  }
+  return all;
+}
+
+function parseTrendSk(sk) {
+  // sk: DAY#YYYY-MM-DD#SEV#HIGH
+  const m = /^DAY#(\d{4}-\d{2}-\d{2})#SEV#(.+)$/.exec(String(sk || ""));
+  return m ? { day: m[1], sev: m[2] } : null;
+}
+
+function foldTrendItemsToDays({ items, startDay, endDay }) {
+  const acc = new Map(); // day -> {sev->cnt}
+  const sevSet = new Set();
+  for (const it of items) {
+    const p = parseTrendSk(it.sk);
+    if (!p) continue;
+    const m = acc.get(p.day) || new Map();
+    const c = Number(it.cnt || 0);
+    m.set(p.sev, (m.get(p.sev) || 0) + c);
+    acc.set(p.day, m);
+    sevSet.add(p.sev);
+  }
+
+  const severities = Array.from(sevSet).sort((a, b) => String(a).localeCompare(String(b)));
+  const out = [];
+  let cur = startDay;
+  while (cur <= endDay) {
+    const m = acc.get(cur) || new Map();
+    const buckets = {};
+    for (const sev of severities) buckets[sev] = m.get(sev) || 0;
+    out.push({ day: cur, buckets });
+    cur = addDaysIso(cur, 1);
+  }
+  return { severities, days: out };
+}
+
+function parseRangeOrDefault(qs, fallbackDays = 30) {
+  const rStart = normDayFlexible(qs.startDay);
+  const rEnd = normDayFlexible(qs.endDay);
+  const { start, end } = (rStart && rEnd) ? { start: rStart, end: rEnd } : lastNDaysRange(fallbackDays);
+  if (!start || !end) return null;
+  if (start > end) return null;
+  return { start, end };
+}
+
+function* iterDays(start, end) {
+  let cur = start;
+  while (cur <= end) {
+    yield cur;
+    cur = addDaysIso(cur, 1);
+  }
+}
+
+// 특정 shard에서 sk prefix(DOMAIN/RULE/SEV) 기준 조회
+async function queryShardDayPrefix({ origin, day, shard, skPrefix }) {
+  const pk = `ORG#${origin}#DAY#${day}#S#${shard}`;
+  const res = await ddb.send(new QueryCommand({
+    TableName: TABLE_NAME,
+    KeyConditionExpression: "#pk = :pk AND begins_with(#sk, :pfx)",
+    ExpressionAttributeNames: { "#pk": "pk", "#sk": "sk" },
+    ExpressionAttributeValues: { ":pk": pk, ":pfx": skPrefix },
+  }));
+  return res.Items || [];
+}
+
+// 모든 shard를 순회하며 DAY 기준 집계 결과 수집
+async function fanoutDayPrefix({ origin, day, skPrefix }) {
+  const all = [];
+  for (let s = 0; s < AGG_SHARDS; s++) {
+    const items = await queryShardDayPrefix({ origin, day, shard: s, skPrefix });
+    all.push(...items);
+  }
+  return all;
+}
+
+// cnt 기준 Top-N 정렬 (동률 시 scoreSum 보조 정렬)
+function topNByCnt(list, limit) {
+  return list
+    .sort((a, b) => {
+      const dc = (b.cnt || 0) - (a.cnt || 0);
+      if (dc !== 0) return dc;
+      // 2차 정렬(동률): scoreSum이 있으면 그것, 아니면 key
+      const ds = (b.scoreSum || 0) - (a.scoreSum || 0);
+      if (ds !== 0) return ds;
+      return String(a.key || "").localeCompare(String(b.key || ""));
+    })
+    .slice(0, limit);
+}
+
+// DAY 기준 도메인별 이벤트 Top-N 조회
+async function handleTopnDomains(event) {
+  const qs = event.queryStringParameters || {};
+  const origin = required(qs, "origin", 200);
+
+  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
+  const range = parseRangeOrDefault(qs, 30);
+
+  if (!range) return json(400, { ok: false, reason: "INVALID_day_range" });
+  const { start, end } = range;
+  
+   
+  const limit = parseLimit(qs);
+  const acc = new Map();
+  for (const day of iterDays(start, end)) {
+    const items = await fanoutDayPrefix({ origin, day, skPrefix: "DOMAIN#" });
+    for (const it of items) {
+      const sk = String(it.sk || "");
+      const key = sk.slice("DOMAIN#".length);
+      if (!key) continue;
+      const prev = acc.get(key) || { key, cnt: 0, scoreSum: 0 };
+      prev.cnt += Number(it.cnt || 0);
+      prev.scoreSum += Number(it.scoreSum || 0);
+      acc.set(key, prev);
+    }
+  }
+
+  const out = topNByCnt(Array.from(acc.values()), limit);
+  return json(200, { ok: true, query: { origin, startDay: start, endDay: end, limit }, items: out });
+}
+
+// DAY 기준 룰 발생 빈도 Top-N 조회
+async function handleTopnRules(event) {
+  const qs = event.queryStringParameters || {};
+  const origin = required(qs, "origin", 120);
+  
+  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
+  const range = parseRangeOrDefault(qs, 30);
+  if (!range) return json(400, { ok: false, reason: "INVALID_day_range" });
+  const { start, end } = range;
+
+  const limit = parseLimit(qs);
+  
+  const acc = new Map();
+  
+  for (const day of iterDays(start, end)) {
+    const items = await fanoutDayPrefix({ origin, day, skPrefix: "RULE#" });
+    for (const it of items) {
+      const sk = String(it.sk || "");
+      const key = sk.slice("RULE#".length);
+      if (!key) continue;
+      const prev = acc.get(key) || { key, cnt: 0 };
+      prev.cnt += Number(it.cnt || 0);
+      acc.set(key, prev);
+    }
+  }
+
+  const out = topNByCnt(Array.from(acc.values()), limit);
+  return json(200, { ok: true, query: { origin, startDay: start, endDay: end, limit }, items: out });
+}
+
+// DAY 기준 severity 분포 조회
+async function handleSeverity(event) {
+  const qs = event.queryStringParameters || {};
+  const origin = required(qs, "origin", 120);
+  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
+  const range = parseRangeOrDefault(qs, 30);
+  if (!range) return json(400, { ok: false, reason: "INVALID_day_range" });
+  const { start, end } = range;
+
+  const acc = new Map();
+  for (const day of iterDays(start, end)) {
+    const items = await fanoutDayPrefix({ origin, day, skPrefix: "SEV#" });
+    for (const it of items) {
+      const sk = String(it.sk || "");
+      const key = sk.slice("SEV#".length);
+      if (!key) continue;
+      const prev = acc.get(key) || { key, cnt: 0 };
+      prev.cnt += Number(it.cnt || 0);
+      acc.set(key, prev);
+    }
+  }
+
+  const out = Array.from(acc.values()).sort((a, b) => (b.cnt || 0) - (a.cnt || 0));
+  return json(200, { ok: true, query: { origin, startDay: start, endDay: end }, items: out });
+}
+
+// RULE trend
+async function handleTrendRule(event) {
+  const qs = event.queryStringParameters || {};
+  const origin = required(qs, "origin", 200);
+  const ruleId = required(qs, "ruleId", 200);
+  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
+  if (!ruleId) return json(400, { ok: false, reason: "MISSING_ruleId" });
+
+  const rStart = normDayFlexible(qs.startDay);
+  const rEnd = normDayFlexible(qs.endDay);
+  const { start, end } = (rStart && rEnd) ? { start: rStart, end: rEnd } : lastNDaysRange(30);
+  if (!start || !end) return json(400, { ok: false, reason: "INVALID_day_range" });
+
+  const pkBase = `ORG#${origin}#TREND#RULE#K#${ruleId}`;
+  const skFrom = `DAY#${start}#SEV#`;     // inclusive
+  const skTo   = `DAY#${end}#SEV#~`;      // '~' makes it include HIGH/MEDIUM/LOW
+
+  const items = await fanoutTrendBetween({ pkBase, skFrom, skTo, shardKey: `R|${origin}|${ruleId}`});
+  const out = foldTrendItemsToDays({ items, startDay: start, endDay: end });
+  return json(200, { ok: true, query: { origin, ruleId, startDay: start, endDay: end }, ...out });
+}
+
+async function handleTrendDomain(event) {
+  const qs = event.queryStringParameters || {};
+  const origin = required(qs, "origin", 120);
+  const domain = required(qs, "domain", 400);
+  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
+  if (!domain) return json(400, { ok: false, reason: "MISSING_domain" });
+
+  const rStart = normDayFlexible(qs.startDay);
+  const rEnd = normDayFlexible(qs.endDay);
+  const { start, end } = (rStart && rEnd) ? { start: rStart, end: rEnd } : lastNDaysRange(30);
+  if (!start || !end) return json(400, { ok: false, reason: "INVALID_day_range" });
+
+  const pkBase = `ORG#${origin}#TREND#DOMAIN#K#${domain}`;
+  const skFrom = `DAY#${start}#SEV#`;
+  const skTo   = `DAY#${end}#SEV#~`;
+
+  const items = await fanoutTrendBetween({ pkBase, skFrom, skTo, shardKey: `D|${origin}|${domain}` });
+  const out = foldTrendItemsToDays({ items, startDay: start, endDay: end });
+  return json(200, { ok: true, query: { origin, domain, startDay: start, endDay: end }, ...out });
+}
+
+// aggregates 관련 GET API 라우팅
+export const handler = async (event) => {
+  try {
+    const method = getMethod(event);
+    if (method === "OPTIONS") return { statusCode: 204, headers: CORS_HEADERS, body: "" };
+    if (method !== "GET") return json(405, { ok: false, reason: "METHOD_NOT_ALLOWED" });
+    if (!TABLE_NAME) return json(500, { ok: false, reason: "MISSING_TABLE_NAME" });
+
+    const path = getPath(event);
+    // stage prefix가 붙어도 동작하도록 endsWith
+    if (path.endsWith("/aggregates/topn/domains-range")) return await handleTopnDomains(event);
+    if (path.endsWith("/aggregates/topn/rules-range")) return await handleTopnRules(event);
+    if (path.endsWith("/aggregates/severity-range")) return await handleSeverity(event);
+    if (path.endsWith("/trends/rule")) return await handleTrendRule(event);
+    if (path.endsWith("/trends/domain")) return await handleTrendDomain(event);
+
+    return json(404, { ok: false, reason: "NOT_FOUND" });
+  } catch (err) {
+    console.error("aggregates api error:", err);
+    return json(500, { ok: false, reason: "INTERNAL_ERROR" });
+  }
+};
