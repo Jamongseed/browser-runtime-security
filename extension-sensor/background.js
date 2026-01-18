@@ -12,6 +12,132 @@ import "./dump_fetcher.js";
 
 initInstallId();
 
+// scoring model (script dump -> score)
+const SCORING_MODEL_PATH = "rulesets/scoring-model-v1.json";
+let scoringModelCache = null;
+
+async function loadScoringModel() {
+  if (scoringModelCache) return scoringModelCache;
+  const url = chrome.runtime.getURL(SCORING_MODEL_PATH);
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`SCORING_MODEL_LOAD_FAIL ${res.status}`);
+  scoringModelCache = await res.json();
+  return scoringModelCache;
+}
+
+function extractOriginsFromText(text) {
+  const s = String(text || "");
+  const re = /\b(?:https?|wss?):\/\/[^\s"'`)<>\]]+/gi;
+  const origins = new Set();
+  let m;
+  while ((m = re.exec(s))) {
+    try { origins.add(new URL(m[0]).origin); } catch (_) {}
+  }
+  return origins;
+}
+
+function parseRegexPattern(p) {
+  const s = String(p || "");
+  // allow "/.../flags" style strings
+  if (s.length >= 2 && s[0] === "/" && s.lastIndexOf("/") > 0) {
+    const last = s.lastIndexOf("/");
+    const body = s.slice(1, last);
+    const flags = s.slice(last + 1) || "i";
+    return { body, flags };
+  }
+  // plain string => treat as body with default flags
+  return { body: s, flags: "i" };
+}
+
+function matchSignal(text, sig) {
+  const m = sig?.match || null;
+  if (!m) return false;
+
+  const raw = String(text || "");
+  const caseSensitive = m.caseSensitive === true;
+  const hay = caseSensitive ? raw : raw.toLowerCase();
+
+  if (m.type === "special" && m.name === "MULTI_ORIGIN_URL_LITERALS") {
+    const min = Number(m.minOrigins || m.min || 2) || 2;
+    return extractOriginsFromText(raw).size >= min;
+  }
+
+  if (m.type === "substrAny") {
+    const pats = Array.isArray(m.patterns) ? m.patterns : [];
+    return pats.some((p) => {
+      if (!p) return false;
+      const needle = caseSensitive ? String(p) : String(p).toLowerCase();
+      return needle && hay.includes(needle);
+    });
+  }
+
+  if (m.type === "regexAny") {
+    const pats = Array.isArray(m.patterns) ? m.patterns : [];
+    return pats.some((p) => {
+      try {
+        const { body, flags } = parseRegexPattern(p);
+        if (!body) return false;
+        const re = new RegExp(body, caseSensitive ? flags.replace(/i/g, "") : flags);
+        return re.test(raw);
+      } catch (_) {
+        return false;
+      }
+    });
+  }
+
+  return false;
+}
+
+function scoreScriptText(text, model) {
+  const signals = Array.isArray(model?.signals) ? model.signals : [];
+  const combos  = Array.isArray(model?.combos) ? model.combos : [];
+
+  const hits = [];
+  const hitIds = new Set();
+  let score = 0;
+
+  for (const sig of signals) {
+    if (!sig?.id) continue;
+    if (!matchSignal(text, sig)) continue;
+
+    const s = Number(sig.score || 0) || 0;
+    score += s;
+    hitIds.add(sig.id);
+    hits.push({
+      id: sig.id,
+      axis: sig.axis || null,
+      category: sig.category || null,
+      signal: sig.signal || null,
+      score: s,
+      reason: sig.reason || null
+    });
+  }
+
+  // combos: enabled + requires[] all satisfied => add bonus
+  const comboHits = [];
+  let comboBonus = 0;
+  for (const c of combos) {
+    if (c?.enabled !== true) continue;
+    const bonus = Number(c.bonus || 0) || 0;
+    if (!bonus) continue;
+    const req = Array.isArray(c.requires) ? c.requires : [];
+    if (!req.length) continue;
+    const ok = req.every((id) => hitIds.has(id));
+    if (!ok) continue;
+    comboBonus += bonus;
+    comboHits.push({
+      comboId: c.comboId || null,
+      axis: c.axis || null,
+      bonus,
+      title: c.title || null,
+      requires: req
+    });
+  }
+
+  score += comboBonus;
+  return { score, hits, comboBonus, comboHits };
+}
+
 // chain/incident helpers
 const INCIDENT_TTL_MS = 30_000;
 const dumpIndex = new Map();      // key: `${tabId}|${norm}` -> { sha256, ts }
@@ -157,6 +283,82 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const MAX_CHARS = 200_000;
         const clipped = text.length > MAX_CHARS ? text.slice(0, MAX_CHARS) : text;
 
+        // compute SCRIPT_SCORE right before dump transmit
+        let scriptScore = null;
+        try {
+          const model = await loadScoringModel();
+          const { score, hits, comboBonus, comboHits } = scoreScriptText(clipped, model);
+          const now = Date.now();
+
+          // chain은 가능하면 tab incident 사용
+          let chain = null;
+          if (tabId != null) {
+            const inc = incidentByTab.get(tabId);
+            if (inc) {
+              chain = {
+                incidentId: inc.incidentId,
+                scriptId: inc.scriptId || sha256 || null,
+                norm: inc.norm || norm || "",
+                reinjectCount: inc.reinjectCount || 0,
+                startedAt: inc.startedAt
+              };
+            }
+          }
+
+          const scoreEvent = {
+            type: "SCRIPT_SCORE",
+            ruleId: "SCRIPT_SCORE",
+            ts: now,
+            sessionId: payload.sessionId || null,
+            tabId,
+            installId,
+            reportId: await generateReportHash(payload.sessionId || installId, now),
+            page: payload.page || sender?.tab?.url || "",
+            origin: payload.origin || "",
+            targetOrigin: payload.targetOrigin || "",
+            severity: "LOW",
+            scoreDelta: 0,
+            data: {
+              modelId: model.modelId || "scoring-model-v1",
+              modelUpdatedAt: model.modelUpdatedAt || model.generatedAt || "",
+              url,
+              norm,
+              sha256,
+              length: payload.length ?? text.length,
+              truncated: text.length > MAX_CHARS,
+              score,
+              hits,
+              comboBonus: comboBonus || 0,
+              comboHits: Array.isArray(comboHits) ? comboHits : [],
+              ...(chain ? { chain } : {})
+            },
+            evidence: {
+              modelId: model.modelId || "scoring-model-v1",
+              modelUpdatedAt: model.modelUpdatedAt || model.generatedAt || "",
+              score,
+              hits,
+              comboBonus: comboBonus || 0,
+              comboHits: Array.isArray(comboHits) ? comboHits : [],
+              url,
+              norm,
+              sha256,
+              ...(chain ? { chain } : {})
+            }
+          };
+
+          // ruleset(default-v1.json)이 SCRIPT_SCORE를 스코어링하지 않아도,
+          // dispatcher가 sinks(localStorage/badge/notification/http)로 보낼 수 있게 직접 dispatch.
+          try {
+            await dispatcher.dispatch(scoreEvent, { sender });
+          } catch (e) {
+            console.warn("[BRS] SCRIPT_SCORE dispatch failed (non-fatal):", e?.message || e);
+          }
+          console.log("[BRS] SCRIPT_SCORE dispatched", { score, hitCount: hits.length, sha256, norm });
+          scriptScore = { score, hitCount: hits.length, comboBonus: comboBonus || 0, comboHitCount: (comboHits || []).length };
+        } catch (e) {
+          console.warn("[BRS] SCRIPT_SCORE skipped:", e?.message || e);
+        }
+
         const dumpEvent = {
           type: "SCRIPT_DUMP",
           ts: Date.now(),
@@ -178,7 +380,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         };
 
         await postJsonWithRetry(SYSTEM_CONFIG.DUMPS_ENDPOINT, dumpEvent);
-        sendResponse({ ok: true });
+        sendResponse({ ok: true, scriptScore });
       } catch (e) {
         console.error("[BRS] dump transmit failed:", e);
         sendResponse({ ok: false, err: String(e?.message || e) });

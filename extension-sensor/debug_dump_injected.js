@@ -82,7 +82,9 @@
         }
         if (res && res.ok === false) {
           console.warn("[BRS_DUMP] BRS_SAVE_DUMP rejected:", String(res.err || "unknown"));
+          return;
         }
+        if (res && res.scriptScore) console.log("[BRS_DUMP] scriptScore:", payload.norm || payload.url, res.scriptScore);
       });
     } catch (e) {
       console.warn("[BRS_DUMP] BRS_SAVE_DUMP send failed:", String(e && e.message ? e.message : e));
@@ -170,6 +172,7 @@
         page: location.href,
         origin: location.origin,
         targetOrigin,
+        sessionId: (globalThis.__BRS_SESSION_ID__ || null),
       });
     } catch (e) {
       console.error("[BRS_DUMP] bg fetch failed:", String(e && e.message ? e.message : e));

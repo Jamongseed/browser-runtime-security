@@ -27,6 +27,38 @@ const STORAGE_KEYS = {
       if (e.source !== window || !e.data.__BRS__) return;
       const { type, data } = e.data;
 
+      // (추가) page_hook 인라인 스크립트 덤프 -> background(BRS_SAVE_DUMP)로 전달
+      if (type === "INLINE_SCRIPT_DUMP") {
+        try {
+          const d = data || {};
+          const sha256 = String(d.sha256 || "");
+          const text = String(d.text || "");
+          if (!sha256 || !text) return;
+
+          const payload = {
+            sessionId: reporter && reporter.sessionId ? reporter.sessionId : null,
+            url: String(d.page || location.href),
+            norm: `inline:${sha256}`,
+            sha256,
+            length: d.length ?? text.length,
+            contentType: "application/javascript",
+            via: "page-hook-inline",
+            truncated: d.truncated === true,
+            text,
+            page: String(d.page || location.href),
+            origin: String(d.origin || location.origin),
+            targetOrigin: "",
+            kind: String(d.kind || "inline-script"),
+            op: String(d.op || ""),
+            markerId: String(d.markerId || ""),
+            dataPoc: String(d.dataPoc || ""),
+          };
+
+          chrome.runtime.sendMessage({ action: "BRS_SAVE_DUMP", payload }, () => {});
+        } catch (_) {}
+        return;
+      }
+
       // (추가)XHR mirroring correlation state
       const XHR_MIRROR_WINDOW_MS = 8000;
       const XHR_MIRROR_THROTTLE_MS = 600;
@@ -377,6 +409,8 @@ const STORAGE_KEYS = {
       }
     };
 
+    try { window.__BRS_SESSION_ID__ = reporter.sessionId; } catch (_) {}
+    
     // page_hook 브릿지 + hook 주입
     startPageHookBridge(ruleEngine, reporter);
     //startHooks();
