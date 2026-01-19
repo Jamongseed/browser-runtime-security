@@ -3,14 +3,23 @@
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, QueryCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
+import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3"; // ruleset 전용 추가
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
 });
 
+const s3 = new S3Client({}); // ruleset 전용 추가
 const TABLE_NAME = process.env.TABLE_NAME || "Threat_Events";
 const EVENT_SHARDS = Number(process.env.EVENT_SHARDS || 8);
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || "*";
+
+// ruleset 전용 추가
+const RULESET_BUCKET = process.env.RULESET_BUCKET || "";
+const RULESET_PREFIX = process.env.RULESET_PREFIX || "rulesets/";
+const RULESET_CACHE_TTL_MS = Number(process.env.RULESET_CACHE_TTL_MS || 300000);
+const RULESET_DEFAULT_LOCALE = String(process.env.RULESET_DEFAULT_LOCALE || "ko");
+const RULESET_FALLBACK_LOCALE = String(process.env.RULESET_FALLBACK_LOCALE || "en");
 
 // Guardrails
 const DEFAULT_LIMIT = 50;
@@ -65,11 +74,6 @@ function revTs13FromMs(tsMs) {
   return String(rev).padStart(13, "0");
 }
 
-function skUpperBoundFromSinceMs(sinceMs) {
-  // sinceMs 이상(최근)만: revTs <= revTs(sinceMs)
-  return `T#${revTs13FromMs(sinceMs)}~`;
-}
-
 function normDay(s) {
   const day = String(s || "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
@@ -104,6 +108,26 @@ function normSeverity(s) {
   return v ? v : null;
 }
 
+function* iterDaysDesc(endDay, startDay) {
+  // inclusive, descending
+  let cur = endDay;
+  while (cur >= startDay) {
+    yield cur;
+    cur = addDaysIso(cur, -1);
+  }
+}
+
+function isValidEventsTokenShape(obj) {
+  // token 형태:
+  // { day: "YYYY-MM-DD", shards: [{s, lek}], done: [s1,s2,...] }
+  if (!obj) return true;
+  if (!isPlainObject(obj)) return false;
+  if (obj.day && !normDay(obj.day)) return false;
+  if (obj.shards && !Array.isArray(obj.shards)) return false;
+  if (obj.done && !Array.isArray(obj.done)) return false;
+  return true;
+}
+
 function safeStr(s, max = 4000) {
   const v = String(s ?? "").trim();
   if (!v) return "";
@@ -128,6 +152,174 @@ function isPlainObject(v) {
   return v !== null && typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype;
 }
 
+// ruleset 전용 추가 [ line 160~330, primaryLocaleFromHeader(h) ~ const entry = pickI18nEntry(meta.i18n, locale) ]
+function primaryLocaleFromHeader(h) {
+  const v = String(h || "").trim();
+  if (!v) return "";
+  const first = v.split(",")[0] || "";
+  const tag = first.split(";")[0].trim();
+  if (!tag) return "";
+  return tag.split("-")[0].toLowerCase();
+}
+
+function resolveRequestLocale(event) {
+  const qs = event.queryStringParameters || {};
+  const q = String(qs.locale || "").trim().toLowerCase();
+  if (q) return q;
+  const hdr = event.headers || {};
+  const al = hdr["accept-language"] || hdr["Accept-Language"] || "";
+  return primaryLocaleFromHeader(al) || RULESET_DEFAULT_LOCALE;
+}
+
+async function streamToString(body) {
+  if (!body) return "";
+  if (typeof body.transformToString === "function") return await body.transformToString();
+  const chunks = [];
+  for await (const chunk of body) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+const _rulesetCache = new Map(); // rulesetId -> { atMs, index }
+
+function pickRulesetIdFromItem(it) {
+  const v = it?.rulesetId || it?.modelId || it?.policyId;
+  if (v) return String(v);
+  return "default-v1";
+}
+
+function pickI18nEntry(i18n, locale) {
+  if (!isPlainObject(i18n)) return null;
+  const l = String(locale || "").toLowerCase();
+  return (
+    i18n[l] ||
+    i18n[RULESET_FALLBACK_LOCALE] ||
+    i18n[RULESET_DEFAULT_LOCALE] ||
+    i18n.ko ||
+    i18n.en ||
+    null
+  );
+}
+
+function buildMessageIndex(doc) {
+  const index = new Map(); // ruleId -> { title, oneLine }
+
+  // default-v1 style: rules[].action.{display|i18n}
+  if (Array.isArray(doc?.rules)) {
+    for (const r of doc.rules) {
+      const rid = r?.action?.ruleId || r?.id;
+      if (!rid) continue;
+      const display = r?.action?.display;
+      const i18n = r?.action?.i18n;
+      index.set(String(rid), { display, i18n });
+    }
+  }
+
+  // default-v1 messages map: rules[].action.messageKey -> doc.messages[messageKey]
+  if (Array.isArray(doc?.rules) && doc?.messages && isPlainObject(doc.messages)) {
+    for (const r of doc.rules) {
+      const rid = r?.action?.ruleId || r?.id;
+      const mk = r?.action?.messageKey;
+      if (!rid || !mk) continue;
+      const msg = doc.messages[String(mk)];
+      if (!msg) continue;
+      const prev = index.get(String(rid)) || {};
+      // msg는 { ko:{title,oneLine}, en:{...} } 형태라 i18n으로 취급
+      index.set(String(rid), { ...prev, i18n: prev.i18n || msg });
+    }
+  }
+
+  // scoring-model style: signals[].{display|i18n}
+  if (Array.isArray(doc?.signals)) {
+    for (const s of doc.signals) {
+      const rid = s?.id;
+      if (!rid) continue;
+      const display = s?.display;
+      const i18n = s?.i18n;
+      index.set(String(rid), { display, i18n });
+    }
+  }
+
+  // scoring-model style: combos[].comboId (or id)
+  if (Array.isArray(doc?.combos)) {
+    for (const c of doc.combos) {
+      const rid = c?.comboId || c?.id;
+      if (!rid) continue;
+      const display = c?.display;
+      const i18n = c?.i18n;
+      index.set(String(rid), { display, i18n });
+    }
+  }  
+  return index;
+}
+
+async function loadRulesetIndex(rulesetId) {
+  if (!RULESET_BUCKET) return null;
+  const id = String(rulesetId || "").trim();
+  if (!id) return null;
+
+  const now = Date.now();
+  const cached = _rulesetCache.get(id);
+  if (cached && now - cached.atMs <= RULESET_CACHE_TTL_MS) return cached.index;
+
+  const key = `${RULESET_PREFIX}${id}.json`;
+  console.log("[ruleset] get", { bucket: RULESET_BUCKET, key }); // for test
+  const res = await s3.send(new GetObjectCommand({ Bucket: RULESET_BUCKET, Key: key }));
+  const text = await streamToString(res.Body);
+  const doc = JSON.parse(text);
+  const index = buildMessageIndex(doc);
+  _rulesetCache.set(id, { atMs: now, index });
+  return index;
+}
+
+async function attachDisplayToItems(event, rawItems, outItems) {
+  const locale = resolveRequestLocale(event);
+  const needed = new Set();
+  for (let i = 0; i < rawItems.length; i++) needed.add(pickRulesetIdFromItem(rawItems[i]));
+
+  const indexByRuleset = new Map();
+  for (const rid of needed) {
+    try {
+      const idx = await loadRulesetIndex(rid);
+      if (idx) indexByRuleset.set(rid, idx);
+    } catch (e) {
+      console.error("ruleset load failed:", rid, e?.message || e);
+    }
+  }
+
+  for (let i = 0; i < rawItems.length; i++) {
+    const raw = rawItems[i];
+    const out = outItems[i];
+    if (!out || out.display) continue;
+
+    const rulesetId = pickRulesetIdFromItem(raw);
+    const idx = indexByRuleset.get(rulesetId);
+    if (!idx) continue;
+
+    const meta = idx.get(String(out.ruleId || ""));
+    if (!meta) continue;
+
+    if (meta.display && (meta.display.title || meta.display.oneLine)) {
+      out.display = {
+        title: String(meta.display.title || ""),
+        oneLine: String(meta.display.oneLine || ""),
+        locale,
+        rulesetId,
+      };
+      continue;
+    }
+
+    const entry = pickI18nEntry(meta.i18n, locale);
+    if (entry && (entry.title || entry.oneLine)) {
+      out.display = {
+        title: String(entry.title || ""),
+        oneLine: String(entry.oneLine || ""),
+        locale,
+        rulesetId,
+      };
+    }
+  }
+}
+
 // 토큰 검증 및 디코딩
 function decodeNextToken(token) {
   if (!token) return { ok: true, key: undefined };
@@ -138,11 +330,11 @@ function decodeNextToken(token) {
     return { ok: false, reason: "INVALID_nextToken" };
   }
   if (!isPlainObject(obj)) return { ok: false, reason: "INVALID_nextToken" };
-  // shard fan-out: token 형태
-  // { shards: [{ s:0, lek: {...} }, ...], done: [0,1,...] }
+  // { day?: "YYYY-MM-DD", shards: [{ s:0, lek: {...} }, ...], done: [0,1,...] }
   if (!Array.isArray(obj.shards) && !Array.isArray(obj.done)) {
     return { ok: false, reason: "INVALID_nextToken" };
   }
+  if (!isValidEventsTokenShape(obj)) return { ok: false, reason: "INVALID_nextToken" };
   return { ok: true, key: obj };
 }
 
@@ -197,23 +389,24 @@ function pickItem(it) {
     severity: it.severity,
     scoreDelta: it.scoreDelta,
     sessionId: it.sessionId,
+    installId: it.installId,
     origin: it.origin,
     domain: it.domain,
     page: it.page,
     eventId: it.eventId,
+    rulesetId: pickRulesetIdFromItem(it), // ruleset 전용 추가
   };
 }
 
 // 단일 shard에 대해 sinceMs 기준 최신 이벤트 조회
-async function queryOneShard({ pkValue, sinceMs, limit, exclusiveStartKey }) {
+async function queryOneShard({ pkValue, limit, exclusiveStartKey }) {
   // sinceMs 컷: SK <= upperBound (revTs가 작을수록 최신이므로)
   const params = {
     TableName: TABLE_NAME,
-    KeyConditionExpression: "#pk = :pk AND #sk <= :skUpper",
-    ExpressionAttributeNames: { "#pk": "pk", "#sk": "sk" },
+    KeyConditionExpression: "#pk = :pk",
+    ExpressionAttributeNames: { "#pk": "pk" },
     ExpressionAttributeValues: {
       ":pk": pkValue,
-      ":skUpper": skUpperBoundFromSinceMs(sinceMs),
     },
     Limit: limit,
     ScanIndexForward: true, // revTs 오름차순 = 최신부터
@@ -248,74 +441,124 @@ function mergeByRevTs(itemsA, itemsB, limit) {
 
 
 // ---------- Route handlers ----------
-// ORG + DAY 기준 이벤트 리스트 조회 (샤드 fan-out + pagination)
+// DAY 기준 이벤트 리스트 조회 (샤드 fan-out + pagination)
 async function handleEvents(event) {
   const qs = event.queryStringParameters || {};
-  const origin = safeStr(qs.origin, 200);
-  const day = normDay(qs.day);
+  const startDay = normDay(qs.startDay);
+  const endDay   = normDay(qs.endDay);
 
-  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
-  if (!day) return json(400, { ok: false, reason: "MISSING_or_INVALID_day" });
+  if (!startDay || !endDay) {
+    return json(400, { ok: false, reason: "MISSING_startDay_or_endDay" });
+  }
 
-  const sinceMs = toSinceMs(qs);
+  const rangeOk = clampDayRange(startDay, endDay, 120);
+  if (!rangeOk.ok) return json(400, { ok: false, reason: rangeOk.reason });
+
   const limit = clampInt(qs.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
   const nextToken = qs.nextToken ? String(qs.nextToken) : undefined;
 
   // shard fan-out pagination token
   const decoded = decodeNextToken(nextToken);
   if (!decoded.ok) return json(400, { ok: false, reason: decoded.reason });
-  const tokenObj = decoded.key || { shards: [], done: [] };
-  const doneSet = new Set(Array.isArray(tokenObj.done) ? tokenObj.done : []);
-  const shardState = new Map();
-  for (const e of (Array.isArray(tokenObj.shards) ? tokenObj.shards : [])) {
-    if (e && Number.isFinite(Number(e.s))) shardState.set(Number(e.s), e.lek);
-  }
+  const tokenObj = decoded.key || { day: endDay, shards: [], done: [] };
 
   // 각 샤드에서 일부씩 뽑아 merge (비용 통제: perShardLimit)
   const perShardLimit = Math.max(1, Math.ceil(limit / 2));
   let merged = [];
-  const newShardTokens = [];
-  const newlyDone = [];
+  
+  let curDay = tokenObj.day || endDay;
+  if (curDay > endDay) curDay = endDay;
+  if (curDay < startDay) curDay = startDay;
 
   // 2개씩 병렬로 Query (동시성 제한)
   const CONCURRENCY = 2;
-  const pendingShards = [];
-  for (let s = 0; s < EVENT_SHARDS; s++) {
-    if (!doneSet.has(s)) pendingShards.push(s);
-  }
 
-  for (let i = 0; i < pendingShards.length && merged.length < limit; i += CONCURRENCY) {
-    const batch = pendingShards.slice(i, i + CONCURRENCY);
-
-    const results = await Promise.all(batch.map(async (s) => {
-      const pkValue = `ORG#${origin}#DAY#${day}#S#${s}`;
-      const { items, lek } = await queryOneShard({
-        pkValue,
-        sinceMs,
-        limit: perShardLimit,
-        exclusiveStartKey: shardState.get(s),
-      });
-      return { s, items, lek };
-    }));
-
-    for (const r of results) {
-      merged = mergeByRevTs(merged, r.items, limit);
-      if (r.lek) newShardTokens.push({ s: r.s, lek: r.lek });
-      else newlyDone.push(r.s);
-      if (merged.length >= limit) break;
+  // day=endDay부터 역순으로 채우되, limit 채우면 중단
+  while (merged.length < limit && curDay >= startDay) {
+    // day가 바뀌면 shard pagination 상태는 해당 day 전용이어야 함
+    const doneSet = new Set(Array.isArray(tokenObj.done) ? tokenObj.done : []);
+    const shardState = new Map();
+    for (const e of (Array.isArray(tokenObj.shards) ? tokenObj.shards : [])) {
+      if (e && Number.isFinite(Number(e.s))) shardState.set(Number(e.s), e.lek);
     }
+
+    const pendingShards = [];
+    for (let s = 0; s < EVENT_SHARDS; s++) {
+      if (!doneSet.has(s)) pendingShards.push(s);
+    }
+
+    const newShardTokens = [];
+    const newlyDone = [];
+
+    for (let i = 0; i < pendingShards.length && merged.length < limit; i += CONCURRENCY) {
+      const batch = pendingShards.slice(i, i + CONCURRENCY);
+
+      const results = await Promise.all(batch.map(async (s) => {
+        const pkValue = `DAY#${curDay}#S#${s}`;
+        const { items, lek } = await queryOneShard({
+          pkValue,
+          limit: perShardLimit,
+          exclusiveStartKey: shardState.get(s),
+        });
+        return { s, items, lek };
+      }));
+
+      for (const r of results) {
+        merged = mergeByRevTs(merged, r.items, limit);
+        if (r.lek) newShardTokens.push({ s: r.s, lek: r.lek });
+        else newlyDone.push(r.s);
+        if (merged.length >= limit) break;
+      }
+    }
+
+    // day가 아직 남아 있으면 (어떤 shard든 lek가 남아있으면) 같은 day로 계속
+    const outDone = Array.from(new Set([...doneSet, ...newlyDone]));
+    const hasMoreThisDay = newShardTokens.length > 0;
+
+    if (merged.length >= limit) {
+      // limit을 채웠으니, 토큰은 "현재 day + shard progress"를 저장
+      const outToken = encodeNextToken({
+        day: curDay,
+        shards: newShardTokens,
+        done: outDone,
+      });
+      return json(200, {
+        ok: true,
+        query: { startDay, endDay, limit, newest: true },
+        items: await (async () => { // ruleset 전용 추가
+          const out = merged.map(pickItem);
+          await attachDisplayToItems(event, merged, out);
+          return out;
+        })(),
+        nextToken: outToken,
+      });
+    }
+
+    if (hasMoreThisDay) {
+      // limit은 못 채웠지만, 같은 day에서 더 뽑을 수 있음 → 토큰 갱신 후 루프 계속
+      tokenObj.day = curDay;
+      tokenObj.shards = newShardTokens;
+      tokenObj.done = outDone;
+      continue;
+    }
+
+    // 현재 day를 다 소진 → 전날로 이동하며 shard 상태 리셋
+    curDay = addDaysIso(curDay, -1);
+    tokenObj.day = curDay;
+    tokenObj.shards = [];
+    tokenObj.done = [];
   }
 
-  const outToken = encodeNextToken({
-    shards: newShardTokens,
-    done: Array.from(new Set([...doneSet, ...newlyDone])),
-  });
-
+  // 다 소진
   return json(200, {
     ok: true,
-    query: { origin, day, sinceMs, limit },
-    items: merged.map(pickItem),
-    nextToken: outToken,
+    query: { startDay, endDay, limit, newest: true },
+    items: await (async () => { // ruleset 전용 추가
+      const out = merged.map(pickItem);
+      await attachDisplayToItems(event, merged, out);
+      return out;
+    })(),
+    nextToken: null,
   });
 }
 
@@ -360,54 +603,94 @@ async function handleBody(event) {
   });
 }
 
+// 단일 installId에 대한 상세 이벤트 조회
 async function handleEventsByInstall(event) {
   const qs = event.queryStringParameters || {};
   const installId = safeStr(qs.installId, 120);
   if (!installId) return json(400, { ok: false, reason: "MISSING_installId" });
 
-  const sinceMs = toSinceMs(qs);
-  const nowMs = Date.now();
+  const startDay = normDay(qs.startDay);
+  const endDay   = normDay(qs.endDay);
+  if (!startDay || !endDay) {
+    return json(400, { ok: false, reason: "MISSING_startDay_or_endDay" });
+  }
+
+  const rangeOk = clampDayRange(startDay, endDay, 120);
+  if (!rangeOk.ok) return json(400, { ok: false, reason: rangeOk.reason });
+
   const limit = clampInt(qs.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
-  const nextToken = qs.nextToken ? String(qs.nextToken) : undefined;
 
-  const decoded = decodeLekToken(nextToken);
-  if (!decoded.ok) return json(400, { ok: false, reason: decoded.reason });
+  // newest mode token: { day: "YYYY-MM-DD", lek?: LastEvaluatedKey }
+  const tok = qs.nextToken ? String(qs.nextToken) : undefined;
+  const dt = decodeDayFanoutToken(tok);
+  if (!dt.ok) return json(400, { ok: false, reason: dt.reason });
 
-  
-  const skFrom = `TS#${padTs13(sinceMs)}`;
-  const skTo = `TS#${padTs13(nowMs)}~`;
- 
-  const res = await ddb.send(new QueryCommand({
-    TableName: TABLE_NAME,
-    IndexName: "install_ID",
-    KeyConditionExpression: "#pk = :pk AND #sk BETWEEN :a AND :b",
-    ExpressionAttributeNames: {"#pk": "ii_pk", "#sk": "ii_sk", },
-    ExpressionAttributeValues: {
-      ":pk": `INSTALL#${installId}`,
-      ":a": skFrom,
-      ":b": skTo,
-    },
-    Limit: limit,
-    ScanIndexForward: false,
-    ExclusiveStartKey: decoded.lek,
-  }));
+  let curDay = dt.t?.day || endDay;
+  let curLek = dt.t?.lek || undefined;
+
+  const pk = `INSTALL#${installId}`;
+  const out = [];
+
+  const perDayLimit = Math.max(1, Math.min(50, Math.ceil(limit / 2)));
+
+  while (out.length < limit && curDay >= startDay) {
+    const res = await ddb.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      IndexName: "install_ID",
+      KeyConditionExpression: "#pk = :pk AND #sk BETWEEN :a AND :b",
+      ExpressionAttributeNames: { "#pk": "ii_pk", "#sk": "ii_sk" },
+      ExpressionAttributeValues: {
+        ":pk": pk,
+        ":a": detailSkFromDay(curDay), // "DAY#curDay"
+        ":b": detailSkToDay(curDay),   // "DAY#curDay~"
+      },
+      Limit: perDayLimit,
+      ScanIndexForward: true,   // DAY#...#T#revTs... 에서 revTs 오름차순 = 최신 우선
+      ExclusiveStartKey: curLek,
+    }));
+
+    for (const it of (res.Items || [])) {
+      out.push(it);
+      if (out.length >= limit) break;
+    }
+
+    if (out.length >= limit) {
+      const next = res.LastEvaluatedKey
+        ? { day: curDay, lek: pickLekForIndex(res.LastEvaluatedKey) }
+        : { day: addDaysIso(curDay, -1), lek: undefined };
+
+      return json(200, {
+        ok: true,
+        query: { installId, startDay, endDay, limit, newest: true },
+        items: out.map(pickItem),
+        nextToken: encodeDayFanoutToken(next),
+      });
+    }
+
+    // day를 다 소진했으면 전날로
+    if (res.LastEvaluatedKey) {
+      // perDayLimit이 작아서 같은 day에 더 남았으면 이어서
+      curLek = res.LastEvaluatedKey;
+    } else {
+      curDay = addDaysIso(curDay, -1);
+      curLek = undefined;
+    }
+  }
 
   return json(200, {
     ok: true,
-    query: { installId, sinceMs, nowMs, limit },
-    items: (res.Items || []).map(pickItem),
-    nextToken: encodeLekToken(res.LastEvaluatedKey),
+    query: { installId, startDay, endDay, limit, newest: true },
+    items: out.map(pickItem),
+    nextToken: null,
   });
 }
 
 // ----- Operator detail pages (GSI queries) -----
 async function handleEventsByDomain(event) {
   const qs = event.queryStringParameters || {};
-  const origin = safeStr(qs.origin, 200);
   const domain = safeStr(qs.domain, 400); // top_domain 값
   const startDay = normDay(qs.startDay);
   const endDay = normDay(qs.endDay);
-  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
   if (!domain) return json(400, { ok: false, reason: "MISSING_domain" });
   if (!startDay || !endDay) return json(400, { ok: false, reason: "MISSING_or_INVALID_day_range" });
 
@@ -424,7 +707,7 @@ async function handleEventsByDomain(event) {
     const decoded = decodeLekToken(qs.nextToken ? String(qs.nextToken) : undefined);
     if (!decoded.ok) return json(400, { ok: false, reason: decoded.reason });
 
-    const pk = `ORG#${origin}#DOMAIN#${domain}`;
+    const pk = `DOMAIN#${domain}`;
     const res = await ddb.send(new QueryCommand({
       TableName: TABLE_NAME,
       IndexName: "DOMAIN",
@@ -441,8 +724,13 @@ async function handleEventsByDomain(event) {
 
     return json(200, {
       ok: true,
-      query: { origin, domain, startDay, endDay, limit, newest: false },
-      items: (res.Items || []).map(pickItem),
+      query: { domain, startDay, endDay, limit, newest: false },
+      items: await (async () => { // ruleset 전용 추가
+        const raw = (res.Items || []);
+        const out = raw.map(pickItem);
+        await attachDisplayToItems(event, raw, out);
+        return out;
+      })(),
       nextToken: encodeLekToken(res.LastEvaluatedKey),
     });
   }
@@ -455,7 +743,7 @@ async function handleEventsByDomain(event) {
   let curDay = dt.t?.day || endDay;
   let curLek = dt.t?.lek || undefined;
 
-  const pk = `ORG#${origin}#DOMAIN#${domain}`;
+  const pk = `DOMAIN#${domain}`;
   const out = [];
 
   // day당 가져올 최대량(너무 많이 가져오면 비용↑)
@@ -489,8 +777,13 @@ async function handleEventsByDomain(event) {
         : { day: addDaysIso(curDay, -1), lek: undefined };
       return json(200, {
         ok: true,
-        query: { origin, domain, startDay, endDay, limit, newest: true },
-        items: out.map(pickItem),
+        query: { domain, startDay, endDay, limit, newest: true },
+        items: await (async () => { // ruleset 전용 추가
+          const raw = out;
+          const mapped = raw.map(pickItem);
+          await attachDisplayToItems(event, raw, mapped);
+          return mapped;
+        })(),
         nextToken: encodeDayFanoutToken(next),
       });
     }
@@ -507,19 +800,22 @@ async function handleEventsByDomain(event) {
 
   return json(200, {
     ok: true,
-    query: { origin, domain, startDay, endDay, limit, newest: true },
-    items: out.map(pickItem),
+    query: { domain, startDay, endDay, limit, newest: true },
+    items: await (async () => { // ruleset 전용 추가
+      const raw = out;
+      const mapped = raw.map(pickItem);
+      await attachDisplayToItems(event, raw, mapped);
+      return mapped;
+    })(),
     nextToken: null,
   }); 
 }
 
 async function handleEventsByRule(event) {
   const qs = event.queryStringParameters || {};
-  const origin = safeStr(qs.origin, 200);
   const ruleId = safeStr(qs.ruleId, 200);
   const startDay = normDay(qs.startDay);
   const endDay = normDay(qs.endDay);
-  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
   if (!ruleId) return json(400, { ok: false, reason: "MISSING_ruleId" });
   if (!startDay || !endDay) return json(400, { ok: false, reason: "MISSING_or_INVALID_day_range" });
 
@@ -531,7 +827,7 @@ async function handleEventsByRule(event) {
   const rangeOk = clampDayRange(startDay, endDay, 120);
   if (!rangeOk.ok) return json(400, { ok: false, reason: rangeOk.reason });
 
-  const pk = `ORG#${origin}#RULE#${ruleId}`;
+  const pk = `RULE#${ruleId}`;
 
   if (!isNewestMode) {
     const decoded = decodeLekToken(qs.nextToken ? String(qs.nextToken) : undefined);
@@ -553,8 +849,13 @@ async function handleEventsByRule(event) {
 
     return json(200, {
       ok: true,
-      query: { origin, ruleId, startDay, endDay, limit, newest: false },
-      items: (res.Items || []).map(pickItem),
+      query: { ruleId, startDay, endDay, limit, newest: false },
+      items: await (async () => { // ruleset 전용 추가
+        const raw = (res.Items || []);
+        const out = raw.map(pickItem);
+        await attachDisplayToItems(event, raw, out);
+        return out;
+      })(),
       nextToken: encodeLekToken(res.LastEvaluatedKey),
     });
   }
@@ -595,8 +896,13 @@ async function handleEventsByRule(event) {
         : { day: addDaysIso(curDay, -1), lek: undefined };
       return json(200, {
         ok: true,
-        query: { origin, ruleId, startDay, endDay, limit, newest: true },
-        items: out.map(pickItem),
+        query: { ruleId, startDay, endDay, limit, newest: true },
+        items: await (async () => { // ruleset 전용 추가
+          const raw = out;
+          const mapped = raw.map(pickItem);
+          await attachDisplayToItems(event, raw, mapped);
+          return mapped;
+        })(),
         nextToken: encodeDayFanoutToken(next),
       });
     }
@@ -607,19 +913,22 @@ async function handleEventsByRule(event) {
 
   return json(200, {
     ok: true,
-    query: { origin, ruleId, startDay, endDay, limit, newest: true },
-    items: out.map(pickItem),
+    query: { ruleId, startDay, endDay, limit, newest: true },
+    items: await (async () => { // ruleset 전용 추가
+      const raw = out;
+      const mapped = raw.map(pickItem);
+      await attachDisplayToItems(event, raw, mapped);
+      return mapped;
+    })(),
     nextToken: null,
   });
 }
 
 async function handleEventsBySev(event) {
   const qs = event.queryStringParameters || {};
-  const origin = safeStr(qs.origin, 200);
   const severity = normSeverity(qs.severity);
   const startDay = normDay(qs.startDay);
   const endDay = normDay(qs.endDay);
-  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
   if (!severity) return json(400, { ok: false, reason: "MISSING_severity" });
   if (!startDay || !endDay) return json(400, { ok: false, reason: "MISSING_or_INVALID_day_range" });
 
@@ -631,7 +940,7 @@ async function handleEventsBySev(event) {
   const rangeOk = clampDayRange(startDay, endDay, 120);
   if (!rangeOk.ok) return json(400, { ok: false, reason: rangeOk.reason });
 
-  const pk = `ORG#${origin}#SEV#${severity}`;
+  const pk = `SEV#${severity}`;
 
   if (!isNewestMode) {
     const decoded = decodeLekToken(qs.nextToken ? String(qs.nextToken) : undefined);
@@ -653,8 +962,13 @@ async function handleEventsBySev(event) {
 
     return json(200, {
       ok: true,
-      query: { origin, severity, startDay, endDay, limit, newest: false },
-      items: (res.Items || []).map(pickItem),
+      query: {severity, startDay, endDay, limit, newest: false },
+      items: await (async () => { // ruleset 전용 추가
+        const raw = (res.Items || []);
+        const out = raw.map(pickItem);
+        await attachDisplayToItems(event, raw, out);
+        return out;
+      })(),
       nextToken: encodeLekToken(res.LastEvaluatedKey),
     });
   }
@@ -695,8 +1009,13 @@ async function handleEventsBySev(event) {
         : { day: addDaysIso(curDay, -1), lek: undefined };
       return json(200, {
         ok: true,
-        query: { origin, severity, startDay, endDay, limit, newest: true },
-        items: out.map(pickItem),
+        query: { severity, startDay, endDay, limit, newest: true },
+        items: await (async () => { // ruleset 전용 추가
+          const raw = out;
+          const mapped = raw.map(pickItem);
+          await attachDisplayToItems(event, raw, mapped);
+          return mapped;
+        })(),
         nextToken: encodeDayFanoutToken(next),
       });
     }
@@ -707,8 +1026,13 @@ async function handleEventsBySev(event) {
 
   return json(200, {
     ok: true,
-    query: { origin, severity, startDay, endDay, limit, newest: true },
-    items: out.map(pickItem),
+    query: { severity, startDay, endDay, limit, newest: true },
+    items: await (async () => { // ruleset 전용 추가
+      const raw = out;
+      const mapped = raw.map(pickItem);
+      await attachDisplayToItems(event, raw, mapped);
+      return mapped;
+    })(),
     nextToken: null,
   });
 }
