@@ -169,8 +169,8 @@ function* iterDays(start, end) {
 }
 
 // 특정 shard에서 sk prefix(DOMAIN/RULE/SEV) 기준 조회
-async function queryShardDayPrefix({ origin, day, shard, skPrefix }) {
-  const pk = `ORG#${origin}#DAY#${day}#S#${shard}`;
+async function queryShardDayPrefix({ day, shard, skPrefix }) {
+  const pk = `DAY#${day}#S#${shard}`;
   const res = await ddb.send(new QueryCommand({
     TableName: TABLE_NAME,
     KeyConditionExpression: "#pk = :pk AND begins_with(#sk, :pfx)",
@@ -181,10 +181,10 @@ async function queryShardDayPrefix({ origin, day, shard, skPrefix }) {
 }
 
 // 모든 shard를 순회하며 DAY 기준 집계 결과 수집
-async function fanoutDayPrefix({ origin, day, skPrefix }) {
+async function fanoutDayPrefix({ day, skPrefix }) {
   const all = [];
   for (let s = 0; s < AGG_SHARDS; s++) {
-    const items = await queryShardDayPrefix({ origin, day, shard: s, skPrefix });
+    const items = await queryShardDayPrefix({ day, shard: s, skPrefix });
     all.push(...items);
   }
   return all;
@@ -207,9 +207,7 @@ function topNByCnt(list, limit) {
 // DAY 기준 도메인별 이벤트 Top-N 조회
 async function handleTopnDomains(event) {
   const qs = event.queryStringParameters || {};
-  const origin = required(qs, "origin", 200);
 
-  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
   const range = parseRangeOrDefault(qs, 30);
 
   if (!range) return json(400, { ok: false, reason: "INVALID_day_range" });
@@ -219,7 +217,7 @@ async function handleTopnDomains(event) {
   const limit = parseLimit(qs);
   const acc = new Map();
   for (const day of iterDays(start, end)) {
-    const items = await fanoutDayPrefix({ origin, day, skPrefix: "DOMAIN#" });
+    const items = await fanoutDayPrefix({ day, skPrefix: "DOMAIN#" });
     for (const it of items) {
       const sk = String(it.sk || "");
       const key = sk.slice("DOMAIN#".length);
@@ -232,15 +230,13 @@ async function handleTopnDomains(event) {
   }
 
   const out = topNByCnt(Array.from(acc.values()), limit);
-  return json(200, { ok: true, query: { origin, startDay: start, endDay: end, limit }, items: out });
+  return json(200, { ok: true, query: { startDay: start, endDay: end, limit }, items: out });
 }
 
 // DAY 기준 룰 발생 빈도 Top-N 조회
 async function handleTopnRules(event) {
   const qs = event.queryStringParameters || {};
-  const origin = required(qs, "origin", 120);
-  
-  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
+
   const range = parseRangeOrDefault(qs, 30);
   if (!range) return json(400, { ok: false, reason: "INVALID_day_range" });
   const { start, end } = range;
@@ -250,7 +246,7 @@ async function handleTopnRules(event) {
   const acc = new Map();
   
   for (const day of iterDays(start, end)) {
-    const items = await fanoutDayPrefix({ origin, day, skPrefix: "RULE#" });
+    const items = await fanoutDayPrefix({ day, skPrefix: "RULE#" });
     for (const it of items) {
       const sk = String(it.sk || "");
       const key = sk.slice("RULE#".length);
@@ -262,21 +258,20 @@ async function handleTopnRules(event) {
   }
 
   const out = topNByCnt(Array.from(acc.values()), limit);
-  return json(200, { ok: true, query: { origin, startDay: start, endDay: end, limit }, items: out });
+  return json(200, { ok: true, query: { startDay: start, endDay: end, limit }, items: out });
 }
 
 // DAY 기준 severity 분포 조회
 async function handleSeverity(event) {
   const qs = event.queryStringParameters || {};
-  const origin = required(qs, "origin", 120);
-  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
+
   const range = parseRangeOrDefault(qs, 30);
   if (!range) return json(400, { ok: false, reason: "INVALID_day_range" });
   const { start, end } = range;
 
   const acc = new Map();
   for (const day of iterDays(start, end)) {
-    const items = await fanoutDayPrefix({ origin, day, skPrefix: "SEV#" });
+    const items = await fanoutDayPrefix({ day, skPrefix: "SEV#" });
     for (const it of items) {
       const sk = String(it.sk || "");
       const key = sk.slice("SEV#".length);
@@ -288,36 +283,32 @@ async function handleSeverity(event) {
   }
 
   const out = Array.from(acc.values()).sort((a, b) => (b.cnt || 0) - (a.cnt || 0));
-  return json(200, { ok: true, query: { origin, startDay: start, endDay: end }, items: out });
+  return json(200, { ok: true, query: { startDay: start, endDay: end }, items: out });
 }
 
 // RULE trend
 async function handleTrendRule(event) {
   const qs = event.queryStringParameters || {};
-  const origin = required(qs, "origin", 200);
   const ruleId = required(qs, "ruleId", 200);
-  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
   if (!ruleId) return json(400, { ok: false, reason: "MISSING_ruleId" });
 
-  const rStart = normDayFlexible(qs.startDay);
-  const rEnd = normDayFlexible(qs.endDay);
-  const { start, end } = (rStart && rEnd) ? { start: rStart, end: rEnd } : lastNDaysRange(30);
+  const range = parseRangeOrDefault(qs, 30);
+  if (!range) return json(400, { ok:false, reason:"INVALID_day_range" });
+  const { start, end } = range;
   if (!start || !end) return json(400, { ok: false, reason: "INVALID_day_range" });
 
-  const pkBase = `ORG#${origin}#TREND#RULE#K#${ruleId}`;
+  const pkBase = `TREND#RULE#K#${ruleId}`;
   const skFrom = `DAY#${start}#SEV#`;     // inclusive
   const skTo   = `DAY#${end}#SEV#~`;      // '~' makes it include HIGH/MEDIUM/LOW
 
-  const items = await fanoutTrendBetween({ pkBase, skFrom, skTo, shardKey: `R|${origin}|${ruleId}`});
+  const items = await fanoutTrendBetween({ pkBase, skFrom, skTo, shardKey: `R${ruleId}`});
   const out = foldTrendItemsToDays({ items, startDay: start, endDay: end });
-  return json(200, { ok: true, query: { origin, ruleId, startDay: start, endDay: end }, ...out });
+  return json(200, { ok: true, query: { ruleId, startDay: start, endDay: end }, ...out });
 }
 
 async function handleTrendDomain(event) {
   const qs = event.queryStringParameters || {};
-  const origin = required(qs, "origin", 120);
   const domain = required(qs, "domain", 400);
-  if (!origin) return json(400, { ok: false, reason: "MISSING_origin" });
   if (!domain) return json(400, { ok: false, reason: "MISSING_domain" });
 
   const rStart = normDayFlexible(qs.startDay);
@@ -325,13 +316,13 @@ async function handleTrendDomain(event) {
   const { start, end } = (rStart && rEnd) ? { start: rStart, end: rEnd } : lastNDaysRange(30);
   if (!start || !end) return json(400, { ok: false, reason: "INVALID_day_range" });
 
-  const pkBase = `ORG#${origin}#TREND#DOMAIN#K#${domain}`;
+  const pkBase = `TREND#DOMAIN#K#${domain}`;
   const skFrom = `DAY#${start}#SEV#`;
   const skTo   = `DAY#${end}#SEV#~`;
 
-  const items = await fanoutTrendBetween({ pkBase, skFrom, skTo, shardKey: `D|${origin}|${domain}` });
+  const items = await fanoutTrendBetween({ pkBase, skFrom, skTo, shardKey: `D|${domain}` });
   const out = foldTrendItemsToDays({ items, startDay: start, endDay: end });
-  return json(200, { ok: true, query: { origin, domain, startDay: start, endDay: end }, ...out });
+  return json(200, { ok: true, query: { domain, startDay: start, endDay: end }, ...out });
 }
 
 // aggregates 관련 GET API 라우팅
