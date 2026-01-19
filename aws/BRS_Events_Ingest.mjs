@@ -76,7 +76,7 @@ const stripPort = (host) => {
     : host;
 };
 
-const extractHostFromUrl = (url) => {
+const extractHostFromUrl = (url) => { // 현재 안 쓰는 중
   try {
     const u = new URL(url);
     return stripPort(u.hostname);
@@ -393,7 +393,7 @@ export const handler = async (event) => {
           ttl: ttlFromDay(day, TTL_DAYS),
 
           ii_pk: `INSTALL#${installId}`,
-          ii_sk: `TS#${padTs13(tsMs)}#${eventId}`,
+          ii_sk: `DAY#${day}#T#${revTs}#E#${eventId}`,
 
           domain_pk: `DOMAIN#${domain}`,
           domain_sk: `DAY#${day}#T#${revTs}#E#${eventId}`,
