@@ -1,3 +1,55 @@
+// (추가) SCRIPT_SCORE 전용 severity 계산 + 표시용 이름
+function getInjectionSeverity(score) {
+  const s = Number(score || 0);
+  if (s >= 80) return "HIGH";
+  if (s >= 40) return "MEDIUM";
+  return "LOW";
+}
+
+function getScriptScoreValue(log) {
+  if (!log) return null;
+  const d = log.data || {};
+  const e = log.evidence || {};
+  const m = log.meta || {};
+  const v = d.score ?? e.score ?? m.score ?? null;
+  return (v == null) ? null : Number(v);
+}
+
+function getDisplayType(log) {
+  if (!log) return "UNKNOWN";
+  if (log.type === "SCRIPT_SCORE") return "SCRIPT INJECTION";
+  return log.type || "UNKNOWN";
+}
+
+function getDisplaySeverity(log) {
+  if (!log) return "LOW";
+  if (log.type === "SCRIPT_SCORE") {
+    const s = getScriptScoreValue(log);
+    return getInjectionSeverity(s);
+  }
+  return log.severity || "LOW";
+}
+
+function getDisplayScore(log) {
+  if (!log) return 0;
+  if (log.type === "SCRIPT_SCORE") {
+    const s = getScriptScoreValue(log);
+    return (s == null || Number.isNaN(s)) ? 0 : s;
+  }
+  return Number(log.scoreDelta || 0) || 0;
+}
+
+// (추가) sessionId null/undefined 방어용
+function normalizeSessionId(sessionId) {
+  const s = (sessionId == null) ? "" : String(sessionId);
+  return s ? s : "NO_SESSION";
+}
+
+function shortId(sessionId, n = 10) {
+  const s = normalizeSessionId(sessionId);
+  return s.length > n ? `${s.substring(0, n)}...` : s;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const params = new URLSearchParams(window.location.search);
   
@@ -30,7 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // ---------------------------------------------------------
     else if (targetSessionId) {
       // 해당 세션의 로그 중 '가장 최신 것'을 메인으로 잡음
-      const sessionLogs = logs.filter(l => l.sessionId === targetSessionId);
+      const sessionLogs = logs.filter(l => normalizeSessionId(l.sessionId) === normalizeSessionId(targetSessionId));
       if (sessionLogs.length > 0) {
         // 최신순 정렬 후 첫 번째꺼 선택
         mainLog = sessionLogs.sort((a, b) => b.ts - a.ts)[0];
@@ -45,7 +97,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (mainLog) {
       // 같은 세션의 모든 로그를 가져와서 타임라인 구성
       const relatedLogs = logs
-        .filter(l => l.sessionId === mainLog.sessionId)
+        .filter(l => normalizeSessionId(l.sessionId) === normalizeSessionId(mainLog.sessionId))
         .sort((a, b) => b.ts - a.ts);
 
       renderDetailView(mainLog, relatedLogs, contentDiv);
@@ -72,9 +124,11 @@ document.addEventListener('DOMContentLoaded', () => {
 function renderSessionList(logs, container) {
   const sessionMap = {};
   logs.forEach(log => {
-    if (!sessionMap[log.sessionId]) {
-      sessionMap[log.sessionId] = {
-        sessionId: log.sessionId,
+    const sid = normalizeSessionId(log.sessionId);
+
+    if (!sessionMap[sid]) {
+      sessionMap[sid] = {
+        sessionId: sid,
         page: log.page || "Unknown Page",
         logs: [],
         lastTs: 0,
@@ -82,13 +136,15 @@ function renderSessionList(logs, container) {
         maxSeverityLabel: "LOW"
       };
     }
-    sessionMap[log.sessionId].logs.push(log);
-    if (log.ts > sessionMap[log.sessionId].lastTs) sessionMap[log.sessionId].lastTs = log.ts;
+
+    sessionMap[sid].logs.push(log);
+    if (log.ts > sessionMap[sid].lastTs) sessionMap[sid].lastTs = log.ts;
     
-    const score = (log.severity === "HIGH") ? 3 : (log.severity === "MEDIUM" ? 2 : 1);
-    if (score > sessionMap[log.sessionId].maxSeverityScore) {
-      sessionMap[log.sessionId].maxSeverityScore = score;
-      sessionMap[log.sessionId].maxSeverityLabel = log.severity;
+    const sev = getDisplaySeverity(log);
+    const score = (sev === "HIGH") ? 3 : (sev === "MEDIUM" ? 2 : 1);
+    if (score > sessionMap[sid].maxSeverityScore) {
+      sessionMap[sid].maxSeverityScore = score;
+      sessionMap[sid].maxSeverityLabel = sev;
     }
   });
 
@@ -105,10 +161,10 @@ function renderSessionList(logs, container) {
              <span class="badge ${sess.maxSeverityLabel}">${sess.maxSeverityLabel}</span>
              <span style="font-weight:bold; margin-left:5px;">${sess.page}</span>
            </div>
-           <a href="dashboard.html?sessionId=${sess.sessionId}" class="view-btn">이 세션 보기 ></a>
+           <a href="dashboard.html?sessionId=${encodeURIComponent(sess.sessionId)}" class="view-btn">이 세션 보기 ></a>
         </div>
         <div style="font-size:13px; color:#666; display:flex; justify-content:space-between;">
-           <span>Session: ${sess.sessionId.substring(0,10)}...</span>
+           <span>Session: ${shortId(sess.sessionId, 10)}</span>
            <span>${timeStr} (${sess.logs.length}건)</span>
         </div>
       </div>
@@ -128,21 +184,29 @@ function renderDetailView(log, relatedLogs, container) {
   const timeStr = new Date(log.ts).toLocaleString();
   const evidenceJson = JSON.stringify(log.evidence || log.data || {}, null, 2);
 
+  const dispType = getDisplayType(log);
+  const dispSev = getDisplaySeverity(log);
+  const dispScore = getDisplayScore(log);
+
   // 타임라인 아이템들 생성
   const timelineHtml = relatedLogs.map(item => {
     const isCurrent = item.reportId === log.reportId; 
     const itemTime = new Date(item.ts).toLocaleTimeString();
+
+    const itemType = getDisplayType(item);
+    const itemSev = getDisplaySeverity(item);
+    const itemScore = (item.type === "SCRIPT_SCORE") ? getDisplayScore(item) : null;
     
     return `
       <div class="log-item ${isCurrent ? 'active' : ''}">
         <div class="log-info">
-          <span class="badge ${item.severity}" style="font-size:11px; padding:2px 8px; min-width:50px; text-align:center;">${item.severity}</span>
+          <span class="badge ${itemSev}" style="font-size:11px; padding:2px 8px; min-width:50px; text-align:center;">${itemSev}</span>
           <span class="log-time" style="width:100px;">${itemTime}</span>
-          <span class="log-type">${item.type}</span>
+          <span class="log-type">${itemType}${itemScore != null ? ` (score: ${itemScore})` : ""}</span>
         </div>
         ${isCurrent 
           ? `<span style="font-size:12px; font-weight:bold; color:#00C851;">보고 중</span>` 
-          : `<a href="dashboard.html?reportId=${item.reportId}" class="view-btn">상세보기</a>`
+          : `<a href="dashboard.html?reportId=${encodeURIComponent(item.reportId)}" class="view-btn">상세보기</a>`
         }
       </div>
     `;
@@ -154,12 +218,12 @@ function renderDetailView(log, relatedLogs, container) {
       <div style="display:flex; align-items:center;">
         <a href="dashboard.html" class="view-btn" style="margin-right:15px;">← 전체 목록</a>
         <div>
-           <span style="font-size:12px; color:#888; display:block;">Current Session: ${log.sessionId}</span>
-           <h1 style="margin:5px 0 0 0; font-size:20px;">${log.type}</h1>
+           <span style="font-size:12px; color:#888; display:block;">Current Session: ${normalizeSessionId(log.sessionId)}</span>
+           <h1 style="margin:5px 0 0 0; font-size:20px;">${dispType}</h1>
         </div>
       </div>
       <div style="text-align:right;">
-        <span class="badge ${log.severity}" style="font-size:14px;">${log.severity}</span>
+        <span class="badge ${dispSev}" style="font-size:14px;">${dispSev}</span>
       </div>
     </header>
 
@@ -167,7 +231,7 @@ function renderDetailView(log, relatedLogs, container) {
       <table class="meta-table" style="margin:0;">
         <tr><th>탐지 시간</th><td>${timeStr}</td></tr>
         <tr><th>URL</th><td class="url-text">${log.page}</td></tr>
-        <tr><th>위험 점수</th><td>${log.scoreDelta || 0}</td></tr>
+        <tr><th>위험 점수</th><td>${dispScore}</td></tr>
       </table>
     </div>
 

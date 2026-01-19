@@ -1,7 +1,70 @@
 // page_hook.js
 (() => {
+  // prevent double patch
+  if (window.__BRS_PAGE_HOOK_LOADED__) return;
+  window.__BRS_PAGE_HOOK_LOADED__ = true;
+
   const send = (type, data) => {
     window.postMessage({ __BRS__: true, type, data }, "*");
+  };
+
+  // inline script dump (textContent)
+  const __BRS_INLINE_MAX_CHARS__ = 20000;
+  const __BRS_INLINE_SEEN__ = new Set();
+
+  const __brsSha256Hex__ = async (text) => {
+    const buf = new TextEncoder().encode(String(text || ""));
+    const hash = await crypto.subtle.digest("SHA-256", buf);
+    return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("");
+  };
+
+  const __brsMaybeDumpInlineScripts__ = async (node, op) => {
+    try {
+      if (!node) return;
+
+      // DocumentFragment 등에서 script가 같이 들어오는 케이스도 커버
+      const candidates = [];
+      if (node.nodeType === 1 && String(node.tagName) === "SCRIPT") {
+        candidates.push(node);
+      } else if (node.nodeType === 11 && node.querySelectorAll) { // DocumentFragment
+        candidates.push(...node.querySelectorAll("script"));
+      } else if (node.nodeType === 1 && node.querySelectorAll) {
+        // subtree insert 케이스
+        candidates.push(...node.querySelectorAll("script"));
+      }
+
+      for (let i = 0; i < candidates.length && i < 10; i++) {
+        const s = candidates[i];
+        if (!s || s.nodeType !== 1 || String(s.tagName) !== "SCRIPT") continue;
+        if (s.getAttribute && s.getAttribute("data-brs-internal") === "1") continue;
+
+        const src = (s.getAttribute && s.getAttribute("src")) || s.src || "";
+        if (src) continue; // 외부 스크립트는 기존 루트로 처리
+
+        const raw = String(s.textContent || "");
+        if (!raw.trim()) continue;
+
+        const sha256 = await __brsSha256Hex__(raw); // 원문 기준 식별
+        if (__BRS_INLINE_SEEN__.has(sha256)) continue;
+        __BRS_INLINE_SEEN__.add(sha256);
+
+        const clipped = raw.length > __BRS_INLINE_MAX_CHARS__ ? raw.slice(0, __BRS_INLINE_MAX_CHARS__) : raw;
+
+        send("INLINE_SCRIPT_DUMP", {
+          kind: "inline-script",
+          op: String(op || ""),
+          page: location.href,
+          origin: location.origin,
+          targetOrigin: "",
+          markerId: s.id || "",
+          dataPoc: (s.getAttribute && s.getAttribute("data-poc")) || "",
+          length: raw.length,
+          truncated: raw.length > __BRS_INLINE_MAX_CHARS__,
+          sha256,
+          text: clipped,
+        });
+      }
+    } catch (_) {}
   };
 
   const getStack = () => {
@@ -293,6 +356,43 @@
 
   } catch (e) {
     send("HOOK_ERROR", { where: "dom-provenance", msg: String(e?.message || e) });
+  }
+
+  // (추가) 인라인 스크립트(textContent) 주입 포착: appendChild/insertBefore/replaceChild
+  try {
+    const NP = Node.prototype;
+
+    if (typeof NP.appendChild === "function" && !NP.appendChild.__BRS_PATCHED_INLINE__) {
+      const _appendChild = NP.appendChild;
+      NP.appendChild = function (child) {
+        const r = _appendChild.apply(this, arguments);
+        __brsMaybeDumpInlineScripts__(child, "appendChild");
+        return r;
+      };
+      NP.appendChild.__BRS_PATCHED_INLINE__ = true;
+    }
+
+    if (typeof NP.insertBefore === "function" && !NP.insertBefore.__BRS_PATCHED_INLINE__) {
+      const _insertBefore = NP.insertBefore;
+      NP.insertBefore = function (newNode, refNode) {
+        const r = _insertBefore.apply(this, arguments);
+        __brsMaybeDumpInlineScripts__(newNode, "insertBefore");
+        return r;
+      };
+      NP.insertBefore.__BRS_PATCHED_INLINE__ = true;
+    }
+
+    if (typeof NP.replaceChild === "function" && !NP.replaceChild.__BRS_PATCHED_INLINE__) {
+      const _replaceChild = NP.replaceChild;
+      NP.replaceChild = function (newChild, oldChild) {
+        const r = _replaceChild.apply(this, arguments);
+        __brsMaybeDumpInlineScripts__(newChild, "replaceChild");
+        return r;
+      };
+      NP.replaceChild.__BRS_PATCHED_INLINE__ = true;
+    }
+  } catch (e) {
+    send("HOOK_ERROR", { where: "inline-script-dump", msg: String(e?.message || e) });
   }
 
   // (추가) MutationObserver 등록/트리거 후킹 (PoC-H 핵심 시그널)

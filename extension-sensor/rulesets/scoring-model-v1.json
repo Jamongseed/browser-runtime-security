@@ -1,0 +1,430 @@
+{
+  "schemaVersion": "scoring-model-v1.1",
+  "modelId": "scoring-model-v1",
+  "modelUpdatedAt": "2026-01-19",
+  "name": "Injected Script Scoring Model (v1)",
+  "source": "converted-from-excel",
+  "generatedAt": "2026-01-19",
+  "signals": [
+    {
+      "id": "A_FUNC_CONSTRUCTOR",
+      "axis": "A",
+      "category": "Dynamic execution/obfuscation\n(코드 은닉 및 실행)",
+      "signal": "new Function / Function()",
+      "score": 25,
+      "reason": "Runtime code generation",
+      "match": { "type": "substrAny", "patterns": ["new Function", "Function("] }
+    },
+    {
+      "id": "A_EVAL",
+      "axis": "A",
+      "category": "Dynamic execution/obfuscation\n(코드 은닉 및 실행)",
+      "signal": "eval()",
+      "score": 25,
+      "reason": "Runtime string execution",
+      "match": { "type": "substrAny", "patterns": ["eval("] }
+    },
+    {
+      "id": "A_ATOB_FROMCHARCODE",
+      "axis": "A",
+      "category": "Dynamic execution/obfuscation\n(코드 은닉 및 실행)",
+      "signal": "atob()/fromCharCode()",
+      "score": 10,
+      "reason": "Decode/obfuscation building block",
+      "match": { "type": "substrAny", "patterns": ["atob(", "fromCharCode(", "String.fromCharCode("] }
+    },
+    {
+      "id": "A_DYN_SCRIPT_SRC_INJECT",
+      "axis": "A",
+      "category": "Injection/loader\n(코드 주입 및 로드)",
+      "signal": "Dynamic <script src> injection",
+      "score": 15,
+      "reason": "Load external code at runtime",
+      "match": { "type": "substrAny", "patterns": ["createElement(\"script\")", "createElement('script')", ".src =", ".setAttribute(\"src\"", ".setAttribute('src'", "appendChild(", "insertBefore("] }
+    },
+    {
+      "id": "A_DYN_IFRAME_SRC_HIDDEN",
+      "axis": "A",
+      "category": "Injection/loader\n(코드 주입 및 로드)",
+      "signal": "Dynamic <iframe src> injection (hidden)",
+      "score": 5,
+      "reason": "Secondary loader / stealth channel",
+      "match": { "type": "substrAny", "patterns": ["createElement(\"iframe\")", "createElement('iframe')", ".src =", "display=\"none\"", "style.display", "style.opacity", "visibility", "width = 0", "height = 0"] }
+    },
+    {
+      "id": "A_FORM_ACTION_SWAP",
+      "axis": "A",
+      "category": "Credential/PII interception\n(개인 정보 탈취 의심 동작)",
+      "signal": "form.action swap / form.target/method change",
+      "score": 25,
+      "reason": "Redirect submissions to attacker",
+      "match": { "type": "substrAny", "patterns": [".action =", ".target =", ".method =", "setAttribute(\"action\"", "setAttribute('action'", "setAttribute(\"target\"", "setAttribute('target'", "setAttribute(\"method\"", "setAttribute('method'"] }
+    },
+    {
+      "id": "A_SUBMIT_CAPTURE_HOOK",
+      "axis": "A",
+      "category": "Credential/PII interception\n(개인 정보 탈취 의심 동작)",
+      "signal": "submit capture hook (capture:true)",
+      "score": 10,
+      "reason": "Intercept submit before app code",
+      "match": { "type": "substrAny", "patterns": ["addEventListener(\"submit\"", "addEventListener('submit'", "capture: true", "capture:true"] }
+    },
+    {
+      "id": "A_FORM_SUBMIT_DIRECT",
+      "axis": "A",
+      "category": "Credential/PII interception\n(개인 정보 탈취 의심 동작)",
+      "signal": "form.submit() direct call",
+      "score": 10,
+      "reason": "Bypass submit event / force submit",
+      "match": { "type": "substrAny", "patterns": [".submit()", ".submit("] }
+    },
+    {
+      "id": "A_FORMDATA_CREATE",
+      "axis": "A",
+      "category": "Credential/PII interception\n(개인 정보 탈취 의심 동작)",
+      "signal": "FormData(form) create",
+      "score": 15,
+      "reason": "Collect field values",
+      "match": { "type": "substrAny", "patterns": ["new FormData(", "FormData("] }
+    },
+    {
+      "id": "A_FORMDATA_ENTRIES",
+      "axis": "A",
+      "category": "Credential/PII interception\n(개인 정보 탈취 의심 동작)",
+      "signal": "Iterate FormData entries()",
+      "score": 8,
+      "reason": "Extract key/value pairs",
+      "match": { "type": "substrAny", "patterns": [".entries()", "for (const [", "for (let ["] }
+    },
+    {
+      "id": "A_FETCH_XHR_ABS_URL",
+      "axis": "A",
+      "category": "Exfiltration\n(유출된 데이터 전송)",
+      "signal": "fetch/XHR to cross-origin",
+      "score": 12,
+      "reason": "Send data to other origin",
+      "match": { "type": "substrAny", "patterns": ["fetch(", "XMLHttpRequest", "http://", "https://", "ws://", "wss://"] }
+    },
+    {
+      "id": "A_SENDBEACON",
+      "axis": "A",
+      "category": "Exfiltration\n(유출된 데이터 전송)",
+      "signal": "navigator.sendBeacon()",
+      "score": 15,
+      "reason": "Background exfil",
+      "match": { "type": "substrAny", "patterns": ["sendBeacon("] }
+    },
+    {
+      "id": "A_WEBSOCKET_SEND",
+      "axis": "A",
+      "category": "Exfiltration\n(유출된 데이터 전송)",
+      "signal": "WebSocket + ws.send()",
+      "score": 18,
+      "reason": "Real-time exfil/C2",
+      "match": { "type": "substrAny", "patterns": ["new WebSocket", "WebSocket(", ".send("] }
+    },
+    {
+      "id": "A_HTMLFORMELEMENT_PROTO_OVERRIDE",
+      "axis": "A",
+      "category": "Network/API hooking\n(브라우저가 사용하는 통신함수 가로채기)",
+      "signal": "HTMLFormElement.prototype override",
+      "score": 10,
+      "reason": "submit hooking",
+      "match": { "type": "substrAny", "patterns": ["HTMLFormElement.prototype", ".submit =", "requestSubmit"] }
+    },
+    {
+      "id": "A_FETCH_KEEPALIVE_NOCORS",
+      "axis": "A",
+      "category": "Network/API hooking\n(브라우저가 사용하는 통신함수 가로채기)",
+      "signal": "keepalive / no-cors",
+      "score": 8,
+      "reason": "Stealthy/robust exfil",
+      "match": { "type": "substrAny", "patterns": ["keepalive", "no-cors"] }
+    },
+    {
+      "id": "A_XHR_OPEN_SEND_OVERRIDE",
+      "axis": "A",
+      "category": "Network/API hooking\n(브라우저가 사용하는 통신함수 가로채기)",
+      "signal": "XHR.prototype open/send override",
+      "score": 22,
+      "reason": "Intercept all XHR requests",
+      "match": { "type": "substrAny", "patterns": ["XMLHttpRequest.prototype.open", "XMLHttpRequest.prototype.send"] }
+    },
+    {
+      "id": "A_XHR_SETREQUESTHEADER_OVERRIDE",
+      "axis": "A",
+      "category": "Network/API hooking\n(브라우저가 사용하는 통신함수 가로채기)",
+      "signal": "XHR.prototype setRequestHeader override",
+      "score": 15,
+      "reason": "Capture sensitive headers",
+      "match": { "type": "substrAny", "patterns": ["XMLHttpRequest.prototype.setRequestHeader"] }
+    },
+    {
+      "id": "A_SW_REGISTER",
+      "axis": "A",
+      "category": "Persistence\n(코드가 살아있도록 유지하는 행위들)",
+      "signal": "serviceWorker.register()",
+      "score": 25,
+      "reason": "Persist in browser beyond page",
+      "match": { "type": "substrAny", "patterns": ["serviceWorker.register"] }
+    },
+    {
+      "id": "A_SW_SCOPE_ROOT",
+      "axis": "A",
+      "category": "Persistence\n(코드가 살아있도록 유지하는 행위들)",
+      "signal": "scope '/' (site-wide control)",
+      "score": 8,
+      "reason": "Broader impact",
+      "match": { "type": "substrAny", "patterns": ["scope:\"/\"", "scope: \"/\"", "scope:'/'", "scope: '/'"] }
+    },
+    {
+      "id": "A_SW_SKIPWAITING_CLAIM",
+      "axis": "A",
+      "category": "Persistence\n(코드가 살아있도록 유지하는 행위들)",
+      "signal": "skipWaiting() / clients.claim()",
+      "score": 10,
+      "reason": "Immediate control",
+      "match": { "type": "substrAny", "patterns": ["skipWaiting(", "clients.claim("] }
+    },
+    {
+      "id": "A_SW_FETCH_INTERCEPT",
+      "axis": "A",
+      "category": "Persistence\n(코드가 살아있도록 유지하는 행위들)",
+      "signal": "SW fetch intercept",
+      "score": 20,
+      "reason": "Man-in-the-browser at network layer",
+      "match": { "type": "substrAny", "patterns": ["addEventListener(\"fetch\"", "addEventListener('fetch'", "self.onfetch"] }
+    },
+    {
+      "id": "A_RESPONSE_REWRITE",
+      "axis": "A",
+      "category": "Persistence\n(코드가 살아있도록 유지하는 행위들)",
+      "signal": "Response rewrite (new Response / json modify)",
+      "score": 30,
+      "reason": "Tamper with API responses",
+      "match": { "type": "substrAny", "patterns": ["new Response", "Response(", "response.json", "JSON.stringify("] }
+    },
+    {
+      "id": "A_POSTMESSAGE_TRIGGER",
+      "axis": "A",
+      "category": "Trigger sophistication\n(특정 트리거에만 작동하는 악성행동)",
+      "signal": "postMessage listener used as arming trigger",
+      "score": 8,
+      "reason": "Conditional attack trigger",
+      "match": { "type": "substrAny", "patterns": ["addEventListener(\"message\"", "addEventListener('message'", "onmessage", "postMessage("] }
+    },
+    {
+      "id": "A_MICROTASK_TIMING",
+      "axis": "A",
+      "category": "Trigger sophistication\n(특정 트리거에만 작동하는 악성행동)",
+      "signal": "queueMicrotask / microtask timing",
+      "score": 4,
+      "reason": "Timing/stealth",
+      "match": { "type": "substrAny", "patterns": ["queueMicrotask", "Promise.resolve().then", "requestAnimationFrame("] }
+    },
+    {
+      "id": "A_MULTI_ORIGIN_MIRROR",
+      "axis": "A",
+      "category": "Fan-out\n(여러 창이나 여러 서버에 요청을 넣는 행동)",
+      "signal": "Multi-origin mirroring (>=2 collectors)",
+      "score": 10,
+      "reason": "Increase exfil reliability",
+      "match": { "type": "special", "name": "MULTI_ORIGIN_URL_LITERALS" }
+    },
+    {
+      "id": "A_KEYDOWN_CAPTURE",
+      "axis": "A",
+      "category": "Keylogging\n(키로거 행위)",
+      "signal": "keydown + key captured",
+      "score": 20,
+      "reason": "Keystroke capture",
+      "match": { "type": "substrAny", "patterns": ["addEventListener(\"keydown\"", "addEventListener('keydown'", ".key", "keyCode"] }
+    },
+    {
+      "id": "A_MUTATIONOBSERVER_TRIGGER",
+      "axis": "A",
+      "category": "DOM monitoring\n(DOM 변화를 감지하고 움직이는 놈들)",
+      "signal": "MutationObserver used as trigger",
+      "score": 8,
+      "reason": "Condition-based execution (or stealth trigger)",
+      "match": { "type": "substrAny", "patterns": ["new MutationObserver", "MutationObserver("] }
+    },
+    {
+      "id": "A_CACHE_BUSTING_TS",
+      "axis": "A",
+      "category": "Cache-busting\n(브라우저의 캐시를 무력화함)",
+      "signal": "Date.now()/ts query param",
+      "score": 6,
+      "reason": "Avoid cache & signature stability",
+      "match": { "type": "substrAny", "patterns": ["Date.now()", "?ts=", "&ts=", "ts="] }
+    },
+    {
+      "id": "B_CAPTURE_POINTER",
+      "axis": "B",
+      "category": "Event hijack\n(이벤트 함수에서 특정 시점에 이벤트를 가로채는 행위)",
+      "signal": "capture:true for pointer/click",
+      "score": 8,
+      "reason": "Get first chance to intercept",
+      "match": { "type": "substrAny", "patterns": ["capture:true", "capture: true", "addEventListener(\"pointerdown\"", "addEventListener('pointerdown'", "addEventListener(\"mousedown\"", "addEventListener('mousedown'"] }
+    },
+    {
+      "id": "B_PREVENTDEFAULT",
+      "axis": "B",
+      "category": "Event hijack\n(이벤트 함수에서 특정 시점에 이벤트를 가로채는 행위)",
+      "signal": "preventDefault()",
+      "score": 6,
+      "reason": "Cancel user-intended action",
+      "match": { "type": "substrAny", "patterns": [".preventDefault("] }
+    },
+    {
+      "id": "B_STOPPROP",
+      "axis": "B",
+      "category": "Event hijack\n(이벤트 함수에서 특정 시점에 이벤트를 가로채는 행위)",
+      "signal": "stopPropagation()",
+      "score": 8,
+      "reason": "Block page handlers",
+      "match": { "type": "substrAny", "patterns": [".stopPropagation("] }
+    },
+    {
+      "id": "B_STOPIMMEDIATE",
+      "axis": "B",
+      "category": "Event hijack\n(이벤트 함수에서 특정 시점에 이벤트를 가로채는 행위)",
+      "signal": "stopImmediatePropagation()",
+      "score": 15,
+      "reason": "Block all other handlers",
+      "match": { "type": "substrAny", "patterns": [".stopImmediatePropagation("] }
+    },
+    {
+      "id": "B_LOCATION_REDIRECT",
+      "axis": "B",
+      "category": "Redirect\n(사용자가 원치 않는 사이트로 강제이동)",
+      "signal": "window.location.assign/replace/href",
+      "score": 12,
+      "reason": "Force navigation",
+      "match": { "type": "substrAny", "patterns": ["location.assign(", "location.replace(", "location.href", "window.location"] }
+    },
+    {
+      "id": "B_FULLSCREEN_OVERLAY",
+      "axis": "B",
+      "category": "Overlay/clickjacking\n(화면 전체에 투명버튼 덮어쓰기)",
+      "signal": "Fullscreen/transparent overlay",
+      "score": 20,
+      "reason": "Clicks redirected (bait)",
+      "match": { "type": "substrAny", "patterns": ["style.position", "fixed", "style.top", "style.left", "style.width", "style.height", "style.opacity", "zIndex"] }
+    },
+    {
+      "id": "B_PRECLICK_HREF_SWAP",
+      "axis": "B",
+      "category": "Bait & switch\n(처음에는 정상적인데, 나중에 추가되는 악성 요소들)(넓게 보면 트리거도 여기에 속함)",
+      "signal": "Pre-click href swap (pointerdown/mousedown)",
+      "score": 20,
+      "reason": "Change destination at last moment",
+      "match": { "type": "substrAny", "patterns": ["pointerdown", "mousedown", ".href =", "setAttribute(\"href\"", "setAttribute('href'"] }
+    },
+    {
+      "id": "B_RESET_HREF_DELAY_REDIRECT",
+      "axis": "B",
+      "category": "Bait & switch\n(처음에는 정상적인데, 나중에 추가되는 악성 요소들)(넓게 보면 트리거도 여기에 속함)",
+      "signal": "Reset href then delayed redirect",
+      "score": 10,
+      "reason": "Hide change, then redirect",
+      "match": { "type": "substrAny", "patterns": ["setTimeout(", "href", "location.assign", "location.href"] }
+    }
+  ],
+  "combos": [
+    {
+      "axis": "A",
+      "comboId": "C-A2",
+      "enabled": true,
+      "bonus": 35,
+      "title": "Loader chain",
+      "trigger": "eval/new Function + dynamic script/iframe injection",
+      "requires": ["A_EVAL", "A_FUNC_CONSTRUCTOR", "A_DYN_SCRIPT_SRC_INJECT"]
+    },
+    {
+      "axis": "A",
+      "comboId": "C-A3",
+      "enabled": true,
+      "bonus": 45,
+      "title": "Submit hijack → redirect/forced submit",
+      "trigger": "submit interception + action swap + forced submit",
+      "requires": ["A_SUBMIT_CAPTURE_HOOK", "A_FORM_ACTION_SWAP", "A_FORM_SUBMIT_DIRECT"]
+    },
+    {
+      "axis": "A",
+      "comboId": "C-A4",
+      "enabled": true,
+      "bonus": 40,
+      "title": "Network hook → exfil",
+      "trigger": "XHR/fetch hook + cross-origin exfil (incl. fan-out)",
+      "requires": ["A_XHR_OPEN_SEND_OVERRIDE", "A_FETCH_XHR_ABS_URL"]
+    },
+    {
+      "axis": "A",
+      "comboId": "C-A5",
+      "enabled": true,
+      "bonus": 45,
+      "title": "Form hook → FormData → exfil",
+      "trigger": "submit hook + FormData + beacon/fetch/ws",
+      "requires": ["A_SUBMIT_CAPTURE_HOOK", "A_FORMDATA_CREATE", "A_FETCH_XHR_ABS_URL"]
+    },
+    {
+      "axis": "A",
+      "comboId": "C-A6",
+      "enabled": true,
+      "bonus": 45,
+      "title": "SW persistence → tampering",
+      "trigger": "SW register + fetch intercept + response rewrite",
+      "requires": ["A_SW_REGISTER", "A_SW_FETCH_INTERCEPT", "A_RESPONSE_REWRITE"]
+    },
+    {
+      "axis": "A",
+      "comboId": "C-A7",
+      "enabled": true,
+      "bonus": 45,
+      "title": "Keylogging → exfil",
+      "trigger": "keydown capture + network send",
+      "requires": ["A_KEYDOWN_CAPTURE", "A_WEBSOCKET_SEND"]
+    },
+    {
+      "axis": "B",
+      "comboId": "C-B2",
+      "enabled": true,
+      "bonus": 25,
+      "title": "Overlay → redirect",
+      "trigger": "fullscreen overlay + redirect",
+      "requires": ["B_FULLSCREEN_OVERLAY", "B_LOCATION_REDIRECT"]
+    },
+    {
+      "axis": "B",
+      "comboId": "C-B3",
+      "enabled": true,
+      "bonus": 25,
+      "title": "Pre-click swap → redirect",
+      "trigger": "href swap + redirect",
+      "requires": ["B_PRECLICK_HREF_SWAP", "B_LOCATION_REDIRECT"]
+    },
+    {
+      "axis": "A",
+      "comboId": "C-A1",
+      "enabled": false,
+      "bonus": 0,
+      "title": "atob + eval (보류)",
+      "trigger": "광고 SDK에서 흔함(과탐 우려)",
+      "requires": ["A_ATOB_FROMCHARCODE", "A_EVAL"]
+    },
+    {
+      "axis": "B",
+      "comboId": "C-B1",
+      "enabled": false,
+      "bonus": 0,
+      "title": "capture + prevent + redirect (보류)",
+      "trigger": "SPA/광고/모바일 터치 보정에서 흔함",
+      "requires": ["B_CAPTURE_POINTER", "B_PREVENTDEFAULT", "B_LOCATION_REDIRECT"]
+    }
+  ],
+  "notes": {
+    "signalMatch": "Implement as substring checks over dumped script text; some signals may be better as AST/semantic checks later.",
+    "comboTrigger": "Combos are computed by requires[]: if all required signal ids hit, add bonus."
+  }
+}
