@@ -1,208 +1,280 @@
-import axios from 'axios';
-import { brsQueryApi } from './BRSQuery.ts';
-
-const now = new Date();
-//const day = now.toLocaleDateString('sv-SE'); // 'sv-SE' 로케일은 YYYY-MM-DD 형식을 반환합니다.
+// src/features/aws/AwsSearch.js
+import { brsQueryApi } from "./BRSQuery.ts";
 
 /**
- * AWS에서 차트 데이터를 조회하고 가공하여 반환합니다.
+ * 서버 day 기준(Asia/Seoul)과 맞추기 위한 기본 날짜 생성
+ * - "YYYY-MM-DD"
  */
-export const getServerity = async ({ startDay, endDay }) => {
-    try {
-        const response = await brsQueryApi.severity({ startDay, endDay });
-        const rawData = response?.items || [];
+function isoDaySeoul(d = new Date()) {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return fmt.format(d);
+}
 
-        if (rawData.length === 0) {
-            return {
-                labels: ["데이터 없음"],
-                datasets: [{ data: [0], backgroundColor: '#ccc' }]
-            };
-        }
+function normalizeEventItem(it) {
+  return {
+    ts: it.ts,
+    day: it.day,
+    type: it.type,
+    severity: it.severity,
+    scoreDelta: it.scoreDelta,
+    ruleId: it.ruleId,
+    domain: it.domain,
+    page: it.page,
+    origin: it.origin,
+    installId: it.installId,
+    sessionId: it.sessionId,
+    eventId: it.eventId,
+  };
+}
 
-        // 1. 정렬 기준 정의 (HIGH가 가장 먼저 오도록)
-        const priority = { "LOW": 1, "MEDIUM": 2, "HIGH": 3 };
+function uniqBy(arr, keyFn) {
+  const map = new Map();
+  for (const x of arr) map.set(keyFn(x), x);
+  return [...map.values()];
+}
 
-        // 2. 데이터 정렬 실행
-        const sortedData = [...rawData].sort((a, b) => {
-            const labelA = a.sk?.split('#')[1] || "";
-            const labelB = b.sk?.split('#')[1] || "";
-            return (priority[labelA] || 99) - (priority[labelB] || 99);
-        });
+function includesCI(hay, needle) {
+  return String(hay || "")
+    .toLowerCase()
+    .includes(String(needle || "").toLowerCase());
+}
 
-        // 3. 정렬된 데이터로 리턴
-        return {
-            labels: sortedData.map(item => item.sk?.split('#')[1] || "UNKNOWN"),
-            datasets: [
-                {
-                    label: "위험도 건수",
-                    data: sortedData.map(item => item.cnt),
-                    // 정렬된 순서에 맞게 색상 매핑
-                    backgroundColor: sortedData.map(item => {
-                        const level = item.sk?.split('#')[1];
-                        if (level === 'HIGH') return 'rgba(255, 99, 132, 0.7)';   // 빨강
-                        if (level === 'MEDIUM') return 'rgba(255, 159, 64, 0.7)'; // 주황
-                        return 'rgba(75, 192, 192, 0.7)';                         // 초록
-                    }),
-                    borderWidth: 1
-                }
-            ]
-        };
-        
-    } catch (error) {
-        console.error("데이터 조회 실패:", error);
-        return { labels: [], datasets: [] };
+/**
+ * 서버 호출은 "실제 라우트"만 사용한다.
+ */
+async function fetchEventsFromServer({
+  startDay,
+  endDay,
+  limit,
+  newest,
+  nextToken,
+
+  installId,
+  domainInclude,
+  ruleInclude,
+}) {
+  // 1) installId 전용 라우트
+  if (installId) {
+    const res = await brsQueryApi.eventsByInstall({
+      installId,
+      limit,
+      nextToken,
+      newest,
+    });
+    return res;
+  }
+
+  // 2) rule/domain 전용 라우트
+  if (ruleInclude) {
+    const res = await brsQueryApi.eventsByRule({
+      ruleId: ruleInclude,
+      startDay,
+      endDay,
+      limit,
+      newest,
+      nextToken,
+    });
+    return res;
+  }
+
+  if (domainInclude) {
+    const res = await brsQueryApi.eventsByDomain({
+      domain: domainInclude,
+      startDay,
+      endDay,
+      limit,
+      newest,
+      nextToken,
+    });
+    return res;
+  }
+
+  // 3) 기본 라우트
+  const res = await brsQueryApi.events({
+    startDay,
+    endDay,
+    limit,
+    newest,
+    nextToken,
+  });
+  return res;
+}
+
+/**
+ * EventListPage가 직접 쓰는 함수
+ * - 반환: events array (정렬된 상태)
+ */
+export async function getEventList(params = {}) {
+  const {
+    startDay,
+    endDay,
+    limit = 200,
+    newest = true,
+    nextToken,
+
+    severities, // ["HIGH","MEDIUM","LOW"] 등
+    domainInclude = "",
+    domainExclude = "",
+    ruleInclude = "",
+    ruleExclude = "",
+    installId = "",
+  } = params;
+
+  // 서버가 startDay/endDay를 기대하므로 누락 시 기본값 채움
+  const safeStart = startDay || isoDaySeoul(new Date());
+  const safeEnd = endDay || safeStart;
+
+  // eslint-disable-next-line no-console
+  console.log("[getEventList] fetching", {
+    startDay: safeStart,
+    endDay: safeEnd,
+    limit,
+    newest,
+    nextToken,
+    severities,
+    domainInclude,
+    ruleInclude,
+    installId,
+  });
+
+  const res = await fetchEventsFromServer({
+    startDay: safeStart,
+    endDay: safeEnd,
+    limit,
+  });
+
+  let items = Array.isArray(res?.items) ? res.items.map(normalizeEventItem) : [];
+
+  // ---- client-side filters ----
+  if (Array.isArray(severities) && severities.length) {
+    const set = new Set(severities.map((s) => String(s).toUpperCase()));
+    items = items.filter((e) => set.has(String(e.severity || "").toUpperCase()));
+  }
+
+  if (domainExclude) items = items.filter((e) => !includesCI(e.domain, domainExclude));
+  if (ruleExclude) items = items.filter((e) => !includesCI(e.ruleId, ruleExclude));
+
+  // installId가 서버 라우트로 안 갔을 때(예: domain/rule 조회 후 installId 추가 필터)
+  if (installId && !items.every((e) => String(e.installId) === String(installId))) {
+    items = items.filter((e) => String(e.installId) === String(installId));
+  }
+
+  // 최신순 정렬 + 중복 제거(방어)
+  items.sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0));
+  items = uniqBy(items, (e) => e.eventId);
+
+  return items.slice(0, limit);
+}
+
+/**
+ * transactions 페이지/기존 코드 호환용 alias
+ */
+export async function getEvents(params = {}) {
+  return getEventList(params);
+}
+
+/**
+ * 대시보드에서 쓰기 좋은 "HIGH severity 이벤트"
+ */
+export async function getHighSeverityEvents(params = {}) {
+  return getEventList({
+    ...params,
+    severities: ["HIGH"],
+  });
+}
+
+/**
+ * 대시보드/차트용: severity별 카운트
+ */
+export async function getSeverity(params = {}) {
+  const items = await getEventList(params);
+  const acc = { HIGH: 0, MEDIUM: 0, LOW: 0, UNKNOWN: 0 };
+
+  for (const e of items) {
+    const s = String(e.severity || "").toUpperCase();
+    if (s === "HIGH") acc.HIGH += 1;
+    else if (s === "MEDIUM") acc.MEDIUM += 1;
+    else if (s === "LOW") acc.LOW += 1;
+    else acc.UNKNOWN += 1;
+  }
+  return acc;
+}
+
+/**
+ * 대시보드/차트용: 도메인별 카운트 Top N
+ */
+export async function getDomain(params = {}) {
+  const { topN = 10, ...rest } = params;
+  const items = await getEventList(rest);
+
+  const map = new Map();
+  for (const e of items) {
+    const key = String(e.domain || "").trim() || "(unknown)";
+    map.set(key, (map.get(key) || 0) + 1);
+  }
+
+  const out = [...map.entries()]
+    .map(([key, count]) => ({ key, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, topN);
+
+  return out;
+}
+
+/**
+ * (옵션) 서버에 aggregates 라우트가 실제로 존재하면 사용 가능
+ */
+export async function getTopn(params = {}) {
+  // 기대: brsQueryApi.topn({ startDay, endDay, limit, newest, type? })
+  // 서버 스펙이 다를 수 있으니, 실패하면 클라 집계로 fallback.
+  try {
+    if (typeof brsQueryApi.topn === "function") {
+      return await brsQueryApi.topn(params);
     }
-};
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn("[getTopn] fallback to client-side", e);
+  }
+  return null;
+}
 
-export const getDomain = async ({ startDay, endDay }) => {
-    try {
-        console.log("전달된 날짜 확인2:", { startDay, endDay });
-        const response = await brsQueryApi.topDomains({ startDay, endDay });
-
-        // response.items가 배열인지 확인하고 안전하게 가져오기
-        const rawData = response?.items || [];
-
-        if (rawData.length === 0) {
-            return {
-                labels: ["데이터 없음"],
-                datasets: [{ 
-                    label: "도메인 데이터가 없습니다",
-                    data: [0], 
-                    backgroundColor: '#e5e7eb' 
-                }]
-            };
-        }
-
-        const getRandomColor = () => {
-            const r = Math.floor(Math.random() * 255);
-            const g = Math.floor(Math.random() * 255);
-            const b = Math.floor(Math.random() * 255);
-            return `rgba(${r}, ${g}, ${b}, 0.8)`; // 투명도 0.6
-        };
-
-        // 2. 응답 구조(sk, cnt)에 맞춰 추출하여 리턴
-        return {
-            // "DOMAIN#google.com"에서 "google.com"만 추출
-            labels: rawData.map(item => item.sk ? item.sk.split('#')[1] : "Unknown"),
-            datasets: [
-                {
-                    label: "도메인별 탐지 건수",
-                    // item.val이 아니라 item.cnt를 사용해야 합니다.
-                    data: rawData.map(item => item.cnt),
-                    backgroundColor: rawData.map(() => getRandomColor()), // 도메인 차트는 보통 파란색 계열 사용
-                    borderColor: 'rgba(54, 162, 235, 1)',
-                    borderWidth: 1
-                }
-            ]
-        };
-    } catch (error) {
-        console.error("데이터 조회 실패:", error);
-        return { labels: [], datasets: [] };
+export async function getSeverityRange(params = {}) {
+  try {
+    if (typeof brsQueryApi.severityRange === "function") {
+      return await brsQueryApi.severityRange(params);
     }
-};
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn("[getSeverityRange] fallback", e);
+  }
+  return null;
+}
 
-export const getHighSeverityEvents = async ({ startDay, endDay }) => {
-    try {
-        const origin = "https://poc-a-main.onrender.com";
-        const serverity = "HIGH"
-        const limit = 20
-        const newest = ""
-        const response = await brsQueryApi.severityLists({ origin, serverity, startDay, endDay, limit, newest });
-        const rawData = response.data;
-
-        if (!rawData || !Array.isArray(rawData)) {
-            return [];
-        }
-
-        // ItemResponse 형식에 맞춰 필요한 데이터만 추출
-        return rawData.map(item => ({
-            severity: item.severity,    // 원본 severity
-            scoreDelta: item.scoreDelta,
-            domain: item.domain,
-            pageURL: item.page,         // 원본의 'page' 필드를 'pageURL'로 매핑
-            eventId: item.eventId,
-            installId: item.installId
-        }));
-
-    } catch (error) {
-        console.error("데이터 조회 실패:", error);
-        return [];
+export async function getTrendDomain(params = {}) {
+  try {
+    if (typeof brsQueryApi.trendDomain === "function") {
+      return await brsQueryApi.trendDomain(params);
     }
-};
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn("[getTrendDomain] fallback", e);
+  }
+  return null;
+}
 
-export const getEvents = async ({ installId }) => {
-    try {
-        const response = await brsQueryApi.eventsByInstall({ installId });
-        const rawData = response?.items || [];
-
-        if (rawData.length === 0) return { groupedList: [] };
-
-        // 1. 최신순 정렬 (ts가 높은 숫자일수록 최신)
-        // 만약 ts가 문자열이라면 (b.ts > a.ts ? 1 : -1) 형식을 사용하세요.
-        const sortedData = [...rawData].sort((a, b) => (b.ts || 0) - (a.ts || 0));
-
-        // 2. 세션별 그룹화 및 순서 유지
-        const grouped = sortedData.reduce((acc, item) => {
-            const sId = item.sessionId || "Unknown Session";
-            if (!acc[sId]) {
-                acc[sId] = {
-                    sessionId: sId,
-                    latestTs: item.ts, // 세션의 최신 시간을 기준으로 세션 순서 정렬용
-                    events: []
-                };
-            }
-            acc[sId].events.push(item);
-            return acc;
-        }, {});
-
-        // 3. 세션 자체도 최신 이벤트가 있는 세션이 위로 오도록 정렬하여 배열로 변환
-        const sortedGroupedList = Object.values(grouped).sort((a, b) => b.latestTs - a.latestTs);
-
-        return {
-            groupedList: sortedGroupedList, // 세션별로 묶인 배열
-            totalCount: rawData.length
-        };
-
-    } catch (error) {
-        console.error("이벤트 목록 조회 실패:", error);
-        return { groupedList: [], totalCount: 0 };
+export async function getTrendRule(params = {}) {
+  try {
+    if (typeof brsQueryApi.trendRule === "function") {
+      return await brsQueryApi.trendRule(params);
     }
-};
-
-export const getRule = async () => {
-    try {
-        // 1. AWS rule 트랜드 
-        const response = await axios.get('/trends/rule');
-        const rawData = response.data;
-
-        // 2. labels와 datasets만 추출하여 리턴
-        return {
-            labels: rawData.map(item => item.label),
-            datasets: [
-                {
-                    data: rawData.map(item => item.val),
-                }
-            ]
-        };
-    } catch (error) {
-        console.error("데이터 조회 실패:", error);
-        return { labels: [], datasets: [] };
-    }
-};
-
-export const getDetail
-= async () => {
-    try {
-        // 1. AWS 전체 이벤트 목록 조회
-        const response = await axios.get('/detail');
-        const rawData = response.data;
-
-        // 2. labels와 datasets만 추출하여 리턴
-        return {
-            response
-        };
-    } catch (error) {
-        console.error("데이터 조회 실패:", error);
-        return { labels: [], datasets: [] };
-    }
-};
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn("[getTrendRule] fallback", e);
+  }
+  return null;
+}

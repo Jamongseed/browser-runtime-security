@@ -1,196 +1,185 @@
-// api/brsQuery.ts
-// BRS_Query client (API Gateway prod)
+// features/aws/BRSQuery.ts
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
-export const API_BASE = "https://z5g5ahz467.execute-api.ap-northeast-2.amazonaws.com/prod";
+const API_ORIGIN = process.env.REACT_APP_API_ORIGIN;
 
-/** BRS_Query endpoints */
-export const BRS_Query = {
-  // Aggregates (operator)
-  aggregatesTopDomainsRange: "/agg/global",
-  aggregatesTopRulesRange: "/aggregates/topn/rules-range",
-  aggregatesSeverityRange: "/agg/global",
-
-  // Trends (operator)
-  trendsDomain: "/trends/domain",
-  trendsRule: "/trends/rule",
-
-  // Events lists (operator)
-  eventsByDomain: "/events/by-domain",
-  eventsByRule: "/events/by-rule",
-  eventsBySev: "/events/by-sev",
-
-  // Event detail (operator)
-  eventBody: "/events/body",
-
-  // 
-  eventBySeverity: "/events/by-sev",
-  // User
-  eventsByInstall: "/events/by-install",
-} as const;
-
-// ------------------------
-// Types
-// ------------------------
-
-export type DayRangeParams = {
-  origin: string;
-  startDay: string; // YYYY-MM-DD
-  endDay: string;   // YYYY-MM-DD
-};
-
-export type TopNParams = DayRangeParams & {
-  limit?: number; // default 10~50 (server default exists)
-};
-
-export type ListParamsBase = DayRangeParams & {
-  limit?: number;
-  newest?: boolean; // true => 최신순
-};
-
-export type EventsByDomainParams = ListParamsBase & {
-  domain: string;
-};
-
-export type EventsByRuleParams = ListParamsBase & {
-  ruleId: string;
-};
-
-export type EventsBySevParams = ListParamsBase & {
-  severity: "HIGH" | "MEDIUM" | "LOW" | string; // 서버는 string 허용
-};
-
-export type TrendsDomainParams = DayRangeParams & {
-  domain: string;
-};
-
-export type TrendsRuleParams = DayRangeParams & {
-  ruleId: string;
-};
-
-export type EventBodyParams = {
-  eventId: string;
-};
-
-export type EventsByInstallParams = {
-  installId: string;
-  sinceMs?: number;   // ms epoch
-  limit?: number;
-  nextToken?: string; // pagination
-};
-
-export type DomainResponse = {
-  sk: string;       // "DOMAIN#google.com" 형태
-  cnt: number;      // 탐지 건수
-  scoreSum: number; // 점수 합계
-};
-
-export type SeverityResponse = {
-  sk: string;
-  cnt: number;
-};
-
-export type ItemResponse = {
-  severity: string;
-  scoreDelta: number;
-  domain: string;
-  pageURL: string;
-  eventId: string;
-  installId: string;
+if (!API_ORIGIN) {
+  throw new Error("REACT_APP_API_ORIGIN is not defined");
 }
 
+type GetJsonResult<T> = T;
 
-// ------------------------
-// HTTP helpers
-// ------------------------
-function buildUrl(
-  path: string,
-  params?: Record<string, string | number | boolean | undefined | null>
-) {
-  const url = new URL(API_BASE + path);
-  if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      if (v === undefined || v === null || v === "") continue;
-      url.searchParams.set(k, String(v));
-    }
-  }
-  return url.toString();
-}
-
-async function getJson<T>(path: string, params?: Record<string, any>): Promise<T> {
-  const res = await fetch(buildUrl(path, params), {
-    method: "GET",
-    headers: { "content-type": "application/json" },
+function qsStringify(params: Record<string, any>) {
+  const sp = new URLSearchParams();
+  Object.entries(params || {}).forEach(([k, v]) => {
+    if (v === undefined || v === null || v === "") return;
+    sp.set(k, String(v));
   });
+  const s = sp.toString();
+  return s ? `?${s}` : "";
+}
 
+async function getJson<T>(
+  path: string,
+  params: Record<string, any>,
+  origin = API_ORIGIN
+): Promise<GetJsonResult<T>> {
+  const url = `${API_ORIGIN}${path}${qsStringify(params)}`;
+  const res = await fetch(url, { method: "GET" });
   const text = await res.text();
-  let data: any = null;
+  let data: any;
   try {
     data = text ? JSON.parse(text) : null;
   } catch {
-    data = { ok: false, reason: "NON_JSON_RESPONSE", raw: text };
+    data = { ok: false, reason: "INVALID_JSON", raw: text };
   }
-
   if (!res.ok) {
-    const msg = data?.reason || data?.error || `HTTP_${res.status}`;
-    throw new Error(msg);
+    // 람다는 ok:false + reason을 주는 경우가 많아서 그대로 전달
+    const reason = data?.reason || `HTTP_${res.status}`;
+    const err = new Error(reason);
+    (err as any).status = res.status;
+    (err as any).data = data;
+    throw err;
   }
   return data as T;
 }
 
-// ------------------------
-// BRS_Query API methods
-// ------------------------
+export const BRS_Query = {
+  events: "/events",
+  eventBody: "/events/body",
+  eventsByInstall: "/events/by-install",
+  eventsByDomain: "/events/by-domain",
+  eventsByRule: "/events/by-rule",
+
+  severityRange: "/severity-range",
+  topn: "/topn",
+
+  trendDomain: "/trends/domain",
+  trendRule: "/trends/rule",
+};
+
+// ---- Common response shapes ----
+export type ThreatEventItem = {
+  ts: number; // tsMs
+  day: string;
+  type?: string;
+  ruleId?: string;
+  severity?: string;
+  scoreDelta?: number;
+  sessionId?: string;
+  origin?: string;
+  domain?: string;
+  page?: string;
+  eventId: string;
+};
+
+export type ListResponse<T> = {
+  ok: boolean;
+  query?: any;
+  items: T[];
+  nextToken?: string | null;
+};
+
+export type EventBodyResponse = {
+  ok: boolean;
+  eventId: string;
+  meta: any;
+  payload: {
+    payloadJson?: any;
+    payloadTruncated?: boolean;
+    payloadHash?: string;
+  };
+};
+
+// ---- Events API ----
+export type EventsRangeParams = {
+  startDay: string; // YYYY-MM-DD
+  endDay: string; // YYYY-MM-DD
+  limit?: number;
+  nextToken?: string;
+};
+
+export type EventsBySevParams = EventsRangeParams & {
+  severity: string; // raw value 그대로 :contentReference[oaicite:5]{index=5}
+  newest?: boolean; // true -> newest mode (qs.newest=true) :contentReference[oaicite:6]{index=6}
+};
+
+export type EventsByDomainParams = EventsRangeParams & {
+  domain: string;
+  newest?: boolean;
+};
+
+export type EventsByRuleParams = EventsRangeParams & {
+  ruleId: string;
+  newest?: boolean;
+};
+
+export type EventsByInstallParams = {
+  installId: string;
+  sinceMs?: number;
+  limit?: number;
+  nextToken?: string;
+};
+
+export type EventBodyParams = { eventId: string };
+
+// ---- Aggregates API ----
+export type AggRangeParams = {
+  startDay?: string; // optional; lambda는 default last 30 days 지원 :contentReference[oaicite:7]{index=7}
+  endDay?: string;
+  limit?: number;
+};
+
+export type TopNItem = { key: string; cnt: number; scoreSum?: number };
+
+export type SeverityAggItem = { key: string; cnt: number };
+
+export type TrendDaysResponse = {
+  ok: boolean;
+  query: any;
+  severities: string[];
+  days: Array<{ day: string; buckets: Record<string, number> }>;
+};
+
 export const brsQueryApi = {
+  // ----- events list (day fan-out, token은 shard fanout token) -----
+  events: (args: EventsRangeParams, origin?: string) =>
+    getJson<ListResponse<ThreatEventItem>>(BRS_Query.events, args, origin),
 
-  // GET /aggregates/severity?origin&day
-  severity: ({ startDay, endDay }: { startDay: string, endDay: string }) => {
-    console.log("전달된 날짜 확인serverity:", { startDay, endDay });
-    return getJson<{ ok: boolean; query: any; items: SeverityResponse[] }>(
-    BRS_Query.aggregatesSeverityRange, { kind: "sev", startDay, endDay } 
-  )},
+  // ----- body -----
+  eventBody: (args: EventBodyParams, origin?: string) =>
+    getJson<EventBodyResponse>(BRS_Query.eventBody, args, origin),
 
-  // GET /aggregates/topn/domains?origin&day&limit
-  topDomains: ({ startDay, endDay }: { startDay: string, endDay: string }) => {
-    console.log("전달된 날짜 확인domain:", { startDay, endDay });
-    return getJson<{ ok: boolean; query: any; items: DomainResponse[] }>(
-      BRS_Query.aggregatesTopDomainsRange, { kind: "domain", startDay, endDay}
-    )},
+  // ----- by install (sinceMs window) -----
+  eventsByInstall: (args: EventsByInstallParams, origin?: string) =>
+    getJson<ListResponse<ThreatEventItem>>(BRS_Query.eventsByInstall, args, origin),
 
-  severityLists: (args: { origin: string; serverity: string; startDay: string, endDay: string, limit: number, newest: string }) =>
-    getJson<{ ok: boolean; query: any; items: ItemResponse[] }>(BRS_Query.eventBySeverity, args),
+  // ----- by domain/rule/sev -----
+  eventsByDomain: (args: EventsByDomainParams, origin?: string) =>
+    getJson<ListResponse<ThreatEventItem>>(BRS_Query.eventsByDomain, {
+      ...args,
+      newest: args.newest ? "true" : undefined,
+    }, origin),
 
-  // GET /events/by-install?installId=...&limit=50&sinceMs=10
-  eventsByInstall: ({ installId, limit = 50, sinceMs = 10 }: { installId: string; limit?: number; sinceMs?: number }) => {
-    console.log("전달된 인자 확인(Install):", { installId, limit, sinceMs });
-    return getJson<{ ok: boolean; query: any; items: ItemResponse[]; nextToken?: string | null }>(
-      BRS_Query.eventsByInstall, 
-      { installId, limit, sinceMs }
-    );
-  },
+  eventsByRule: (args: EventsByRuleParams, origin?: string) =>
+    getJson<ListResponse<ThreatEventItem>>(BRS_Query.eventsByRule, {
+      ...args,
+      newest: args.newest ? "true" : undefined,
+    }, origin),
 
-/*
-  // GET /aggregates/topn/rules?origin&day&limit
-  topRules: (args: { origin: string; day: string; limit?: number }) =>
-    getJson<{ ok: boolean; query: any; items: TopnItem[] }>(BRS_Query.aggregatesTopRules, args),
+  // ----- aggregates -----
+  topnDomains: (args: AggRangeParams, origin?: string) =>
+    getJson<{ ok: boolean; query: any; items: TopNItem[] }>(BRS_Query.topn, { ...args, type: "domain" }),
 
-  // GET /trends/rule?origin&ruleId&startDay&endDay  (start/end optional -> server defaults to last 30d)
-  ruleTrend: (args: { origin: string; ruleId: string; startDay?: string; endDay?: string }) =>
-    getJson<{ ok: boolean; query: any; items: TrendDayItem[] }>(BRS_Query.trendsRule, args),
+  topnRules: (args: AggRangeParams, origin?: string) =>
+    getJson<{ ok: boolean; query: any; items: TopNItem[] }>(BRS_Query.topn, { ...args, type: "rule" }),
 
-  // GET /trends/domain?origin&domain&startDay&endDay  (start/end optional -> server defaults to last 30d)
-  domainTrend: (args: { origin: string; domain: string; startDay?: string; endDay?: string }) =>
-    getJson<{ ok: boolean; query: any; items: TrendDayItem[] }>(BRS_Query.trendsDomain, args),
+  severityRange: (args: Omit<AggRangeParams, "limit">, origin?: string) =>
+    getJson<{ ok: boolean; query: any; items: SeverityAggItem[] }>(BRS_Query.severityRange, args, origin),
 
-  // GET /events?origin&day&sinceMs&limit&nextToken  (sinceMs optional -> server defaults to 24h)
-  events: (args: { origin: string; day: string; sinceMs?: number; limit?: number; nextToken?: string }) =>
-    getJson<EventsResponse>(BRS_Query.events, args),
+  trendRule: (args: { ruleId: string; startDay?: string; endDay?: string }, origin?: string) =>
+    getJson<TrendDaysResponse>(BRS_Query.trendRule, args, origin),
 
-
-  // GET /events/by-install?installId&sinceMs&limit&nextToken
-  eventsByInstall: (args: { installId: string; sinceMs?: number; limit?: number; nextToken?: string }) =>
-    getJson<{ ok: boolean; query: any; items: EventItem[]; nextToken?: string | null }>(
-      BRS_Query.eventsByInstall,
-      args
-    ),
-    */
+  trendDomain: (args: { domain: string; startDay?: string; endDay?: string }, origin?: string) =>
+    getJson<TrendDaysResponse>(BRS_Query.trendDomain, args, origin),
 };
