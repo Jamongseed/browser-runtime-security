@@ -44,6 +44,13 @@ function EventTransactions() {
     navigate(`/app/details/${id}`);
   };
 
+  const gotoSessionDetail = (sessionId, sessionEvent) => {
+    // session 상세 페이지 경로로 이동 ()
+    navigate(`/app/user_front/listpage_session/detail`, {
+      state: { sessionId, sessionEvent },
+    });
+  };
+
   const [expandedSessions, setExpandedSessions] = useState({});
 
   // 세션 토글 함수
@@ -170,6 +177,33 @@ function EventTransactions() {
                                       "HH:mm:ss",
                                     )}
                                   </span>
+                                  <div className="shrink-0">
+                                    <button
+                                      className="btn btn-sm btn-primary"
+                                      onClick={() =>
+                                        gotoSessionDetail(
+                                          session.sessionId,
+                                          session.events,
+                                        )
+                                      }
+                                    >
+                                      상세 분석
+                                      <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        className="h-4 h-4 ml-1"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                      >
+                                        <path
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          strokeWidth={2}
+                                          d="M9 5l7 7-7 7"
+                                        />
+                                      </svg>
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             </div>

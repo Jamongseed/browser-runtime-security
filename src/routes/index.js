@@ -9,6 +9,9 @@ const UserDashboard = lazy(() => import("../features/user_front"));
 const UserSessionList = lazy(
   () => import("../features/user_front/listpage_session"),
 );
+const UserSessionDetail = lazy(
+  () => import("../features/user_front/listpage_session/detail"),
+);
 const UserDomainList = lazy(
   () => import("../features/user_front/listpage_domain"),
 );
@@ -65,9 +68,14 @@ const routes = [
     component: UserSessionList,
   },
   {
+    path: "/user_front/listpage_session/detail",
+    component: UserSessionDetail,
+  },
+  {
     path: "/user_front/listpage_domain",
     component: UserDomainList,
   },
+
   // 기존 유지
   { path: "/welcome", component: Welcome },
   { path: "/leads", component: Leads },
