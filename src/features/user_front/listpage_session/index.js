@@ -35,7 +35,7 @@ function EventTransactions() {
   const [groupedList, setGroupedList] = useState([]); // 세션별 그룹 데이터
   const [originalList, setOriginalList] = useState([]); // 필터링 전 전체 데이터
   const [searchText, setSearchText] = useState("");
-  const installId = "14f85da9-93aa-4b72-bbea-457f07945305"; // 테스트용 ID
+  const installId = "e025b1ff-be5b-429e-87bf-00f0b0b05f59"; // 테스트용 ID
 
   const navigate = useNavigate();
 
@@ -162,7 +162,7 @@ function EventTransactions() {
                                 />
                               </svg>
                               <div className="flex items-center gap-3 min-w-0 flex-1">
-                                <span className="text-[10px] font-black opacity-40 uppercase whitespace-nowrap">
+                                <span className="text-[10px] font-bold opacity-40 uppercase whitespace-nowrap">
                                   세션 :
                                 </span>
                                 <span className="font-mono text-sm font-bold text-primary truncate">
@@ -172,14 +172,14 @@ function EventTransactions() {
                                   <span className="badge badge-sm bg-slate-400/20 border-none text-slate-600 font-bold">
                                     {session.events.length}개의 위험
                                   </span>
-                                  <span className="text-[11px] font-bold text-slate-500 font-mono">
+                                  <span className="text-[11px] font-bold text-slate-500">
                                     {moment(session.latestTs).format(
                                       "HH:mm:ss",
                                     )}
                                   </span>
                                   <div className="shrink-0">
                                     <button
-                                      className="btn btn-sm btn-primary"
+                                      className="btn btn-xs h-6 min-h-[1.5rem] bg-white border-slate-950 text-slate-950 hover:bg-slate-950 hover:text-white hover:border-slate-950 transition-all duration-200 rounded px-2 text-[12px] font-bold shadow-sm"
                                       onClick={() =>
                                         gotoSessionDetail(
                                           session.sessionId,
@@ -190,16 +190,16 @@ function EventTransactions() {
                                       상세 분석
                                       <svg
                                         xmlns="http://www.w3.org/2000/svg"
-                                        className="h-4 h-4 ml-1"
                                         fill="none"
                                         viewBox="0 0 24 24"
+                                        strokeWidth={3}
                                         stroke="currentColor"
+                                        className="w-3 h-3 ml-1"
                                       >
                                         <path
                                           strokeLinecap="round"
                                           strokeLinejoin="round"
-                                          strokeWidth={2}
-                                          d="M9 5l7 7-7 7"
+                                          d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"
                                         />
                                       </svg>
                                     </button>

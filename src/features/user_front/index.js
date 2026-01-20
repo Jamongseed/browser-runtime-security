@@ -89,13 +89,13 @@ function Dashboard() {
       {/** ---------------------- Different charts ------------------------- */}
       <div className="grid lg:grid-cols-2 mt-0 grid-cols-1 gap-6">
         {severityData?.labels ? (
-          <DoughnutChart title="Severity Ratio" chartData={severityData} />
+          <DoughnutChart title="위험도 비율" chartData={severityData} />
         ) : (
           <div>불러오는중</div>
         )}
 
         {domainData?.labels ? (
-          <BarChart title="Domain Counts" chartData={domainData} />
+          <BarChart title="도메인별 집계" chartData={domainData} />
         ) : (
           <div>불러오는중</div>
         )}
