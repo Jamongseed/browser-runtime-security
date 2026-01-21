@@ -43,7 +43,7 @@ function Dashboard() {
 
   const gotoDetail = (id) => {
     // 상세 페이지 경로로 이동 (예: /app/details/아이디)
-    navigate(`/app/user_front/detail/${id}`);
+    navigate(`/app/details/${id}`);
   };
 
   const [severityData, setseverityData] = useState(null);
@@ -88,17 +88,27 @@ function Dashboard() {
 
       {/** ---------------------- Different charts ------------------------- */}
       <div className="grid lg:grid-cols-2 mt-0 grid-cols-1 gap-6">
-        {severityData?.labels ? (
-          <DoughnutChart title="위험도 비율" chartData={severityData} />
-        ) : (
-          <div>불러오는중</div>
-        )}
+        {/* 위험도 비율(도넛) */}
+        <div className="bg-base-100 rounded-xl shadow-sm border border-base-200 min-h-[420px] flex flex-col">
+          {severityData?.labels ? (
+            <div className="flex-1">
+              <DoughnutChart title="위험도 비율" chartData={severityData} />
+            </div>
+          ) : (
+            <div className="flex-1 flex items-center justify-center">불러오는중</div>
+          )}
+        </div>
 
-        {domainData?.labels ? (
-          <BarChart title="도메인별 집계" chartData={domainData} />
-        ) : (
-          <div>불러오는중</div>
-        )}
+        {/* 도메인별 집계(바) */}
+        <div className="bg-base-100 rounded-xl shadow-sm border border-base-200 min-h-[420px] flex flex-col">
+          {domainData?.labels ? (
+            <div className="flex-1">
+              <BarChart title="도메인별 집계" chartData={domainData} />
+            </div>
+          ) : (
+            <div className="flex-1 flex items-center justify-center">불러오는중</div>
+          )}
+        </div>
       </div>
 
       {/** ---------------------- Different stats content 2 ------------------------- */}
@@ -220,7 +230,7 @@ function Dashboard() {
                       <td className="text-center">
                         <button
                           className="btn btn-sm btn-ghost btn-outline border-base-300 hover:btn-primary hover:border-primary transition-all normal-case"
-                          onClick={() => gotoDetail(l.eventId)}
+                          onClick={() => gotoDetail(l.installId)}
                         >
                           자세히
                           <svg

@@ -41,7 +41,7 @@ function EventTransactions() {
 
   const gotoDetail = (id) => {
     // 상세 페이지 경로로 이동 (예: /app/details/아이디)
-    navigate(`/app/user_front/detail/${id}`);
+    navigate(`/app/details/${id}`);
   };
 
   const gotoSessionDetail = (sessionId, sessionEvent) => {
@@ -266,7 +266,7 @@ function EventTransactions() {
                                   className="btn btn-xs btn-ghost btn-outline"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    gotoDetail(l.eventId);
+                                    gotoDetail(l.installId);
                                   }}
                                 >
                                   자세히

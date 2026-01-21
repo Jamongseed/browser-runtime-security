@@ -1,7 +1,7 @@
 import { useLocation, useParams } from "react-router-dom";
 import TitleCard from "../../../../components/Cards/TitleCard";
 import moment from "moment";
-import SessionLineChart from "../../components/SessionLineChart";
+import SessionLineChart from "../../components/SessionLineChart"; // 만든 차트 컴포넌트
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -16,7 +16,7 @@ function SessionDetail() {
   const navigate = useNavigate();
   const gotoDetail = (id) => {
     // 상세 페이지 경로로 이동 (예: /app/details/아이디)
-    navigate(`/app/user_front/detail/${id}`);
+    navigate(`/app/details/${id}`);
   };
 
   // 차트 클릭 시 테이블 스크롤을 위한 핸들러
@@ -30,6 +30,11 @@ function SessionDetail() {
       setTimeout(() => element.classList.remove("bg-blue-50"), 2000);
     }
   };
+  
+  // 테이블 순서 정리
+  const sortedEvents = React.useMemo(() => {
+    return [...events].sort((a, b) => a.ts - b.ts); // ts 오름차순
+  }, [events]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -58,7 +63,7 @@ function SessionDetail() {
               </tr>
             </thead>
             <tbody>
-              {events.map((l, k) => (
+              {sortedEvents.map((l, k) => (
                 <tr
                   key={k}
                   id={`event-row-${k}`}
@@ -103,7 +108,7 @@ function SessionDetail() {
                       className="btn btn-xs btn-ghost btn-outline"
                       onClick={(e) => {
                         e.stopPropagation();
-                        gotoDetail(l.eventId);
+                        gotoDetail(l.installId);
                       }}
                     >
                       자세히
