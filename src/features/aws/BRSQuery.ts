@@ -58,6 +58,7 @@ export const BRS_Query = {
 
   trendDomain: "/trends/domain",
   trendRule: "/trends/rule",
+  ruleDescribtion: "/rulemeta",
 };
 
 // ---- Common response shapes ----
@@ -86,11 +87,21 @@ export type EventBodyResponse = {
   ok: boolean;
   eventId: string;
   meta: any;
+  ruleId: string;
   payload: {
     payloadJson?: any;
     payloadTruncated?: boolean;
     payloadHash?: string;
   };
+};
+
+export type RuleDescriptionResponse = {
+  ok: boolean;
+  rulesetId: string;
+  ruleId: string;
+  locale: string;
+  online: string;
+  titme: string;
 };
 
 // ---- Events API ----
@@ -143,6 +154,8 @@ export type TrendDaysResponse = {
   days: Array<{ day: string; buckets: Record<string, number> }>;
 };
 
+export type ruleDescribtionParams = { ruleId: string; local: string };
+
 export const brsQueryApi = {
   // ----- events list (day fan-out, token은 shard fanout token) -----
   events: (args: EventsRangeParams, origin?: string) =>
@@ -151,6 +164,10 @@ export const brsQueryApi = {
   // ----- body -----
   eventBody: (args: EventBodyParams) =>
     getJson<EventBodyResponse>(BRS_Query.eventBody, args),
+
+  // ----- body -----
+  ruleDescription: (args: ruleDescribtionParams) =>
+    getJson<ruleDescribtionParams>(BRS_Query.ruleDescribtion, args),
 
   // ----- by install (sinceMs window) -----
   eventsByInstall: (args: EventsByInstallParams) =>

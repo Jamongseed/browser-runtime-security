@@ -522,14 +522,8 @@ export const getDetail = async () => {
 export const getEventDetail = async ({ eventId }) => {
   try {
     if (!eventId) return { data: null, error: "No Event ID" };
-    console.log("이벤트 아이디");
-    console.log(eventId);
 
     const response = await brsQueryApi.eventBody({ eventId });
-
-    console.log("리스폰스");
-    console.log(response);
-
     const rawData = response.meta;
 
     if (!rawData || !response.ok) {
@@ -561,6 +555,7 @@ export const getEventDetail = async ({ eventId }) => {
       ttl: rawData?.ttl, // 누락됐던 값
       payloadTruncated: rawData?.payloadTruncated,
       payloadHash: rawData?.payloadHash,
+      ruleId: parsedPayload?.ruleId,
 
       // 파싱된 상세 정보
       details: parsedPayload,
@@ -575,6 +570,33 @@ export const getEventDetail = async ({ eventId }) => {
     };
   } catch (error) {
     console.error(`이벤트(${eventId}) 조회 실패:`, error);
+    return {
+      data: null,
+      error: error?.message || "Unknown error",
+    };
+  }
+};
+
+export const getRuleDescription = async ({ ruleId, locale = "ko" }) => {
+  try {
+    if (!ruleId) return { data: null, error: "No Rule ID" };
+    const response = await brsQueryApi.ruleDescription({ ruleId, locale });
+
+    const formattedData = {
+      ok: response.ok,
+      rulesetId: response.rulesetId,
+      ruleId: response.ruleId,
+      locale: response.locale,
+      oneLine: response.oneLine, // 한 줄 요약
+      title: response.title, // 규칙 제목
+    };
+
+    return {
+      data: formattedData,
+      error: null,
+    };
+  } catch (error) {
+    console.error(`룰아이디(${ruleId}) 조회 실패:`, error);
     return {
       data: null,
       error: error?.message || "Unknown error",

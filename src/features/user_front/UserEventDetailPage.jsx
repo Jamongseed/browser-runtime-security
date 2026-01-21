@@ -1,12 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Link,
-  useNavigate,
-  useParams,
-  useSearchParams,
-} from "react-router-dom";
-import TitleCard from "../../../components/Cards/TitleCard";
-import { getEventDetail, getRuleDescription } from "../../aws/AwsSearch";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import TitleCard from "../../components/Cards/TitleCard";
+import { getEventBody } from "./eventApi";
 
 function safeJsonParse(v) {
   if (v == null) return null;
@@ -44,13 +39,7 @@ function relTime(tsMs) {
   const day = Math.round(hr / 24);
 
   const label =
-    day >= 1
-      ? `${day}일`
-      : hr >= 1
-        ? `${hr}시간`
-        : min >= 1
-          ? `${min}분`
-          : `${sec}초`;
+    day >= 1 ? `${day}일` : hr >= 1 ? `${hr}시간` : min >= 1 ? `${min}분` : `${sec}초`;
   return diff >= 0 ? `${label} 전` : `${label} 후`;
 }
 
@@ -110,9 +99,11 @@ function buildReportText({ summary, meta, eventId, currentUrl }) {
   const lines = [];
   lines.push("[보안 이벤트 보고]");
   lines.push("");
-  lines.push(`- 발생 시각: ${fmtTs(summary.tsMs)}`);
   lines.push(
-    `- 위험도: ${String(summary.severity || "UNKNOWN").toUpperCase()} (${sevKo(summary.severity)})`,
+    `- 발생 시각: ${fmtTs(summary.tsMs)}`
+  );
+  lines.push(
+    `- 위험도: ${String(summary.severity || "UNKNOWN").toUpperCase()} (${sevKo(summary.severity)})`
   );
   lines.push(`- 이벤트 유형: ${summary.type || "-"}`);
   lines.push(`- 탐지 규칙(ruleId): ${summary.ruleId || "-"}`);
@@ -140,6 +131,8 @@ export default function AdminEventDetailPage() {
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [data, setData] = useState(null);
+
   const currentUrlRef = useRef("");
   useEffect(() => {
     try {
@@ -149,53 +142,62 @@ export default function AdminEventDetailPage() {
     }
   }, []);
 
-  const [data, setData] = useState(null);
-  const [ruleId, setRuleId] = useState(null);
-  const [ruleDescription, setRuleDescription] = useState(null);
-
   useEffect(() => {
-    getEventDetail({ eventId }).then((res) => {
-      setData(res.data);
-      setRuleId(res.data.ruleId);
-    });
-  }, []); // 처음 한 번만 실행
+    let alive = true;
+    (async () => {
+      if (!eventId) return;
+      setLoading(true);
+      setErr("");
+      try {
+        const res = await getEventBody({ eventId });
+        if (!alive) return;
+        setData(res);
+      } catch (e) {
+        if (!alive) return;
+        setErr(String(e?.message || e));
+        setData(null);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [eventId]);
 
-  useEffect(() => {
-    // ruleId가 처음 설정될 때, 그리고 값이 변경될 때마다 여기가 실행됩니다.
-    if (!ruleId) return; // 값이 null일 때는 실행되지 않도록 방어 코드 추가
-    getRuleDescription({ ruleId }).then((res) => {
-      setRuleDescription(res.data);
-    });
-  }, [ruleId]); // <--- 핵심: ruleId를 감시합니다.
+  const meta = data?.meta || {};
+  const payloadObj = useMemo(() => safeJsonParse(data?.payload?.payloadJson), [data]);
 
-  const meta = data || {};
-
-  // 1. 이미 API 함수에서 파싱해서 보낸 details를 사용
-  const payloadObj = useMemo(() => data?.details || {}, [data]);
-
-  // 2. 정제된 data 객체에서 값을 바로 추출
   const summary = useMemo(() => {
-    if (!data) return {};
+    const p = payloadObj || {};
+    const tsMs = p?.tsMs ?? p?.ts ?? meta.tsMs ?? meta.ts ?? null;
+
+    const page = p?.page ?? meta.page ?? null;
+    const origin = p?.origin ?? meta.origin ?? null;
+
+    const actionResolved = p?.data?.actionResolved ?? null;
+    const actionOrigin = p?.data?.actionOrigin ?? null;
+
+    const pageHost = page ? normalizeHost(page) : "";
+    const targetHost = normalizeHost(actionResolved || actionOrigin || "");
 
     return {
-      tsMs: data.tsMs || null,
-      type: data.details?.type || null,
-      ruleId: data.details?.ruleId || null,
-      severity: data.details?.severity || null,
-      scoreDelta: data.details?.scoreDelta || null,
-      sessionId: data.details?.sessionId || null,
-      installId: data.installId || data.details?.installId || null,
-      origin: data.origin || null,
-      page: data.details?.page || null,
-      // data.origin이 URL 형태가 아닐 경우를 대비해 try-catch 처리 권장
-      pageHost: data.origin ? new URL(data.origin).hostname : "",
-      targetHost:
-        data.details?.data?.targetOrigin || data.details?.targetOrigin || "",
-      via: data.details?.data?.api || data.details?.data?.via || null,
-      mismatch: data.details?.data?.crossSite ?? null,
-      ua: data.details?.ua || null,
+      tsMs,
+      type: p?.type ?? meta.type ?? null,
+      ruleId: p?.ruleId ?? meta.ruleId ?? null,
+      severity: p?.severity ?? meta.severity ?? null,
+      scoreDelta: p?.scoreDelta ?? meta.scoreDelta ?? null,
+      sessionId: p?.sessionId ?? meta.sessionId ?? null,
+      installId: p?.installId ?? meta.installId ?? null,
+      origin,
+      page,
+      pageHost,
+      targetHost,
+      via: p?.data?.via ?? null,
+      mismatch: p?.data?.mismatch ?? null,
+      ua: p?.ua ?? meta.ua ?? null,
     };
-  }, [data]);
+  }, [payloadObj, meta]);
 
   // TODO: ruleId 템플릿 연동 (사용자용)
   // const ruleTemplate = getRuleTemplate(summary.ruleId);
@@ -220,9 +222,7 @@ export default function AdminEventDetailPage() {
     <TitleCard title="이벤트 상세" topMargin="mt-2">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="text-sm opacity-70">
-          <div className="font-mono break-all">
-            eventId: {eventId || "(none)"}
-          </div>
+          <div className="font-mono break-all">eventId: {eventId || "(none)"}</div>
           {summary.sessionId && (
             <div className="mt-1">
               <span className="opacity-60">sessionId:</span>{" "}
@@ -246,8 +246,8 @@ export default function AdminEventDetailPage() {
         <div className="p-4 border rounded-xl">
           <div className="font-semibold mb-1">eventId가 필요해요</div>
           <div className="text-sm opacity-70">
-            예: <span className="font-mono">/app/events/{"{eventId}"}</span>{" "}
-            또는 <span className="font-mono">?eventId=...</span>
+            예: <span className="font-mono">/app/events/{"{eventId}"}</span> 또는{" "}
+            <span className="font-mono">?eventId=...</span>
           </div>
         </div>
       )}
@@ -271,14 +271,10 @@ export default function AdminEventDetailPage() {
                     <span className={sevBadgeClass(summary.severity)}>
                       {String(summary.severity || "UNKNOWN").toUpperCase()}
                     </span>
-                    <span className="text-sm opacity-70">
-                      {sevKo(summary.severity)}
-                    </span>
+                    <span className="text-sm opacity-70">{sevKo(summary.severity)}</span>
                   </div>
                   <div className="mt-2 text-lg font-bold">
-                    {summary.severity
-                      ? `${sevKo(summary.severity)} 보안 이벤트 감지`
-                      : "보안 이벤트 상세"}
+                    {summary.severity ? `${sevKo(summary.severity)} 보안 이벤트 감지` : "보안 이벤트 상세"}
                   </div>
                   <div className="mt-1 text-sm opacity-80">
                     {summary.ruleId
@@ -290,9 +286,7 @@ export default function AdminEventDetailPage() {
                 <div className="text-right text-sm">
                   <div className="opacity-60">발생 시각</div>
                   <div className="font-mono">{fmtTs(summary.tsMs)}</div>
-                  {summary.tsMs && (
-                    <div className="opacity-70">{relTime(summary.tsMs)}</div>
-                  )}
+                  {summary.tsMs && <div className="opacity-70">{relTime(summary.tsMs)}</div>}
                 </div>
               </div>
 
@@ -306,18 +300,12 @@ export default function AdminEventDetailPage() {
                   ) : (
                     <div className="opacity-70">-</div>
                   )*/}
-                  {!!summary.pageHost && (
-                    <div className="mt-1 font-mono opacity-70">
-                      {summary.pageHost}
-                    </div>
-                  )}
+                  {!!summary.pageHost && <div className="mt-1 font-mono opacity-70">{summary.pageHost}</div>}
                 </div>
                 <div className="p-3 rounded-xl border">
                   <div className="opacity-60 mb-1">전송/대상 도메인</div>
                   {summary.targetHost ? (
-                    <div className="font-mono break-all">
-                      {summary.targetHost}
-                    </div>
+                    <div className="font-mono break-all">{summary.targetHost}</div>
                   ) : (
                     <div className="opacity-70">-</div>
                   )}
@@ -332,9 +320,7 @@ export default function AdminEventDetailPage() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="font-bold">사건 요약</div>
-                  <div className="mt-1 text-xs opacity-60 font-mono">
-                    ruleId: {summary.ruleId || "-"}
-                  </div>
+                  <div className="mt-1 text-xs opacity-60 font-mono">ruleId: {summary.ruleId || "-"}</div>
                 </div>
               </div>
 
@@ -343,32 +329,24 @@ export default function AdminEventDetailPage() {
                   <div className="opacity-60">이벤트</div>
                   <div className="mt-2">
                     <span className="opacity-60">탐지 규칙:</span>{" "}
-                    <span className="font-mono break-all">
-                      {summary.ruleId || "-"}
-                    </span>
+                    <span className="font-mono break-all">{summary.ruleId || "-"}</span>
                   </div>
                   {!ruleTemplate && (
                     <div className="text-sm opacity-70">
-                      <span className="opacity-60">원인:</span>{" "}
-                      <span className="font-mono break-all">
-                        {ruleDescription?.oneLine}
-                      </span>
+                      규칙 설명 템플릿 연동 예정입니다.
+                    <div className="mt-1 text-xs opacity-60">
+                      TODO: ruleId 템플릿(제목/설명/판단 가이드/참고 링크)을 불러와서 여기 표시
                     </div>
+                  </div>
                   )}
                   {ruleTemplate && (
                     <div className="text-sm">
-                      <div className="font-semibold">
-                        {ruleTemplate.titleKo}
-                      </div>
-                      <div className="mt-2 whitespace-pre-line opacity-80">
-                        {ruleTemplate.descriptionKo}
-                      </div>
-                      {ruleTemplate.guidanceKo && (
-                        <div className="mt-3 p-3 rounded-xl border bg-base-200 whitespace-pre-line">
-                          {ruleTemplate.guidanceKo}
-                        </div>
-                      )}
-                    </div>
+                      <div className="font-semibold">{ruleTemplate.titleKo}</div>
+                      <div className="mt-2 whitespace-pre-line opacity-80">{ruleTemplate.descriptionKo}</div>
+                        {ruleTemplate.guidanceKo && (
+                      <div className="mt-3 p-3 rounded-xl border bg-base-200 whitespace-pre-line">{ruleTemplate.guidanceKo}</div>
+                  )}
+                  </div>
                   )}
                   {summary.scoreDelta != null && (
                     <div className="mt-2">
@@ -382,21 +360,15 @@ export default function AdminEventDetailPage() {
                   <div className="opacity-60">사용자/환경</div>
                   <div className="mt-1">
                     <span className="opacity-60">origin:</span>{" "}
-                    <span className="font-mono break-all">
-                      {summary.origin || "-"}
-                    </span>
+                    <span className="font-mono break-all">{summary.origin || "-"}</span>
                   </div>
                   <div className="mt-1">
                     <span className="opacity-60">installId:</span>{" "}
-                    <span className="font-mono break-all">
-                      {summary.installId || "-"}
-                    </span>
+                    <span className="font-mono break-all">{summary.installId || "-"}</span>
                   </div>
                   <div className="mt-1">
                     <span className="opacity-60">sessionId:</span>{" "}
-                    <span className="font-mono break-all">
-                      {summary.sessionId || "-"}
-                    </span>
+                    <span className="font-mono break-all">{summary.sessionId || "-"}</span>
                   </div>
                 </div>
 
@@ -405,25 +377,17 @@ export default function AdminEventDetailPage() {
                   <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2">
                     <div>
                       <div className="text-xs opacity-60">via</div>
-                      <div className="font-mono break-all">
-                        {summary.via || "-"}
-                      </div>
+                      <div className="font-mono break-all">{summary.via || "-"}</div>
                     </div>
                     <div>
                       <div className="text-xs opacity-60">mismatch</div>
                       <div className="font-mono break-all">
-                        {summary.mismatch === true
-                          ? "true"
-                          : summary.mismatch === false
-                            ? "false"
-                            : "-"}
+                        {summary.mismatch === true ? "true" : summary.mismatch === false ? "false" : "-"}
                       </div>
                     </div>
                     <div>
                       <div className="text-xs opacity-60">targetHost</div>
-                      <div className="font-mono break-all">
-                        {summary.targetHost || "-"}
-                      </div>
+                      <div className="font-mono break-all">{summary.targetHost || "-"}</div>
                     </div>
                   </div>
                 </div>
@@ -431,12 +395,8 @@ export default function AdminEventDetailPage() {
 
               {summary.ua && (
                 <details className="mt-1">
-                  <summary className="cursor-pointer text-sm opacity-70">
-                    User-Agent 보기
-                  </summary>
-                  <div className="mt-2 p-3 rounded-xl border text-xs font-mono break-all">
-                    {clampText(summary.ua, 1200)}
-                  </div>
+                  <summary className="cursor-pointer text-sm opacity-70">User-Agent 보기</summary>
+                  <div className="mt-2 p-3 rounded-xl border text-xs font-mono break-all">{clampText(summary.ua, 1200)}</div>
                 </details>
               )}
             </div>
