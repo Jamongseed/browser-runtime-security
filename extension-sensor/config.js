@@ -1,7 +1,7 @@
 export const SYSTEM_CONFIG = {
     API_ENDPOINT: "http://localhost:8080/events",
     DUMPS_ENDPOINT: "http://localhost:8080/dumps",
-    // API_ENDPOINT: "https://tatnbs1wq5.execute-api.ap-northeast-2.amazonaws.com/prod/events",
+    //API_ENDPOINT: "https://tatnbs1wq5.execute-api.ap-northeast-2.amazonaws.com/prod/events",
     
     USE_SERVER_DASHBOARD: false,
     AWS_DASHBOARD_URL: "",

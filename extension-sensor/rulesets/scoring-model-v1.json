@@ -426,5 +426,194 @@
   "notes": {
     "signalMatch": "Implement as substring checks over dumped script text; some signals may be better as AST/semantic checks later.",
     "comboTrigger": "Combos are computed by requires[]: if all required signal ids hit, add bonus."
+  },
+
+  "defaultLocale": "ko",
+  "messages": {
+    "A_FUNC_CONSTRUCTOR": {
+      "ko": { "title": "Function 생성자 기반 동적 실행", "oneLine": "런타임에 코드를 생성해 실행할 수 있어 난독화/악성 실행에 자주 쓰입니다." },
+      "en": { "title": "Function constructor dynamic execution", "oneLine": "Runtime code generation via Function/new Function." }
+    },
+    "A_EVAL": {
+      "ko": { "title": "eval() 문자열 실행", "oneLine": "문자열을 코드로 실행해 동적 실행 및 우회 난독화에 악용될 수 있습니다." },
+      "en": { "title": "eval() runtime execution", "oneLine": "Runtime string execution via eval()." }
+    },
+    "A_ATOB_FROMCHARCODE": {
+      "ko": { "title": "atob()/fromCharCode() 난독화 디코딩", "oneLine": "문자열 디코딩/조합 패턴으로, 숨긴 코드를 복원해 실행하는 전단계일 수 있습니다." },
+      "en": { "title": "atob()/fromCharCode() decoding", "oneLine": "Decode/obfuscation building blocks often used to reconstruct hidden code." }
+    },
+    "A_DYN_SCRIPT_SRC_INJECT": {
+      "ko": { "title": "동적 <script src> 주입", "oneLine": "런타임에 외부 코드를 로드해 실행 흐름을 바꿀 수 있습니다." },
+      "en": { "title": "Dynamic <script src> injection", "oneLine": "Load external code at runtime via injected script tag." }
+    },
+    "A_DYN_IFRAME_SRC_HIDDEN": {
+      "ko": { "title": "숨김 <iframe src> 동적 주입", "oneLine": "보이지 않는 iframe을 로더/은닉 채널로 사용해 추가 코드를 불러올 수 있습니다." },
+      "en": { "title": "Hidden dynamic <iframe src> injection", "oneLine": "Secondary loader / stealth channel via hidden iframe." }
+    },
+    "A_FORM_ACTION_SWAP": {
+      "ko": { "title": "폼 action/target/method 변경", "oneLine": "제출 대상을 공격자 서버로 바꿔 자격증명/PII를 탈취할 수 있습니다." },
+      "en": { "title": "Form submission redirection", "oneLine": "Redirect submissions to attacker by changing form action/target/method." }
+    },
+    "A_SUBMIT_CAPTURE_HOOK": {
+      "ko": { "title": "submit 캡처 단계 후킹", "oneLine": "페이지 코드보다 먼저 submit을 가로채 입력값/제출 흐름을 조작할 수 있습니다." },
+      "en": { "title": "Submit capture hook", "oneLine": "Intercept submit before app code using capture phase listener." }
+    },
+    "A_FORM_SUBMIT_DIRECT": {
+      "ko": { "title": "form.submit() 강제 제출", "oneLine": "submit 이벤트를 우회하거나 사용자가 의도하지 않은 시점에 제출을 강제할 수 있습니다." },
+      "en": { "title": "Direct form.submit()", "oneLine": "Bypass submit event or force submission programmatically." }
+    },
+    "A_FORMDATA_CREATE": {
+      "ko": { "title": "FormData 생성(필드 수집)", "oneLine": "폼 입력값을 구조화해 수집하는 동작으로, 탈취/유출 준비 단계일 수 있습니다." },
+      "en": { "title": "FormData collection", "oneLine": "Collect field values by creating FormData from a form." }
+    },
+    "A_FORMDATA_ENTRIES": {
+      "ko": { "title": "FormData entries() 순회", "oneLine": "키/값 전체를 추출하는 패턴으로, 입력 데이터 탈취 가능성을 높입니다." },
+      "en": { "title": "Iterate FormData entries()", "oneLine": "Extract key/value pairs by iterating FormData entries." }
+    },
+    "A_FETCH_XHR_ABS_URL": {
+      "ko": { "title": "교차 출처 fetch/XHR 전송", "oneLine": "다른 출처로 데이터를 전송해 유출(exfiltration) 경로가 될 수 있습니다." },
+      "en": { "title": "Cross-origin fetch/XHR", "oneLine": "Send data to a different origin via fetch/XHR." }
+    },
+    "A_SENDBEACON": {
+      "ko": { "title": "sendBeacon() 백그라운드 전송", "oneLine": "페이지 종료/백그라운드에서도 전송이 가능해 은밀한 유출에 악용될 수 있습니다." },
+      "en": { "title": "navigator.sendBeacon()", "oneLine": "Background exfiltration channel via sendBeacon." }
+    },
+    "A_WEBSOCKET_SEND": {
+      "ko": { "title": "WebSocket 실시간 전송", "oneLine": "지속 연결을 통해 실시간 C2/유출 채널로 동작할 수 있습니다." },
+      "en": { "title": "WebSocket exfil/C2", "oneLine": "Real-time exfiltration/C2 channel via WebSocket." }
+    },
+    "A_HTMLFORMELEMENT_PROTO_OVERRIDE": {
+      "ko": { "title": "HTMLFormElement 프로토타입 변조", "oneLine": "폼 제출 동작을 전역적으로 가로채거나 바꿔치기할 수 있습니다." },
+      "en": { "title": "HTMLFormElement prototype override", "oneLine": "Hook/replace global form submission behavior via prototype override." }
+    },
+    "A_FETCH_KEEPALIVE_NOCORS": {
+      "ko": { "title": "keepalive/no-cors 전송 옵션", "oneLine": "전송 안정성/은닉성을 높여 유출을 더 견고하게 만들 수 있습니다." },
+      "en": { "title": "keepalive / no-cors", "oneLine": "Stealthy/robust exfil options that can improve delivery reliability." }
+    },
+    "A_XHR_OPEN_SEND_OVERRIDE": {
+      "ko": { "title": "XHR open/send 후킹", "oneLine": "모든 XHR 요청을 가로채 데이터/헤더/목적지를 조작할 수 있습니다." },
+      "en": { "title": "XHR open/send override", "oneLine": "Intercept all XHR requests by overriding open/send." }
+    },
+    "A_XHR_SETREQUESTHEADER_OVERRIDE": {
+      "ko": { "title": "XHR setRequestHeader 후킹", "oneLine": "인증 토큰 등 민감 헤더를 수집/변조할 수 있습니다." },
+      "en": { "title": "XHR setRequestHeader override", "oneLine": "Capture or tamper with sensitive request headers." }
+    },
+    "A_SW_REGISTER": {
+      "ko": { "title": "Service Worker 등록", "oneLine": "페이지를 넘어 브라우저에 지속적으로 남아 동작할 수 있는 영속성 수단입니다." },
+      "en": { "title": "Service Worker registration", "oneLine": "Persist in the browser beyond the current page via service worker." }
+    },
+    "A_SW_SCOPE_ROOT": {
+      "ko": { "title": "SW scope '/' (전 사이트 영향)", "oneLine": "사이트 전체 범위를 제어할 수 있어 영향 범위가 커집니다." },
+      "en": { "title": "SW scope '/'", "oneLine": "Broader impact by controlling site-wide scope." }
+    },
+    "A_SW_SKIPWAITING_CLAIM": {
+      "ko": { "title": "skipWaiting()/clients.claim()", "oneLine": "즉시 활성화/클라이언트 점유로 빠르게 제어권을 확보할 수 있습니다." },
+      "en": { "title": "skipWaiting()/clients.claim()", "oneLine": "Immediate control by activating and claiming clients quickly." }
+    },
+    "A_SW_FETCH_INTERCEPT": {
+      "ko": { "title": "SW fetch 가로채기", "oneLine": "네트워크 레이어에서 요청/응답을 감시·변조하는 Man-in-the-Browser가 가능합니다." },
+      "en": { "title": "SW fetch intercept", "oneLine": "Man-in-the-browser at network layer by intercepting fetch events." }
+    },
+    "A_RESPONSE_REWRITE": {
+      "ko": { "title": "응답 변조(Response rewrite)", "oneLine": "API 응답을 바꿔치기해 화면/비즈니스 로직을 속일 수 있습니다." },
+      "en": { "title": "Response rewrite", "oneLine": "Tamper with API responses by rewriting Response/json payloads." }
+    },
+    "A_POSTMESSAGE_TRIGGER": {
+      "ko": { "title": "postMessage 트리거(무장/조건부 실행)", "oneLine": "특정 메시지 수신 시에만 동작하는 조건부 공격 트리거로 쓰일 수 있습니다." },
+      "en": { "title": "postMessage arming trigger", "oneLine": "Conditional attack trigger using postMessage listener." }
+    },
+    "A_MICROTASK_TIMING": {
+      "ko": { "title": "마이크로태스크/타이밍 은닉", "oneLine": "미세한 타이밍으로 실행 시점을 숨기거나 탐지를 회피하려는 정황일 수 있습니다." },
+      "en": { "title": "Microtask timing", "oneLine": "Timing/stealth via microtasks (queueMicrotask/Promise.then/rAF)." }
+    },
+    "A_MULTI_ORIGIN_MIRROR": {
+      "ko": { "title": "다중 출처 미러링(팬아웃)", "oneLine": "여러 수집지로 동시에 전송해 유출 성공률을 높일 수 있습니다." },
+      "en": { "title": "Multi-origin mirroring", "oneLine": "Increase exfil reliability by sending to multiple collectors." }
+    },
+    "A_KEYDOWN_CAPTURE": {
+      "ko": { "title": "키 입력 캡처(키로깅)", "oneLine": "키 입력을 수집해 계정 정보 등 민감 데이터 탈취로 이어질 수 있습니다." },
+      "en": { "title": "Keylogging (keydown capture)", "oneLine": "Keystroke capture that can lead to credential theft." }
+    },
+    "A_MUTATIONOBSERVER_TRIGGER": {
+      "ko": { "title": "MutationObserver 트리거", "oneLine": "DOM 변화에 반응해 조건부로 악성 동작을 실행하는 패턴일 수 있습니다." },
+      "en": { "title": "MutationObserver trigger", "oneLine": "Condition-based execution (or stealth trigger) via DOM observation." }
+    },
+    "A_CACHE_BUSTING_TS": {
+      "ko": { "title": "캐시 무력화(Date.now/ts)", "oneLine": "캐시를 우회해 매번 새 코드를 받아오거나 시그니처 안정성을 낮추려는 정황일 수 있습니다." },
+      "en": { "title": "Cache-busting timestamp", "oneLine": "Avoid cache & signature stability using Date.now()/ts parameters." }
+    },
+    "B_CAPTURE_POINTER": {
+      "ko": { "title": "포인터/클릭 캡처 단계 후킹", "oneLine": "사용자 입력을 가장 먼저 가로채 클릭 하이재킹으로 이어질 수 있습니다." },
+      "en": { "title": "Pointer/click capture hook", "oneLine": "Get first chance to intercept pointer/click events using capture phase." }
+    },
+    "B_PREVENTDEFAULT": {
+      "ko": { "title": "preventDefault() 실행", "oneLine": "사용자 의도 동작을 취소하고 공격 흐름으로 유도하는 데 쓰일 수 있습니다." },
+      "en": { "title": "preventDefault()", "oneLine": "Cancel user-intended action to steer control flow." }
+    },
+    "B_STOPPROP": {
+      "ko": { "title": "stopPropagation() 실행", "oneLine": "페이지의 이벤트 핸들러를 차단해 정상 로직을 무력화할 수 있습니다." },
+      "en": { "title": "stopPropagation()", "oneLine": "Block page handlers by stopping event propagation." }
+    },
+    "B_STOPIMMEDIATE": {
+      "ko": { "title": "stopImmediatePropagation() 실행", "oneLine": "모든 후속 핸들러를 차단해 사용자/페이지 제어를 강하게 장악할 수 있습니다." },
+      "en": { "title": "stopImmediatePropagation()", "oneLine": "Block all other handlers by stopping immediate propagation." }
+    },
+    "B_LOCATION_REDIRECT": {
+      "ko": { "title": "강제 리다이렉트(location 변경)", "oneLine": "사용자를 원치 않는 페이지로 강제로 이동시키는 동작입니다." },
+      "en": { "title": "Forced navigation", "oneLine": "Force navigation using location.assign/replace/href." }
+    },
+    "B_FULLSCREEN_OVERLAY": {
+      "ko": { "title": "전체 화면 오버레이/클릭재킹", "oneLine": "투명/전체 레이어로 클릭을 가로채 다른 동작으로 유도할 수 있습니다." },
+      "en": { "title": "Fullscreen overlay (clickjacking)", "oneLine": "Redirect clicks using fullscreen/transparent overlay elements." }
+    },
+    "B_PRECLICK_HREF_SWAP": {
+      "ko": { "title": "클릭 직전 href 바꿔치기", "oneLine": "마지막 순간 목적지를 바꿔 사용자를 다른 곳으로 보내는 bait & switch 패턴입니다." },
+      "en": { "title": "Pre-click href swap", "oneLine": "Change destination at the last moment (bait & switch)." }
+    },
+    "B_RESET_HREF_DELAY_REDIRECT": {
+      "ko": { "title": "href 원복 후 지연 리다이렉트", "oneLine": "변경 흔적을 숨긴 뒤 지연 이동으로 공격을 수행할 수 있습니다." },
+      "en": { "title": "Reset href then delayed redirect", "oneLine": "Hide the change, then redirect later using timing." }
+    },
+
+    "C-A2": {
+      "ko": { "title": "로더 체인(동적 실행 + 주입)", "oneLine": "eval/new Function과 동적 script/iframe 주입이 함께 나타나는 로딩 체인입니다." },
+      "en": { "title": "Loader chain", "oneLine": "eval/new Function + dynamic script/iframe injection." }
+    },
+    "C-A3": {
+      "ko": { "title": "제출 하이재킹 → 전송/강제 제출", "oneLine": "submit 가로채기 + action 변경 + 강제 submit 조합으로 제출 흐름을 탈취할 수 있습니다." },
+      "en": { "title": "Submit hijack → redirect/forced submit", "oneLine": "submit interception + action swap + forced submit." }
+    },
+    "C-A4": {
+      "ko": { "title": "네트워크 후킹 → 유출", "oneLine": "XHR/fetch 후킹과 교차 출처 전송이 결합돼 유출 가능성이 높습니다." },
+      "en": { "title": "Network hook → exfil", "oneLine": "XHR/fetch hook + cross-origin exfil (incl. fan-out)." }
+    },
+    "C-A5": {
+      "ko": { "title": "폼 후킹 → FormData → 유출", "oneLine": "입력값 수집(FormData) 후 외부 전송으로 이어지는 전형적 유출 체인입니다." },
+      "en": { "title": "Form hook → FormData → exfil", "oneLine": "submit hook + FormData + beacon/fetch/ws." }
+    },
+    "C-A6": {
+      "ko": { "title": "SW 영속성 → 변조", "oneLine": "Service Worker 등록 후 fetch 가로채기/응답 변조로 지속적 조작이 가능합니다." },
+      "en": { "title": "SW persistence → tampering", "oneLine": "SW register + fetch intercept + response rewrite." }
+    },
+    "C-A7": {
+      "ko": { "title": "키로깅 → 유출", "oneLine": "키 입력 수집과 네트워크 전송이 결합돼 계정 정보 유출 위험이 큽니다." },
+      "en": { "title": "Keylogging → exfil", "oneLine": "keydown capture + network send." }
+    },
+    "C-B2": {
+      "ko": { "title": "오버레이 → 리다이렉트", "oneLine": "전체 화면 오버레이로 클릭을 가로채 강제 이동을 유도할 수 있습니다." },
+      "en": { "title": "Overlay → redirect", "oneLine": "fullscreen overlay + redirect." }
+    },
+    "C-B3": {
+      "ko": { "title": "클릭 직전 바꿔치기 → 리다이렉트", "oneLine": "href 스왑 이후 강제 이동이 이어지는 bait & switch 조합입니다." },
+      "en": { "title": "Pre-click swap → redirect", "oneLine": "href swap + redirect." }
+    },
+    "C-A1": {
+      "ko": { "title": "atob + eval 조합(보류)", "oneLine": "광고 SDK에서도 흔해 과탐 우려가 있어 기본 비활성화된 조합입니다." },
+      "en": { "title": "atob + eval (disabled)", "oneLine": "Common in ad SDKs; disabled due to false positive risk." }
+    },
+    "C-B1": {
+      "ko": { "title": "capture + prevent + redirect(보류)", "oneLine": "SPA/모바일 터치 보정에서도 흔해 과탐 우려로 기본 비활성화된 조합입니다." },
+      "en": { "title": "capture + prevent + redirect (disabled)", "oneLine": "Common in SPA/mobile touch fixes; disabled due to false positive risk." }
+    }
   }
 }

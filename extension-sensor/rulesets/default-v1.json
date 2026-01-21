@@ -1,19 +1,488 @@
 {
   "schemaVersion": "ruleset-v1",
   "rulesetId": "default-v1",
-  "name": "기본 룰셋 (데모/PoC용)",
+  "name": "base ruleset-v1",
   "description": "content.js에서 발생하는 이벤트(type/data)를 기준으로 ruleId/scoreDelta/severity를 정책(룰셋)으로 정의합니다.",
   "enabled": true,
-  "updatedAt": "2026-01-12",
+  "updatedAt": "2026-01-19",
+
+  "i18n": {
+    "defaultLocale": "ko",
+    "supportedLocales": ["ko", "en"]
+  },
+
+  "messages": {
+    "SENSOR_READY": {
+      "ko": {
+        "title": "센서 준비 완료",
+        "oneLine": "브라우저 런타임 보안 센서가 초기화되어 이벤트 수집을 시작합니다."
+      },
+      "en": {
+        "title": "Sensor ready",
+        "oneLine": "The runtime security sensor has initialized and started collecting events."
+      }
+    },
+
+    "DYN_SCRIPT_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT": {
+      "ko": {
+        "title": "서드파티 스크립트가 스크립트 삽입을 유도",
+        "oneLine": "다른 출처(서드파티)에서 시작된 코드가 런타임에 스크립트를 추가해 공격 표면이 커졌습니다."
+      },
+      "en": {
+        "title": "Cross-site script initiated dynamic script insert",
+        "oneLine": "Code initiated by a different origin added a script at runtime, increasing the attack surface."
+      }
+    },
+
+    "HIDDEN_IFRAME_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT": {
+      "ko": {
+        "title": "서드파티 스크립트가 숨김 iframe 삽입",
+        "oneLine": "다른 출처에서 시작된 코드가 보이지 않는 iframe을 삽입해 은밀한 리다이렉션/추적/피싱 위험이 있습니다."
+      },
+      "en": {
+        "title": "Cross-site script inserted a hidden iframe",
+        "oneLine": "Code initiated by a different origin inserted a hidden iframe, enabling stealthy redirects, tracking, or phishing."
+      }
+    },
+
+    "IFRAME_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT": {
+      "ko": {
+        "title": "서드파티 스크립트가 iframe 삽입",
+        "oneLine": "다른 출처에서 시작된 코드가 iframe을 삽입해 사용자 상호작용 가로채기/콘텐츠 주입 위험이 있습니다."
+      },
+      "en": {
+        "title": "Cross-site script inserted an iframe",
+        "oneLine": "Code initiated by a different origin inserted an iframe, enabling UI interception or content injection."
+      }
+    },
+
+    "DYN_SCRIPT_INSERT_CROSS_SITE": {
+      "ko": {
+        "title": "외부 도메인 스크립트 동적 삽입",
+        "oneLine": "현재 페이지와 다른 출처의 스크립트가 런타임에 추가되어 코드 실행 위험이 증가합니다."
+      },
+      "en": {
+        "title": "Cross-site dynamic script injection",
+        "oneLine": "A script from a different origin was added at runtime, increasing the risk of unauthorized code execution."
+      }
+    },
+
+    "DYN_SCRIPT_INSERT_SAME_SITE": {
+      "ko": {
+        "title": "동일 출처 스크립트 동적 삽입",
+        "oneLine": "동일 출처 스크립트가 런타임에 추가되었습니다. 정상 동작일 수도 있으나 변조 징후로도 활용됩니다."
+      },
+      "en": {
+        "title": "Same-origin dynamic script insertion",
+        "oneLine": "A same-origin script was added at runtime. This can be normal, but may also indicate tampering."
+      }
+    },
+
+    "SW_REGISTER_INITIATED_BY_CROSS_SITE_SCRIPT": {
+      "ko": {
+        "title": "서드파티 스크립트가 Service Worker 등록 시도",
+        "oneLine": "다른 출처에서 시작된 코드가 Service Worker를 등록해 지속성(persistence) 확보를 시도할 수 있습니다."
+      },
+      "en": {
+        "title": "Cross-site script initiated Service Worker registration",
+        "oneLine": "Code initiated by a different origin attempted to register a Service Worker, enabling persistence."
+      }
+    },
+
+    "SW_REGISTER": {
+      "ko": {
+        "title": "Service Worker 등록",
+        "oneLine": "Service Worker가 등록되었습니다. 정상 기능일 수 있으나 지속성 확보 수단으로 악용될 수 있습니다."
+      },
+      "en": {
+        "title": "Service Worker registered",
+        "oneLine": "A Service Worker was registered. This may be legitimate, but can also be used for persistence."
+      }
+    },
+
+    "SW_REGISTRATIONS_PRESENT": {
+      "ko": {
+        "title": "Service Worker 등록 내역 존재",
+        "oneLine": "현재 origin에 Service Worker 등록 내역이 존재합니다(지속 실행 기반 가능성)."
+      },
+      "en": {
+        "title": "Service Worker registrations present",
+        "oneLine": "This origin has existing Service Worker registrations, which may enable persistent behavior."
+      }
+    },
+
+    "SW_PERSISTENCE_ACTIVE": {
+      "ko": {
+        "title": "Service Worker 지속성 활성화",
+        "oneLine": "Service Worker 기반의 지속 동작이 감지되었습니다. 재주입/리다이렉션/네트워크 조작 위험이 증가합니다."
+      },
+      "en": {
+        "title": "Service Worker persistence active",
+        "oneLine": "Persistent Service Worker activity was detected, increasing the risk of reinjection, redirects, or network manipulation."
+      }
+    },
+
+    "POC_G_SW_CHAIN_CONFIRMED": {
+      "ko": {
+        "title": "Service Worker 지속성 체인 확인",
+        "oneLine": "PoC-G 시나리오의 지속성(서비스워커) 체인이 확인되었습니다. 세션 종료 후에도 영향이 남을 수 있습니다."
+      },
+      "en": {
+        "title": "Service Worker persistence chain confirmed",
+        "oneLine": "A PoC-G persistence chain was confirmed. Impact may remain even after the session ends."
+      }
+    },
+
+    "HIDDEN_IFRAME_INSERT": {
+      "ko": {
+        "title": "숨김 iframe 삽입",
+        "oneLine": "보이지 않는 iframe이 삽입되어 은밀한 이동/추적/피싱 흐름이 생성될 수 있습니다."
+      },
+      "en": {
+        "title": "Hidden iframe inserted",
+        "oneLine": "A hidden iframe was inserted, which can enable stealthy navigation, tracking, or phishing flows."
+      }
+    },
+
+    "IFRAME_INSERT": {
+      "ko": {
+        "title": "iframe 삽입",
+        "oneLine": "iframe이 동적으로 삽입되었습니다. 위젯/광고일 수 있으나 클릭 가로채기 등으로 악용될 수 있습니다."
+      },
+      "en": {
+        "title": "Iframe inserted",
+        "oneLine": "An iframe was dynamically inserted. It may be a widget/ad, but can be abused for UI interception."
+      }
+    },
+
+    "PHISHING_FORM_MISMATCH_AFTER_PROTO_TAMPER": {
+      "ko": {
+        "title": "프로토타입 변조 후 폼 목적지 불일치",
+        "oneLine": "폼 제출 관련 프로토타입 변조가 있었고, 실제 전송 대상이 기대값과 달라 피싱 가능성이 높습니다."
+      },
+      "en": {
+        "title": "Form destination mismatch after prototype tampering",
+        "oneLine": "Prototype tampering was detected and the form destination mismatched the expected target, indicating likely phishing."
+      }
+    },
+
+    "FORM_SUBMIT_AFTER_PROTO_TAMPER": {
+      "ko": {
+        "title": "프로토타입 변조 이후 폼 제출",
+        "oneLine": "폼 제출 관련 프로토타입 변조 이후 제출이 발생했습니다. 변조된 제출 흐름을 통한 탈취 가능성이 있습니다."
+      },
+      "en": {
+        "title": "Form submitted after prototype tampering",
+        "oneLine": "A form submission occurred after prototype tampering, which may enable a modified submission flow and data theft."
+      }
+    },
+
+    "PHISHING_FORM_MISMATCH": {
+      "ko": {
+        "title": "폼 전송 대상 불일치",
+        "oneLine": "폼 표시/기대 대상과 실제 전송 대상이 불일치합니다. 자격 증명 탈취(피싱) 가능성이 있습니다."
+      },
+      "en": {
+        "title": "Form destination mismatch",
+        "oneLine": "The form’s apparent/expected destination differs from the actual target, indicating potential credential phishing."
+      }
+    },
+
+    "FORM_ACTION_MATCH": {
+      "ko": {
+        "title": "폼 전송 대상 일치",
+        "oneLine": "폼 전송 대상이 기대값과 일치합니다(정상 제출 가능성)."
+      },
+      "en": {
+        "title": "Form destination matched",
+        "oneLine": "The form destination matched the expected target (likely a normal submission)."
+      }
+    },
+
+    "FORM_ACTION_PARSE_FAIL": {
+      "ko": {
+        "title": "폼 전송 대상 파싱 실패",
+        "oneLine": "폼 action/target을 정상적으로 해석하지 못했습니다. 난독화/비정상 URL로 인한 위험 신호일 수 있습니다."
+      },
+      "en": {
+        "title": "Failed to parse form destination",
+        "oneLine": "The form action/target could not be parsed. This may indicate obfuscation or an abnormal destination."
+      }
+    },
+
+    "OBFUSCATION_ATOB": {
+      "ko": {
+        "title": "Base64 디코딩(atob) 사용",
+        "oneLine": "런타임에서 atob 호출이 감지되었습니다. 난독화된 페이로드 복호화에 사용될 수 있습니다."
+      },
+      "en": {
+        "title": "Base64 decode (atob) usage",
+        "oneLine": "An atob call was detected. It can be used to decode obfuscated payloads at runtime."
+      }
+    },
+
+    "DYNAMIC_CODE_EVAL": {
+      "ko": {
+        "title": "동적 코드 실행(eval) 사용",
+        "oneLine": "eval 기반 동적 코드 실행이 감지되었습니다. 삽입/다운로드된 코드 실행 위험이 큽니다."
+      },
+      "en": {
+        "title": "Dynamic code execution via eval",
+        "oneLine": "Dynamic code execution via eval was detected, which significantly increases the risk of injected code running."
+      }
+    },
+
+    "DYNAMIC_CODE_FUNCTION": {
+      "ko": {
+        "title": "동적 코드 생성(Function) 사용",
+        "oneLine": "Function 생성자를 통한 동적 코드 실행이 감지되었습니다. 런타임 코드 주입 위험이 있습니다."
+      },
+      "en": {
+        "title": "Dynamic code execution via Function constructor",
+        "oneLine": "Dynamic code execution via the Function constructor was detected, indicating potential runtime code injection."
+      }
+    },
+
+    "DOM_XSS_INJECTION": {
+      "ko": {
+        "title": "DOM 기반 XSS 의심",
+        "oneLine": "DOM 조작을 통한 스크립트 주입(XSS) 정황이 감지되었습니다. 세션 탈취/피싱으로 이어질 수 있습니다."
+      },
+      "en": {
+        "title": "Suspected DOM-based XSS",
+        "oneLine": "Signals of DOM-based script injection were detected, which can lead to session theft or phishing."
+      }
+    },
+
+    "COOKIE_THEFT": {
+      "ko": {
+        "title": "민감 데이터 접근(쿠키/토큰) 의심",
+        "oneLine": "민감 데이터 접근 정황이 감지되었습니다. 쿠키/토큰 탈취 및 세션 하이재킹 위험이 있습니다."
+      },
+      "en": {
+        "title": "Sensitive data access suspected (cookies/tokens)",
+        "oneLine": "Signals of sensitive data access were detected, indicating possible cookie/token theft and session hijacking."
+      }
+    },
+
+    "NETWORK_LEAK": {
+      "ko": {
+        "title": "의심스러운 네트워크 전송",
+        "oneLine": "의심스러운 외부 네트워크 호출이 감지되었습니다. 데이터 유출(exfiltration) 가능성이 있습니다."
+      },
+      "en": {
+        "title": "Suspicious network transmission",
+        "oneLine": "A suspicious outbound network call was detected, which may indicate data exfiltration."
+      }
+    },
+
+    "XHR_MIRRORING_SUSPECT": {
+      "ko": {
+        "title": "XHR 미러링 의심",
+        "oneLine": "XHR 요청/응답이 복제되어 외부로 전송될 수 있는 정황이 감지되었습니다(정보 유출 위험)."
+      },
+      "en": {
+        "title": "Suspected XHR mirroring",
+        "oneLine": "Signals suggest XHR traffic may be duplicated and forwarded externally, indicating potential data leakage."
+      }
+    },
+
+    "INVISIBLE_LAYER_INSERT": {
+      "ko": {
+        "title": "투명 클릭 레이어 삽입",
+        "oneLine": "사용자 입력을 가로채는 투명 레이어가 삽입되었습니다. 클릭 하이재킹 위험이 있습니다."
+      },
+      "en": {
+        "title": "Invisible click layer inserted",
+        "oneLine": "An invisible overlay was inserted to intercept user input, indicating clickjacking risk."
+      }
+    },
+
+    "INVISIBLE_LAYER_CLICK": {
+      "ko": {
+        "title": "투명 클릭 레이어로 입력 가로채기",
+        "oneLine": "클릭 직전 투명 레이어가 사용자 입력을 가로챘습니다. 강제 이동/광고 리다이렉트 가능성이 높습니다."
+      },
+      "en": {
+        "title": "User input intercepted by invisible layer",
+        "oneLine": "User input was intercepted by an invisible overlay near click time, indicating likely forced navigation or ad redirect."
+      }
+    },
+
+    "THIRDPARTY_WIDGET_ARMED": {
+      "ko": {
+        "title": "서드파티 위젯이 민감 동작 준비(ARM)",
+        "oneLine": "서드파티 위젯이 폼 목적지 스왑 등 민감 동작을 수행하기 위한 상태로 전환되었습니다."
+      },
+      "en": {
+        "title": "Third-party widget armed for sensitive action",
+        "oneLine": "A third-party widget entered an armed state to perform sensitive actions such as swapping form destinations."
+      }
+    },
+
+    "FORM_SUBMIT_PROTOTYPE_TAMPER": {
+      "ko": {
+        "title": "form.submit 프로토타입 변조",
+        "oneLine": "form.submit이 네이티브가 아닌 구현으로 변경되었습니다. 제출 흐름 탈취/변조 가능성이 있습니다."
+      },
+      "en": {
+        "title": "Prototype tampering: form.submit",
+        "oneLine": "form.submit was replaced with a non-native implementation, enabling submission flow hijacking or manipulation."
+      }
+    },
+
+    "FORM_REQUESTSUBMIT_PROTOTYPE_TAMPER": {
+      "ko": {
+        "title": "form.requestSubmit 프로토타입 변조",
+        "oneLine": "form.requestSubmit이 네이티브가 아닌 구현으로 변경되었습니다. 사용자 제출을 우회/가로챌 수 있습니다."
+      },
+      "en": {
+        "title": "Prototype tampering: form.requestSubmit",
+        "oneLine": "form.requestSubmit was replaced with a non-native implementation, which can bypass or intercept user submissions."
+      }
+    },
+
+    "XHR_OPEN_PROTOTYPE_TAMPER": {
+      "ko": {
+        "title": "XMLHttpRequest.open 프로토타입 변조",
+        "oneLine": "XHR open이 네이티브가 아닌 구현으로 변경되었습니다. 요청 대상/헤더/로깅이 조작될 수 있습니다."
+      },
+      "en": {
+        "title": "Prototype tampering: XMLHttpRequest.open",
+        "oneLine": "XHR open was replaced with a non-native implementation, allowing manipulation of request targets, headers, or logging."
+      }
+    },
+
+    "XHR_SEND_PROTOTYPE_TAMPER": {
+      "ko": {
+        "title": "XMLHttpRequest.send 프로토타입 변조",
+        "oneLine": "XHR send가 네이티브가 아닌 구현으로 변경되었습니다. 요청 바디 탈취/변조 및 미러링 위험이 있습니다."
+      },
+      "en": {
+        "title": "Prototype tampering: XMLHttpRequest.send",
+        "oneLine": "XHR send was replaced with a non-native implementation, enabling body theft, manipulation, or mirroring."
+      }
+    },
+
+    "XHR_SETREQUESTHEADER_PROTOTYPE_TAMPER": {
+      "ko": {
+        "title": "XMLHttpRequest.setRequestHeader 프로토타입 변조",
+        "oneLine": "XHR 헤더 설정 함수가 변조되었습니다. 인증/추적 헤더 추가 및 요청 위조 가능성이 있습니다."
+      },
+      "en": {
+        "title": "Prototype tampering: XMLHttpRequest.setRequestHeader",
+        "oneLine": "XHR header-setting was tampered with, enabling injection of auth/tracking headers or request forgery."
+      }
+    },
+
+    "MUTATION_OBSERVER_REGISTER": {
+      "ko": {
+        "title": "MutationObserver 등록",
+        "oneLine": "DOM 변경 감시(MutationObserver)가 등록되었습니다. 이후 지연 삽입/후킹의 기반이 될 수 있습니다."
+      },
+      "en": {
+        "title": "MutationObserver registered",
+        "oneLine": "A MutationObserver was registered, which can be used as a basis for delayed injection or hooking."
+      }
+    },
+
+    "MUTATION_OBSERVER_REGISTER_WIDE_SCOPE": {
+      "ko": {
+        "title": "광범위 MutationObserver 등록",
+        "oneLine": "documentElement 수준의 광범위 DOM 감시가 등록되었습니다. 대규모 조작/주입 시도 가능성이 있습니다."
+      },
+      "en": {
+        "title": "Wide-scope MutationObserver registered",
+        "oneLine": "A wide-scope observer (documentElement) was registered, indicating potential large-scale DOM manipulation."
+      }
+    },
+
+    "MUTATION_OBSERVER_REGISTER_CROSS_SITE_INITIATOR": {
+      "ko": {
+        "title": "서드파티 시작점의 MutationObserver 등록",
+        "oneLine": "다른 출처에서 시작된 코드가 DOM 감시를 등록했습니다. 은밀한 삽입/후킹 시도 가능성이 높습니다."
+      },
+      "en": {
+        "title": "Cross-site initiated MutationObserver registration",
+        "oneLine": "A different-origin initiator registered DOM observation, increasing suspicion of stealthy injection or hooking."
+      }
+    },
+
+    "MUTATION_OBSERVER_TRIGGER_SCRIPT_OR_IFRAME_ADDED": {
+      "ko": {
+        "title": "MutationObserver 트리거로 스크립트/iframe 추가",
+        "oneLine": "DOM 감시 트리거를 통해 스크립트/iframe 추가 정황이 감지되었습니다. 지연 주입 패턴일 수 있습니다."
+      },
+      "en": {
+        "title": "MutationObserver-triggered script/iframe addition",
+        "oneLine": "A script/iframe addition was detected via observer triggers, which may indicate delayed injection."
+      }
+    },
+
+    "LINK_HREF_SWAP_CROSS_ORIGIN": {
+      "ko": {
+        "title": "클릭 직전 링크 목적지 교체(외부 이동)",
+        "oneLine": "클릭 직전에 href가 외부 origin으로 바뀌었습니다. 링크 하이재킹/광고 리다이렉트 가능성이 높습니다."
+      },
+      "en": {
+        "title": "Pre-click link hijack (cross-origin)",
+        "oneLine": "A link’s href was swapped to a different origin right before click, indicating likely link hijacking or ad redirect."
+      }
+    },
+
+    "LINK_HREF_SWAP_PRECLICK_REVERTED": {
+      "ko": {
+        "title": "클릭 직전 링크 교체 후 원복",
+        "oneLine": "아주 짧은 시간 내 href를 바꿨다가 원복했습니다. 탐지 회피형 JIT 링크 하이재킹 패턴입니다."
+      },
+      "en": {
+        "title": "Pre-click href swap with immediate revert",
+        "oneLine": "The href was swapped and then quickly reverted, a common evasion pattern for just-in-time link hijacking."
+      }
+    },
+
+    "LINK_HREF_SWAP_SAME_ORIGIN": {
+      "ko": {
+        "title": "클릭 직전 링크 목적지 교체(동일 origin)",
+        "oneLine": "클릭 직전 href가 변경되었습니다(동일 origin). 내부 경로 탈취/트래킹 우회 등에 악용될 수 있습니다."
+      },
+      "en": {
+        "title": "Pre-click href swap (same-origin)",
+        "oneLine": "A link’s href was changed right before click (same origin), which can be abused for internal route hijacking or tracking bypass."
+      }
+    },
+
+    "LINK_HREF_SWAP": {
+      "ko": {
+        "title": "링크 href 변경 감지",
+        "oneLine": "사용자 상호작용과 연계된 링크 목적지 변경 정황이 감지되었습니다."
+      },
+      "en": {
+        "title": "Link href change detected",
+        "oneLine": "A link destination change was detected in a context associated with user interaction."
+      }
+    },
+
+    "PERSISTENCE_REINJECT": {
+      "ko": {
+        "title": "지속성 기반 재주입 시도",
+        "oneLine": "지속성 체인에서 재주입(reinject) 정황이 감지되었습니다. 제거 후에도 다시 활성화될 수 있습니다."
+      },
+      "en": {
+        "title": "Persistence-based reinjection attempt",
+        "oneLine": "A reinjection signal was detected in a persistence chain, indicating the threat may reactivate after removal."
+      }
+    }
+  },
+
   "rules": [
     {
       "id": "SENSOR_READY",
       "enabled": true,
-      "when": {
-        "type": "SENSOR_READY"
-      },
+      "when": { "type": "SENSOR_READY" },
       "action": {
         "ruleId": "SENSOR_READY",
+        "messageKey": "SENSOR_READY",
         "scoreDelta": 0,
         "severity": "LOW"
       }
@@ -23,13 +492,11 @@
       "enabled": true,
       "when": {
         "type": "DYN_SCRIPT_INSERT",
-        "equals": {
-          "initiatorCrossSite": true,
-          "crossSite": true
-        }
+        "equals": { "initiatorCrossSite": true, "crossSite": true }
       },
       "action": {
         "ruleId": "DYN_SCRIPT_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT",
+        "messageKey": "DYN_SCRIPT_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT",
         "scoreDelta": 40,
         "severity": "HIGH"
       }
@@ -39,13 +506,11 @@
       "enabled": true,
       "when": {
         "type": "DYN_SCRIPT_INSERT",
-        "equals": {
-          "initiatorCrossSite": true,
-          "crossSite": false
-        }
+        "equals": { "initiatorCrossSite": true, "crossSite": false }
       },
       "action": {
         "ruleId": "DYN_SCRIPT_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT",
+        "messageKey": "DYN_SCRIPT_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT",
         "scoreDelta": 30,
         "severity": "MEDIUM"
       }
@@ -55,13 +520,11 @@
       "enabled": true,
       "when": {
         "type": "DYN_IFRAME_INSERT",
-        "equals": {
-          "hidden": true,
-          "initiatorCrossSite": true
-        }
+        "equals": { "hidden": true, "initiatorCrossSite": true }
       },
       "action": {
         "ruleId": "HIDDEN_IFRAME_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT",
+        "messageKey": "HIDDEN_IFRAME_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT",
         "scoreDelta": 90,
         "severity": "HIGH"
       }
@@ -71,13 +534,11 @@
       "enabled": true,
       "when": {
         "type": "DYN_IFRAME_INSERT",
-        "equals": {
-          "hidden": false,
-          "initiatorCrossSite": true
-        }
+        "equals": { "hidden": false, "initiatorCrossSite": true }
       },
       "action": {
         "ruleId": "IFRAME_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT",
+        "messageKey": "IFRAME_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT",
         "scoreDelta": 60,
         "severity": "HIGH"
       }
@@ -85,14 +546,10 @@
     {
       "id": "DYN_SCRIPT_INSERT_CROSS_SITE",
       "enabled": true,
-      "when": {
-        "type": "DYN_SCRIPT_INSERT",
-        "equals": {
-          "crossSite": true
-        }
-      },
+      "when": { "type": "DYN_SCRIPT_INSERT", "equals": { "crossSite": true } },
       "action": {
         "ruleId": "DYN_SCRIPT_INSERT_CROSS_SITE",
+        "messageKey": "DYN_SCRIPT_INSERT_CROSS_SITE",
         "scoreDelta": 20,
         "severity": "MEDIUM"
       }
@@ -100,14 +557,10 @@
     {
       "id": "DYN_SCRIPT_INSERT_SAME_SITE",
       "enabled": true,
-      "when": {
-        "type": "DYN_SCRIPT_INSERT",
-        "equals": {
-          "crossSite": false
-        }
-      },
+      "when": { "type": "DYN_SCRIPT_INSERT", "equals": { "crossSite": false } },
       "action": {
         "ruleId": "DYN_SCRIPT_INSERT_SAME_SITE",
+        "messageKey": "DYN_SCRIPT_INSERT_SAME_SITE",
         "scoreDelta": 5,
         "severity": "LOW"
       }
@@ -115,14 +568,10 @@
     {
       "id": "SW_REGISTER_INITIATED_BY_CROSS_SITE_SCRIPT",
       "enabled": true,
-      "when": {
-        "type": "SW_REGISTER",
-        "equals": {
-          "initiatorCrossSite": true
-        }
-      },
+      "when": { "type": "SW_REGISTER", "equals": { "initiatorCrossSite": true } },
       "action": {
         "ruleId": "SW_REGISTER_INITIATED_BY_CROSS_SITE_SCRIPT",
+        "messageKey": "SW_REGISTER_INITIATED_BY_CROSS_SITE_SCRIPT",
         "scoreDelta": 80,
         "severity": "HIGH"
       }
@@ -130,11 +579,10 @@
     {
       "id": "SW_REGISTER",
       "enabled": true,
-      "when": {
-        "type": "SW_REGISTER"
-      },
+      "when": { "type": "SW_REGISTER" },
       "action": {
         "ruleId": "SW_REGISTER",
+        "messageKey": "SW_REGISTER",
         "scoreDelta": 10,
         "severity": "LOW"
       }
@@ -142,11 +590,10 @@
     {
       "id": "SW_REGISTRATIONS_PRESENT",
       "enabled": true,
-      "when": {
-        "type": "SW_REGISTRATIONS_PRESENT"
-      },
+      "when": { "type": "SW_REGISTRATIONS_PRESENT" },
       "action": {
         "ruleId": "SW_REGISTRATIONS_PRESENT",
+        "messageKey": "SW_REGISTRATIONS_PRESENT",
         "scoreDelta": 5,
         "severity": "LOW"
       }
@@ -154,11 +601,10 @@
     {
       "id": "SW_PERSISTENCE_ACTIVE",
       "enabled": true,
-      "when": {
-        "type": "SW_PERSISTENCE_ACTIVE"
-      },
+      "when": { "type": "SW_PERSISTENCE_ACTIVE" },
       "action": {
         "ruleId": "SW_PERSISTENCE_ACTIVE",
+        "messageKey": "SW_PERSISTENCE_ACTIVE",
         "scoreDelta": 20,
         "severity": "MEDIUM"
       }
@@ -166,11 +612,10 @@
     {
       "id": "POC_G_SW_CHAIN",
       "enabled": true,
-      "when": {
-        "type": "POC_G_SW_CHAIN"
-      },
+      "when": { "type": "POC_G_SW_CHAIN" },
       "action": {
         "ruleId": "POC_G_SW_CHAIN_CONFIRMED",
+        "messageKey": "POC_G_SW_CHAIN_CONFIRMED",
         "scoreDelta": 90,
         "severity": "HIGH"
       }
@@ -178,14 +623,10 @@
     {
       "id": "HIDDEN_IFRAME_INSERT",
       "enabled": true,
-      "when": {
-        "type": "DYN_IFRAME_INSERT",
-        "equals": {
-          "hidden": true
-        }
-      },
+      "when": { "type": "DYN_IFRAME_INSERT", "equals": { "hidden": true } },
       "action": {
         "ruleId": "HIDDEN_IFRAME_INSERT",
+        "messageKey": "HIDDEN_IFRAME_INSERT",
         "scoreDelta": 35,
         "severity": "HIGH"
       }
@@ -193,14 +634,10 @@
     {
       "id": "IFRAME_INSERT",
       "enabled": true,
-      "when": {
-        "type": "DYN_IFRAME_INSERT",
-        "equals": {
-          "hidden": false
-        }
-      },
+      "when": { "type": "DYN_IFRAME_INSERT", "equals": { "hidden": false } },
       "action": {
         "ruleId": "IFRAME_INSERT",
+        "messageKey": "IFRAME_INSERT",
         "scoreDelta": 10,
         "severity": "LOW"
       }
@@ -208,15 +645,10 @@
     {
       "id": "FORM_SUBMIT_AFTER_PROTO_TAMPER_MISMATCH",
       "enabled": true,
-      "when": {
-        "type": "FORM_SUBMIT",
-        "equals": {
-          "mismatch": true,
-          "protoTamperSeen": true
-        }
-      },
+      "when": { "type": "FORM_SUBMIT", "equals": { "mismatch": true, "protoTamperSeen": true } },
       "action": {
         "ruleId": "PHISHING_FORM_MISMATCH_AFTER_PROTO_TAMPER",
+        "messageKey": "PHISHING_FORM_MISMATCH_AFTER_PROTO_TAMPER",
         "scoreDelta": 80,
         "severity": "HIGH"
       }
@@ -224,15 +656,10 @@
     {
       "id": "FORM_SUBMIT_AFTER_PROTO_TAMPER_OK",
       "enabled": true,
-      "when": {
-        "type": "FORM_SUBMIT",
-        "equals": {
-          "mismatch": false,
-          "protoTamperSeen": true
-        }
-      },
+      "when": { "type": "FORM_SUBMIT", "equals": { "mismatch": false, "protoTamperSeen": true } },
       "action": {
         "ruleId": "FORM_SUBMIT_AFTER_PROTO_TAMPER",
+        "messageKey": "FORM_SUBMIT_AFTER_PROTO_TAMPER",
         "scoreDelta": 30,
         "severity": "MEDIUM"
       }
@@ -240,14 +667,10 @@
     {
       "id": "PHISHING_FORM_MISMATCH",
       "enabled": true,
-      "when": {
-        "type": "FORM_SUBMIT",
-        "equals": {
-          "mismatch": true
-        }
-      },
+      "when": { "type": "FORM_SUBMIT", "equals": { "mismatch": true } },
       "action": {
         "ruleId": "PHISHING_FORM_MISMATCH",
+        "messageKey": "PHISHING_FORM_MISMATCH",
         "scoreDelta": 50,
         "severity": "HIGH"
       }
@@ -255,14 +678,10 @@
     {
       "id": "FORM_ACTION_MATCH",
       "enabled": true,
-      "when": {
-        "type": "FORM_SUBMIT",
-        "equals": {
-          "mismatch": false
-        }
-      },
+      "when": { "type": "FORM_SUBMIT", "equals": { "mismatch": false } },
       "action": {
         "ruleId": "FORM_ACTION_MATCH",
+        "messageKey": "FORM_ACTION_MATCH",
         "scoreDelta": 5,
         "severity": "LOW"
       }
@@ -270,14 +689,10 @@
     {
       "id": "FORM_ACTION_PARSE_FAIL",
       "enabled": true,
-      "when": {
-        "type": "FORM_SUBMIT",
-        "equals": {
-          "parse": "fail"
-        }
-      },
+      "when": { "type": "FORM_SUBMIT", "equals": { "parse": "fail" } },
       "action": {
         "ruleId": "FORM_ACTION_PARSE_FAIL",
+        "messageKey": "FORM_ACTION_PARSE_FAIL",
         "scoreDelta": 10,
         "severity": "MEDIUM",
         "targetOrigin": "UNKNOWN"
@@ -286,11 +701,10 @@
     {
       "id": "OBFUSCATION_ATOB",
       "enabled": true,
-      "when": {
-        "type": "SUSP_ATOB_CALL"
-      },
+      "when": { "type": "SUSP_ATOB_CALL" },
       "action": {
         "ruleId": "OBFUSCATION_ATOB",
+        "messageKey": "OBFUSCATION_ATOB",
         "scoreDelta": 10,
         "severity": "LOW"
       }
@@ -298,11 +712,10 @@
     {
       "id": "DYNAMIC_CODE_EVAL",
       "enabled": true,
-      "when": {
-        "type": "SUSP_EVAL_CALL"
-      },
+      "when": { "type": "SUSP_EVAL_CALL" },
       "action": {
         "ruleId": "DYNAMIC_CODE_EVAL",
+        "messageKey": "DYNAMIC_CODE_EVAL",
         "scoreDelta": 25,
         "severity": "MEDIUM"
       }
@@ -310,11 +723,10 @@
     {
       "id": "DYNAMIC_CODE_FUNCTION",
       "enabled": true,
-      "when": {
-        "type": "SUSP_FUNCTION_CONSTRUCTOR_CALL"
-      },
+      "when": { "type": "SUSP_FUNCTION_CONSTRUCTOR_CALL" },
       "action": {
         "ruleId": "DYNAMIC_CODE_FUNCTION",
+        "messageKey": "DYNAMIC_CODE_FUNCTION",
         "scoreDelta": 25,
         "severity": "MEDIUM"
       }
@@ -322,11 +734,10 @@
     {
       "id": "DOM_XSS_INJECTION",
       "enabled": true,
-      "when": {
-        "type": "SUSP_DOM_XSS"
-      },
+      "when": { "type": "SUSP_DOM_XSS" },
       "action": {
         "ruleId": "DOM_XSS_INJECTION",
+        "messageKey": "DOM_XSS_INJECTION",
         "scoreDelta": 40,
         "severity": "HIGH"
       }
@@ -334,11 +745,10 @@
     {
       "id": "COOKIE_THEFT",
       "enabled": true,
-      "when": {
-        "type": "SENSITIVE_DATA_ACCESS"
-      },
+      "when": { "type": "SENSITIVE_DATA_ACCESS" },
       "action": {
         "ruleId": "COOKIE_THEFT",
+        "messageKey": "COOKIE_THEFT",
         "scoreDelta": 50,
         "severity": "HIGH"
       }
@@ -346,11 +756,10 @@
     {
       "id": "NETWORK_LEAK",
       "enabled": true,
-      "when": {
-        "type": "SUSP_NETWORK_CALL"
-      },
+      "when": { "type": "SUSP_NETWORK_CALL" },
       "action": {
         "ruleId": "NETWORK_LEAK",
+        "messageKey": "NETWORK_LEAK",
         "scoreDelta": 15,
         "severity": "LOW"
       }
@@ -358,11 +767,10 @@
     {
       "id": "XHR_MIRRORING_SUSPECT",
       "enabled": true,
-      "when": {
-        "type": "XHR_MIRRORING_SUSPECT"
-      },
+      "when": { "type": "XHR_MIRRORING_SUSPECT" },
       "action": {
         "ruleId": "XHR_MIRRORING_SUSPECT",
+        "messageKey": "XHR_MIRRORING_SUSPECT",
         "scoreDelta": 80,
         "severity": "HIGH"
       }
@@ -370,14 +778,10 @@
     {
       "id": "INVISIBLE_LAYER_INSERT_RULE",
       "enabled": true,
-      "when": {
-        "type": "INVISIBLE_LAYER_DETECTED",
-        "equals": {
-          "reason": "INSERT"
-        }
-      },
+      "when": { "type": "INVISIBLE_LAYER_DETECTED", "equals": { "reason": "INSERT" } },
       "action": {
         "ruleId": "INVISIBLE_LAYER_INSERT",
+        "messageKey": "INVISIBLE_LAYER_INSERT",
         "severity": "MEDIUM",
         "scoreDelta": 25
       }
@@ -385,14 +789,10 @@
     {
       "id": "INVISIBLE_LAYER_CLICK_RULE",
       "enabled": true,
-      "when": {
-        "type": "INVISIBLE_LAYER_DETECTED",
-        "equals": {
-          "reason": "POINTERDOWN"
-        }
-      },
+      "when": { "type": "INVISIBLE_LAYER_DETECTED", "equals": { "reason": "POINTERDOWN" } },
       "action": {
         "ruleId": "INVISIBLE_LAYER_CLICK",
+        "messageKey": "INVISIBLE_LAYER_CLICK",
         "severity": "HIGH",
         "scoreDelta": 60
       }
@@ -400,14 +800,10 @@
     {
       "id": "POC_C_THIRDPARTY_POSTMESSAGE_ARM",
       "enabled": true,
-      "when": {
-        "type": "THIRDPARTY_POSTMESSAGE_ARM",
-        "equals": {
-          "action": "ARM_FORM_SWAP"
-        }
-      },
+      "when": { "type": "THIRDPARTY_POSTMESSAGE_ARM", "equals": { "action": "ARM_FORM_SWAP" } },
       "action": {
         "ruleId": "THIRDPARTY_WIDGET_ARMED",
+        "messageKey": "THIRDPARTY_WIDGET_ARMED",
         "severity": "MEDIUM",
         "scoreDelta": 15,
         "targetOrigin": "http://localhost:4000"
@@ -416,14 +812,10 @@
     {
       "id": "FORM_SUBMIT_PROTOTYPE_TAMPER",
       "enabled": true,
-      "when": {
-        "type": "PROTO_TAMPER",
-        "equals": {
-          "prop": "submit"
-        }
-      },
+      "when": { "type": "PROTO_TAMPER", "equals": { "prop": "submit" } },
       "action": {
         "ruleId": "FORM_SUBMIT_PROTOTYPE_TAMPER",
+        "messageKey": "FORM_SUBMIT_PROTOTYPE_TAMPER",
         "scoreDelta": 40,
         "severity": "HIGH"
       }
@@ -431,14 +823,10 @@
     {
       "id": "FORM_REQUESTSUBMIT_PROTOTYPE_TAMPER",
       "enabled": true,
-      "when": {
-        "type": "PROTO_TAMPER",
-        "equals": {
-          "prop": "requestSubmit"
-        }
-      },
+      "when": { "type": "PROTO_TAMPER", "equals": { "prop": "requestSubmit" } },
       "action": {
         "ruleId": "FORM_REQUESTSUBMIT_PROTOTYPE_TAMPER",
+        "messageKey": "FORM_REQUESTSUBMIT_PROTOTYPE_TAMPER",
         "scoreDelta": 35,
         "severity": "HIGH"
       }
@@ -448,16 +836,12 @@
       "enabled": true,
       "when": {
         "type": "PROTO_TAMPER",
-        "contains": {
-          "target": "XMLHttpRequest.prototype.open"
-        },
-        "equals": {
-          "isNative": false,
-          "analysis.suspicionBand": "HIGH"
-        }
+        "contains": { "target": "XMLHttpRequest.prototype.open" },
+        "equals": { "isNative": false, "analysis.suspicionBand": "HIGH" }
       },
       "action": {
         "ruleId": "XHR_OPEN_PROTOTYPE_TAMPER",
+        "messageKey": "XHR_OPEN_PROTOTYPE_TAMPER",
         "scoreDelta": 60,
         "severity": "HIGH"
       }
@@ -467,16 +851,12 @@
       "enabled": true,
       "when": {
         "type": "PROTO_TAMPER",
-        "contains": {
-          "target": "XMLHttpRequest.prototype.open"
-        },
-        "equals": {
-          "isNative": false,
-          "analysis.suspicionBand": "MEDIUM"
-        }
+        "contains": { "target": "XMLHttpRequest.prototype.open" },
+        "equals": { "isNative": false, "analysis.suspicionBand": "MEDIUM" }
       },
       "action": {
         "ruleId": "XHR_OPEN_PROTOTYPE_TAMPER",
+        "messageKey": "XHR_OPEN_PROTOTYPE_TAMPER",
         "scoreDelta": 35,
         "severity": "MEDIUM"
       }
@@ -486,16 +866,12 @@
       "enabled": true,
       "when": {
         "type": "PROTO_TAMPER",
-        "contains": {
-          "target": "XMLHttpRequest.prototype.open"
-        },
-        "equals": {
-          "isNative": false,
-          "analysis.suspicionBand": "LOW"
-        }
+        "contains": { "target": "XMLHttpRequest.prototype.open" },
+        "equals": { "isNative": false, "analysis.suspicionBand": "LOW" }
       },
       "action": {
         "ruleId": "XHR_OPEN_PROTOTYPE_TAMPER",
+        "messageKey": "XHR_OPEN_PROTOTYPE_TAMPER",
         "scoreDelta": 12,
         "severity": "LOW"
       }
@@ -505,16 +881,12 @@
       "enabled": true,
       "when": {
         "type": "PROTO_TAMPER",
-        "contains": {
-          "target": "XMLHttpRequest.prototype.send"
-        },
-        "equals": {
-          "isNative": false,
-          "analysis.suspicionBand": "HIGH"
-        }
+        "contains": { "target": "XMLHttpRequest.prototype.send" },
+        "equals": { "isNative": false, "analysis.suspicionBand": "HIGH" }
       },
       "action": {
         "ruleId": "XHR_SEND_PROTOTYPE_TAMPER",
+        "messageKey": "XHR_SEND_PROTOTYPE_TAMPER",
         "scoreDelta": 60,
         "severity": "HIGH"
       }
@@ -524,16 +896,12 @@
       "enabled": true,
       "when": {
         "type": "PROTO_TAMPER",
-        "contains": {
-          "target": "XMLHttpRequest.prototype.send"
-        },
-        "equals": {
-          "isNative": false,
-          "analysis.suspicionBand": "MEDIUM"
-        }
+        "contains": { "target": "XMLHttpRequest.prototype.send" },
+        "equals": { "isNative": false, "analysis.suspicionBand": "MEDIUM" }
       },
       "action": {
         "ruleId": "XHR_SEND_PROTOTYPE_TAMPER",
+        "messageKey": "XHR_SEND_PROTOTYPE_TAMPER",
         "scoreDelta": 35,
         "severity": "MEDIUM"
       }
@@ -543,16 +911,12 @@
       "enabled": true,
       "when": {
         "type": "PROTO_TAMPER",
-        "contains": {
-          "target": "XMLHttpRequest.prototype.send"
-        },
-        "equals": {
-          "isNative": false,
-          "analysis.suspicionBand": "LOW"
-        }
+        "contains": { "target": "XMLHttpRequest.prototype.send" },
+        "equals": { "isNative": false, "analysis.suspicionBand": "LOW" }
       },
       "action": {
         "ruleId": "XHR_SEND_PROTOTYPE_TAMPER",
+        "messageKey": "XHR_SEND_PROTOTYPE_TAMPER",
         "scoreDelta": 12,
         "severity": "LOW"
       }
@@ -562,16 +926,12 @@
       "enabled": true,
       "when": {
         "type": "PROTO_TAMPER",
-        "contains": {
-          "target": "XMLHttpRequest.prototype.setRequestHeader"
-        },
-        "equals": {
-          "isNative": false,
-          "analysis.suspicionBand": "HIGH"
-        }
+        "contains": { "target": "XMLHttpRequest.prototype.setRequestHeader" },
+        "equals": { "isNative": false, "analysis.suspicionBand": "HIGH" }
       },
       "action": {
         "ruleId": "XHR_SETREQUESTHEADER_PROTOTYPE_TAMPER",
+        "messageKey": "XHR_SETREQUESTHEADER_PROTOTYPE_TAMPER",
         "scoreDelta": 60,
         "severity": "HIGH"
       }
@@ -581,16 +941,12 @@
       "enabled": true,
       "when": {
         "type": "PROTO_TAMPER",
-        "contains": {
-          "target": "XMLHttpRequest.prototype.setRequestHeader"
-        },
-        "equals": {
-          "isNative": false,
-          "analysis.suspicionBand": "MEDIUM"
-        }
+        "contains": { "target": "XMLHttpRequest.prototype.setRequestHeader" },
+        "equals": { "isNative": false, "analysis.suspicionBand": "MEDIUM" }
       },
       "action": {
         "ruleId": "XHR_SETREQUESTHEADER_PROTOTYPE_TAMPER",
+        "messageKey": "XHR_SETREQUESTHEADER_PROTOTYPE_TAMPER",
         "scoreDelta": 35,
         "severity": "MEDIUM"
       }
@@ -600,16 +956,12 @@
       "enabled": true,
       "when": {
         "type": "PROTO_TAMPER",
-        "contains": {
-          "target": "XMLHttpRequest.prototype.setRequestHeader"
-        },
-        "equals": {
-          "isNative": false,
-          "analysis.suspicionBand": "LOW"
-        }
+        "contains": { "target": "XMLHttpRequest.prototype.setRequestHeader" },
+        "equals": { "isNative": false, "analysis.suspicionBand": "LOW" }
       },
       "action": {
         "ruleId": "XHR_SETREQUESTHEADER_PROTOTYPE_TAMPER",
+        "messageKey": "XHR_SETREQUESTHEADER_PROTOTYPE_TAMPER",
         "scoreDelta": 12,
         "severity": "LOW"
       }
@@ -617,11 +969,10 @@
     {
       "id": "MUTATION_OBSERVER_REGISTER_BASE",
       "enabled": true,
-      "when": {
-        "type": "MUTATION_OBSERVER_REGISTER"
-      },
+      "when": { "type": "MUTATION_OBSERVER_REGISTER" },
       "action": {
         "ruleId": "MUTATION_OBSERVER_REGISTER",
+        "messageKey": "MUTATION_OBSERVER_REGISTER",
         "scoreDelta": 5,
         "severity": "LOW"
       }
@@ -629,14 +980,10 @@
     {
       "id": "MUTATION_OBSERVER_REGISTER_WIDE_SCOPE",
       "enabled": true,
-      "when": {
-        "type": "MUTATION_OBSERVER_REGISTER",
-        "equals": {
-          "targetDesc": "documentElement"
-        }
-      },
+      "when": { "type": "MUTATION_OBSERVER_REGISTER", "equals": { "targetDesc": "documentElement" } },
       "action": {
         "ruleId": "MUTATION_OBSERVER_REGISTER_WIDE_SCOPE",
+        "messageKey": "MUTATION_OBSERVER_REGISTER_WIDE_SCOPE",
         "scoreDelta": 20,
         "severity": "MEDIUM"
       }
@@ -644,14 +991,10 @@
     {
       "id": "MUTATION_OBSERVER_REGISTER_CROSS_SITE_INITIATOR",
       "enabled": true,
-      "when": {
-        "type": "MUTATION_OBSERVER_REGISTER",
-        "equals": {
-          "initiatorCrossSite": true
-        }
-      },
+      "when": { "type": "MUTATION_OBSERVER_REGISTER", "equals": { "initiatorCrossSite": true } },
       "action": {
         "ruleId": "MUTATION_OBSERVER_REGISTER_CROSS_SITE_INITIATOR",
+        "messageKey": "MUTATION_OBSERVER_REGISTER_CROSS_SITE_INITIATOR",
         "scoreDelta": 40,
         "severity": "HIGH"
       }
@@ -659,14 +1002,10 @@
     {
       "id": "MUTATION_OBSERVER_TRIGGER_SCRIPT_OR_IFRAME_ADDED",
       "enabled": true,
-      "when": {
-        "type": "MUTATION_OBSERVER_TRIGGER",
-        "equals": {
-          "summary.addedScripts": 1
-        }
-      },
+      "when": { "type": "MUTATION_OBSERVER_TRIGGER", "equals": { "summary.addedScripts": 1 } },
       "action": {
         "ruleId": "MUTATION_OBSERVER_TRIGGER_SCRIPT_OR_IFRAME_ADDED",
+        "messageKey": "MUTATION_OBSERVER_TRIGGER_SCRIPT_OR_IFRAME_ADDED",
         "scoreDelta": 60,
         "severity": "HIGH"
       }
@@ -674,15 +1013,10 @@
     {
       "id": "LINK_HREF_SWAP_CROSS_ORIGIN",
       "enabled": true,
-      "when": {
-        "type": "LINK_HREF_SWAP_DETECTED",
-        "equals": {
-          "within200ms": true,
-          "crossOriginChanged": true
-        }
-      },
+      "when": { "type": "LINK_HREF_SWAP_DETECTED", "equals": { "within200ms": true, "crossOriginChanged": true } },
       "action": {
         "ruleId": "LINK_HREF_SWAP_CROSS_ORIGIN",
+        "messageKey": "LINK_HREF_SWAP_CROSS_ORIGIN",
         "scoreDelta": 80,
         "severity": "HIGH"
       }
@@ -690,15 +1024,10 @@
     {
       "id": "LINK_HREF_SWAP_PRECLICK_REVERTED",
       "enabled": true,
-      "when": {
-        "type": "LINK_HREF_SWAP_DETECTED",
-        "equals": {
-          "within50ms": true,
-          "reverted": true
-        }
-      },
+      "when": { "type": "LINK_HREF_SWAP_DETECTED", "equals": { "within50ms": true, "reverted": true } },
       "action": {
         "ruleId": "LINK_HREF_SWAP_PRECLICK_REVERTED",
+        "messageKey": "LINK_HREF_SWAP_PRECLICK_REVERTED",
         "scoreDelta": 70,
         "severity": "HIGH"
       }
@@ -706,15 +1035,10 @@
     {
       "id": "LINK_HREF_SWAP_SAME_ORIGIN_JIT",
       "enabled": true,
-      "when": {
-        "type": "LINK_HREF_SWAP_DETECTED",
-        "equals": {
-          "within50ms": true,
-          "crossOriginChanged": false
-        }
-      },
+      "when": { "type": "LINK_HREF_SWAP_DETECTED", "equals": { "within50ms": true, "crossOriginChanged": false } },
       "action": {
         "ruleId": "LINK_HREF_SWAP_SAME_ORIGIN",
+        "messageKey": "LINK_HREF_SWAP_SAME_ORIGIN",
         "scoreDelta": 40,
         "severity": "MEDIUM"
       }
@@ -722,11 +1046,10 @@
     {
       "id": "LINK_HREF_SWAP_BASE",
       "enabled": true,
-      "when": {
-        "type": "LINK_HREF_SWAP_DETECTED"
-      },
+      "when": { "type": "LINK_HREF_SWAP_DETECTED" },
       "action": {
         "ruleId": "LINK_HREF_SWAP",
+        "messageKey": "LINK_HREF_SWAP",
         "scoreDelta": 10,
         "severity": "LOW"
       }
@@ -734,14 +1057,10 @@
     {
       "id": "PERSISTENCE_REINJECT_STAGE2_REMOVED",
       "enabled": true,
-      "when": {
-        "type": "PERSISTENCE_REINJECT",
-        "equals": {
-          "reason": "stage2_removed"
-        }
-      },
+      "when": { "type": "PERSISTENCE_REINJECT", "equals": { "reason": "stage2_removed" } },
       "action": {
         "ruleId": "PERSISTENCE_REINJECT",
+        "messageKey": "PERSISTENCE_REINJECT",
         "scoreDelta": 90,
         "severity": "HIGH"
       }
