@@ -40,8 +40,7 @@ function EventTransactions() {
   const navigate = useNavigate();
 
   const gotoDetail = (id) => {
-    // 상세 페이지 경로로 이동 (예: /app/details/아이디)
-    navigate(`/app/details/${id}`);
+    navigate(`/app/user_front/detail/${id}`);
   };
 
   const [expandedSessions, setExpandedSessions] = useState({});
@@ -245,7 +244,7 @@ function EventTransactions() {
                                 className="btn btn-xs btn-ghost btn-outline border-base-300 hover:btn-primary"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  gotoDetail(event.installId);
+                                  gotoDetail(event.eventId);
                                 }}
                               >
                                 자세히

@@ -15,6 +15,7 @@ const UserSessionDetail = lazy(
 const UserDomainList = lazy(
   () => import("../features/user_front/listpage_domain"),
 );
+const UserDetail = lazy(() => import("../features/user_front/detail"));
 
 const Welcome = lazy(() => import("../pages/protected/Welcome"));
 const Page404 = lazy(() => import("../pages/protected/404"));
@@ -74,6 +75,10 @@ const routes = [
   {
     path: "/user_front/listpage_domain",
     component: UserDomainList,
+  },
+  {
+    path: "/user_front/detail/:eventId",
+    component: UserDetail,
   },
 
   // 기존 유지
