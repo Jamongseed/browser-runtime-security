@@ -149,8 +149,8 @@ export const brsQueryApi = {
     getJson<ListResponse<ThreatEventItem>>(BRS_Query.events, args, origin),
 
   // ----- body -----
-  eventBody: (args: EventBodyParams, origin?: string) =>
-    getJson<EventBodyResponse>(BRS_Query.eventBody, args, origin),
+  eventBody: (args: EventBodyParams) =>
+    getJson<EventBodyResponse>(BRS_Query.eventBody, args),
 
   // ----- by install (sinceMs window) -----
   eventsByInstall: (args: EventsByInstallParams) =>

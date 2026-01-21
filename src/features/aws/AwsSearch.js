@@ -518,3 +518,66 @@ export const getDetail = async () => {
     return { labels: [], datasets: [] };
   }
 };
+
+export const getEventDetail = async ({ eventId }) => {
+  try {
+    if (!eventId) return { data: null, error: "No Event ID" };
+    console.log("이벤트 아이디");
+    console.log(eventId);
+
+    const response = await brsQueryApi.eventBody({ eventId });
+
+    console.log("리스폰스");
+    console.log(response);
+
+    const rawData = response.meta;
+
+    if (!rawData || !response.ok) {
+      throw new Error("데이터를 찾을 수 없습니다.");
+    }
+
+    // 1. payloadJson 파싱 (문자열 -> 객체)
+    let parsedPayload = {};
+    try {
+      parsedPayload = JSON.parse(response.payload.payloadJson);
+    } catch (e) {
+      console.error("Payload 파싱 실패", e);
+    }
+
+    // 2. meta 내부의 모든 값을 개별적으로 추출 (누락 방지)
+    const formattedData = {
+      eventId: response.eventId,
+      ok: response.ok,
+
+      // meta 필드들 개별 리턴
+      origin: rawData?.origin,
+      tsMs: rawData?.tsMs,
+      day: rawData?.day,
+      shard: rawData?.shard, // 누락됐던 값
+      pkMain: rawData?.pkMain, // 누락됐던 값
+      skMain: rawData?.skMain, // 누락됐던 값
+      pk: rawData?.pk,
+      sk: rawData?.sk,
+      ttl: rawData?.ttl, // 누락됐던 값
+      payloadTruncated: rawData?.payloadTruncated,
+      payloadHash: rawData?.payloadHash,
+
+      // 파싱된 상세 정보
+      details: parsedPayload,
+
+      // payload 관련 추가 정보
+      fullPayload: rawData.payload,
+    };
+
+    return {
+      data: formattedData,
+      error: null,
+    };
+  } catch (error) {
+    console.error(`이벤트(${eventId}) 조회 실패:`, error);
+    return {
+      data: null,
+      error: error?.message || "Unknown error",
+    };
+  }
+};
