@@ -1,0 +1,235 @@
+오후 11:53:16  MUTATION_OBSERVER_REGISTER  (LOW)
+{
+  "chain": {
+    "incidentId": "8a0c8ec476051b2f063db707c89ee8c5",
+    "norm": "",
+    "reinjectCount": 0,
+    "scriptId": null,
+    "startedAt": 1768920796278
+  },
+  "createdAt": 1768920796246,
+  "initiatorCrossSite": false,
+  "initiatorOrigin": "http://localhost:3000",
+  "initiatorUrl": "http://localhost:3000/gate.js:72:15",
+  "observerId": "mo-1768920796246-1",
+  "options": {
+    "attributes": false,
+    "characterData": false,
+    "childList": true,
+    "subtree": true
+  },
+  "stackHead": "at HTMLDocument. (http://localhost:3000/gate.js:72:15)",
+  "targetDesc": "documentElement"
+}
+
+
+오후 11:53:16  MUTATION_OBSERVER_TRIGGER  (LOW)
+{
+  "chain": {
+    "incidentId": "8a0c8ec476051b2f063db707c89ee8c5",
+    "norm": "",
+    "reinjectCount": 0,
+    "scriptId": null,
+    "startedAt": 1768920796278
+  },
+  "dtMs": 24,
+  "initiatorCrossSite": false,
+  "initiatorOrigin": "http://localhost:3000",
+  "initiatorUrl": "http://localhost:3000/gate.js:72:15",
+  "observerId": "mo-1768920796246-1",
+  "stackHead": "at HTMLDocument. (http://localhost:3000/gate.js:72:15)",
+  "summary": {
+    "addedIframes": 0,
+    "addedNodes": 1,
+    "addedScripts": 0,
+    "addedWithSrc": 0,
+    "attrNames": [],
+    "mutationCount": 1,
+    "removedNodes": 0,
+    "typeCounts": {
+      "attributes": 0,
+      "characterData": 0,
+      "childList": 1
+    }
+  },
+  "targetDesc": "documentElement"
+}
+
+
+오후 11:53:16  DYN_IFRAME_INSERT  (HIGH)
+{
+  "abs": "",
+  "chain": {
+    "incidentId": "8a0c8ec476051b2f063db707c89ee8c5",
+    "norm": "http://localhost:4000/sdk.js",
+    "reinjectCount": 0,
+    "scriptId": "9620d51170cd07dc9eee6d160e2ce371",
+    "startedAt": 1768920796278
+  },
+  "crossSite": "",
+  "hidden": true,
+  "initiatorCrossSite": false,
+  "initiatorOrigin": "",
+  "initiatorStack": "",
+  "initiatorUrl": "",
+  "src": ""
+}
+
+
+오후 11:53:16  DYN_SCRIPT_INSERT  (MEDIUM)
+{
+  "abs": "http://localhost:4000/sdk.js",
+  "chain": {
+    "incidentId": "8a0c8ec476051b2f063db707c89ee8c5",
+    "norm": "http://localhost:4000/sdk.js",
+    "reinjectCount": 0,
+    "scriptId": "9620d51170cd07dc9eee6d160e2ce371",
+    "startedAt": 1768920796278
+  },
+  "crossSite": true,
+  "initiatorCrossSite": false,
+  "initiatorOrigin": "",
+  "initiatorStack": "",
+  "initiatorUrl": "",
+  "src": "http://localhost:4000/sdk.js"
+}
+
+
+오후 11:53:16  DYN_SCRIPT_INSERT (LOW)
+{
+  "abs": "http://localhost:3000/gate.js",
+  "chain": {
+    "incidentId": "8a0c8ec476051b2f063db707c89ee8c5",
+    "norm": "http://localhost:3000/gate.js",
+    "reinjectCount": 0,
+    "scriptId": "29c1116b93868e2ef19293aad0d6183c",
+    "startedAt": 1768920796278
+  },
+  "crossSite": false,
+  "initiatorCrossSite": false,
+  "initiatorOrigin": "",
+  "initiatorStack": "",
+  "initiatorUrl": "",
+  "src": "/gate.js"
+}
+
+
+오후 11:53:16  SENSOR_READY  (LOW) --- '상세보기'를 누르면 '해당 세션의 로그가 삭제되었거나 존재하지 않습니다.'라고 뜸
+
+
+오후 11:53:21  DYN_SCRIPT_INSERT  (MEDIUM)
+{
+  "abs": "http://localhost:4000/injected.js?v=796298",
+  "chain": {
+    "incidentId": "8a0c8ec476051b2f063db707c89ee8c5",
+    "norm": "http://localhost:4000/injected.js",
+    "reinjectCount": 0,
+    "scriptId": "761674390fcc6b4cff7970c0cedf9a1a",
+    "startedAt": 1768920796278
+  },
+  "crossSite": true,
+  "initiatorCrossSite": false,
+  "initiatorOrigin": "http://localhost:3000",
+  "initiatorStack": "at injectOnce (http://localhost:3000/gate.js:38:12)",
+  "initiatorUrl": "http://localhost:3000/gate.js:38:12",
+  "src": "http://localhost:4000/injected.js?v=796298"
+}
+
+
+오후 11:53:21  MUTATION_OBSERVER_TRIGGER  (HIGH)
+{
+  "chain": {
+    "incidentId": "8a0c8ec476051b2f063db707c89ee8c5",
+    "norm": "http://localhost:4000/injected.js",
+    "reinjectCount": 0,
+    "scriptId": "761674390fcc6b4cff7970c0cedf9a1a",
+    "startedAt": 1768920796278
+  },
+  "dtMs": 5570,
+  "initiatorCrossSite": false,
+  "initiatorOrigin": "http://localhost:3000",
+  "initiatorUrl": "http://localhost:3000/gate.js:72:15",
+  "observerId": "mo-1768920796246-1",
+  "stackHead": "at HTMLDocument. (http://localhost:3000/gate.js:72:15)",
+  "summary": {
+    "addedIframes": 0,
+    "addedNodes": 3,
+    "addedScripts": 1,
+    "addedWithSrc": 1,
+    "attrNames": [],
+    "mutationCount": 4,
+    "removedNodes": 3,
+    "typeCounts": {
+      "attributes": 0,
+      "characterData": 0,
+      "childList": 4
+    }
+  },
+  "targetDesc": "documentElement"
+}
+
+
+오후 11:53:22  MUTATION_OBSERVER_TRIGGER  (LOW)
+{
+  "chain": {
+    "incidentId": "8a0c8ec476051b2f063db707c89ee8c5",
+    "norm": "http://localhost:4000/injected.js",
+    "reinjectCount": 0,
+    "scriptId": "b69202027224f9d2ba8961db597d1f4437a748252c9088f4d374edae81652bf4",
+    "startedAt": 1768920796278
+  },
+  "dtMs": 5872,
+  "initiatorCrossSite": false,
+  "initiatorOrigin": "http://localhost:3000",
+  "initiatorUrl": "http://localhost:3000/gate.js:72:15",
+  "observerId": "mo-1768920796246-1",
+  "stackHead": "at HTMLDocument. (http://localhost:3000/gate.js:72:15)",
+  "summary": {
+    "addedIframes": 0,
+    "addedNodes": 2,
+    "addedScripts": 0,
+    "addedWithSrc": 0,
+    "attrNames": [],
+    "mutationCount": 2,
+    "removedNodes": 1,
+    "typeCounts": {
+      "attributes": 0,
+      "characterData": 0,
+      "childList": 2
+    }
+  },
+  "targetDesc": "documentElement"
+}
+
+
+오후 11:53:27  MUTATION_OBSERVER_TRIGGER  (LOW)
+{
+  "chain": {
+    "incidentId": "8a0c8ec476051b2f063db707c89ee8c5",
+    "norm": "http://localhost:4000/injected.js",
+    "reinjectCount": 0,
+    "scriptId": "b69202027224f9d2ba8961db597d1f4437a748252c9088f4d374edae81652bf4",
+    "startedAt": 1768920796278
+  },
+  "dtMs": 11580,
+  "initiatorCrossSite": false,
+  "initiatorOrigin": "http://localhost:3000",
+  "initiatorUrl": "http://localhost:3000/gate.js:72:15",
+  "observerId": "mo-1768920796246-1",
+  "stackHead": "at HTMLDocument. (http://localhost:3000/gate.js:72:15)",
+  "summary": {
+    "addedIframes": 0,
+    "addedNodes": 0,
+    "addedScripts": 0,
+    "addedWithSrc": 0,
+    "attrNames": [],
+    "mutationCount": 1,
+    "removedNodes": 1,
+    "typeCounts": {
+      "attributes": 0,
+      "characterData": 0,
+      "childList": 1
+    }
+  },
+  "targetDesc": "documentElement"
+}
