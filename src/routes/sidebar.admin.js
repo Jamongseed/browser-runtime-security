@@ -26,19 +26,19 @@ const submenuIconClasses = `h-5 w-5`
 
 const routes = [
   {
-    path: '/app/dashboard',
+    path: '/app/admin_front',
     icon: <Squares2X2Icon className={iconClasses}/>, 
     name: 'Admin Dashboard',
   },
   {
-    path: '/app/leads', 
+    path: '/app/admin_front/listPage', 
     icon: <UserGroupIcon className={iconClasses}/>,
-    name: 'Admin SessionList',
+    name: 'Admin Events List',
   },
   {
-    path: '/app/transactions', 
+    path: '/app/admin_front/detail', 
     icon: <GlobeAltIcon className={iconClasses}/>, 
-    name: 'Admin DomainList',
+    name: 'Admin Detail',
   },
   {
     path: '/app/charts', 

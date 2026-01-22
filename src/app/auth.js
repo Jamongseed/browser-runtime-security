@@ -1,7 +1,7 @@
 import axios from "axios";
 
 // 비로그인(user)이 접근하면 안 되는 admin 전용 페이지들
-const ADMIN_ONLY_PREFIXES = ["/app/events", "/app/domains", "/app/analytics"];
+const ADMIN_ONLY_PREFIXES = ["/app/admin_front", "/app/domains", "/app/analytics"];
 
 const checkAuth = () => {
   const token = localStorage.getItem("token");
@@ -68,5 +68,5 @@ export function logout() {
   localStorage.removeItem("role");
 
   // ✅ 로그아웃 후 user 페이지로
-  window.location.replace("/app/dashboard");
+  window.location.replace("/app/user_front");
 }

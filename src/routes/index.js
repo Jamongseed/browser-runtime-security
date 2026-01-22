@@ -5,7 +5,7 @@ const Dashboard = lazy(() => import("../pages/protected/Dashboard"));
 //const EventList = lazy(() => import('../features/events/EventListPage'))
 
 const UserEventDetailPage = lazy(() => import("../features/user_front/detail"));
-
+const AdminEventDetailPage = lazy(() => import("../features/admin_front/detail"));
 //const DomainRanking = lazy(() => import('../features/domains/DomainRankingPage'))
 //const Analytics = lazy(() => import('../features/analytics/AnalyticsPage'))
 const UserDashboard = lazy(() => import("../features/user_front"));
@@ -41,6 +41,10 @@ const routes = [
   {
     path: "/user_front/:eventId",
     component: UserEventDetailPage,
+  },
+  {
+    path: "/admin_front/:eventId",
+    component: AdminEventDetailPage,
   },
 
   // 보안 운영 페이지 추가

@@ -130,7 +130,7 @@ function buildReportText({ summary, meta, eventId, currentUrl }) {
 /**
  * 사용자용 이벤트 상세
  */
-export default function AdminEventDetailPage() {
+export default function UserEventDetailPage() {
   const navigate = useNavigate();
   const [sp] = useSearchParams();
   const params = useParams();
