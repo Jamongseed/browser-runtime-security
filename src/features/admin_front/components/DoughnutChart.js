@@ -5,54 +5,57 @@ import {
   Title,
   Tooltip,
   Legend,
-} from 'chart.js';
-import { Doughnut } from 'react-chartjs-2';
-import TitleCard from '../../../components/Cards/TitleCard';
+} from "chart.js";
+import { Doughnut } from "react-chartjs-2";
+import TitleCard from "../../../components/Cards/TitleCard";
 
 // 중복 등록 제거 및 정리
 ChartJS.register(ArcElement, Tooltip, Legend, Filler);
+ChartJS.defaults.font.family = "'Pretendard', sans-serif";
+ChartJS.defaults.font.size = 16;
 
 function DoughnutChart({ title, chartData }) {
-    
-    const options = {
-        responsive: true,
-        maintainAspectRatio: false, // 컨테이너 크기에 맞게 조절
-        plugins: {
-            legend: {
-                position: 'top',
-            },
-        },
-    };
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false, // 컨테이너 크기에 맞게 조절
+    plugins: {
+      legend: {
+        position: "top",
+      },
+    },
+  };
 
-    // 부모로부터 전달받은 chartData가 없을 경우를 대비한 기본값 설정
-    const data = {
-        labels: chartData?.labels || [],
-        datasets: [
-            {
-                label: '# of Events',
-                data: chartData?.datasets?.[0]?.data || [],
-                backgroundColor: [
-                    'rgba(255, 99, 132, 0.8)', // HIGH (Red)
-                    'rgba(255, 159, 64, 0.8)', // MEDIUM (Orange)
-                    'rgba(75, 192, 192, 0.8)', // LOW (Green)
-                ],
-                borderColor: [
-                    'rgba(255, 99, 132, 1)',
-                    'rgba(255, 159, 64, 1)',
-                    'rgba(75, 192, 192, 1)',
-                ],
-                borderWidth: 1,
-            }
+  // 부모로부터 전달받은 chartData가 없을 경우를 대비한 기본값 설정
+  const data = {
+    labels: chartData?.labels || [],
+    datasets: [
+      {
+        label: "# of Events",
+        data: chartData?.datasets?.[0]?.data || [],
+        backgroundColor: [
+          "rgba(255, 99, 132, 0.8)", // HIGH (Red)
+          "rgba(255, 159, 64, 0.8)", // MEDIUM (Orange)
+          "rgba(75, 192, 192, 0.8)", // LOW (Green)
         ],
-    };
+        borderColor: [
+          "rgba(255, 99, 132, 1)",
+          "rgba(255, 159, 64, 1)",
+          "rgba(75, 192, 192, 1)",
+        ],
+        borderWidth: 1,
+      },
+    ],
+  };
 
-    return (
-        <TitleCard title={title}>
-            <div className="h-[300px]"> {/* 차트 크기 제어를 위한 컨테이너 */}
-                <Doughnut options={options} data={data} />
-            </div>
-        </TitleCard>
-    );
+  return (
+    <TitleCard title={title}>
+      <div className="h-[300px]">
+        {" "}
+        {/* 차트 크기 제어를 위한 컨테이너 */}
+        <Doughnut options={options} data={data} />
+      </div>
+    </TitleCard>
+  );
 }
 
 export default DoughnutChart;

@@ -1,32 +1,55 @@
+@font-face {
+  font-family: "Pretendard";
+  src: url("./assets/fonts/woff2/Pretendard-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Pretendard";
+  src: url("./assets/fonts/woff2/Pretendard-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-.loading-indicator:before {
-    content: '';
-    background: #00000080;
-    position: fixed;
-    width: 100%;
-    height: 100%;
-    top: 0;
-    left: 0;
-    z-index: 1000;
+@layer base {
+  body {
+    @apply font-sans; /* tailwind.config.js 설정과 연결됨 */
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
   }
-  
-  .loading-indicator:after {
-    content: ' ';
-    position: fixed;
-    top: 40%;
-    left: 45%;
-    z-index: 10010;
-    color:white;
-    text-align:center;
-    font-weight:bold;
-    font-size:1.2rem;        
-    border: 16px solid #f3f3f3; /* Light grey */
-    border-top: 16px solid #0474bf; /* Blue */
-    border-radius: 50%;
-    width: 120px;
-    height: 120px;
-    animation: spin 2s linear infinite;
+}
+
+.loading-indicator:before {
+  content: "";
+  background: #00000080;
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+}
+
+.loading-indicator:after {
+  content: " ";
+  position: fixed;
+  top: 40%;
+  left: 45%;
+  z-index: 10010;
+  color: white;
+  text-align: center;
+  font-weight: bold;
+  font-size: 1.2rem;
+  border: 16px solid #f3f3f3; /* Light grey */
+  border-top: 16px solid #0474bf; /* Blue */
+  border-radius: 50%;
+  width: 120px;
+  height: 120px;
+  animation: spin 2s linear infinite;
 }

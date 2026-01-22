@@ -11,6 +11,8 @@ import { Bar, getElementAtEvent } from "react-chartjs-2";
 import { useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import TitleCard from "../../../components/Cards/TitleCard";
+ChartJS.defaults.font.family = "'Pretendard', sans-serif";
+ChartJS.defaults.font.size = 16;
 
 // ChartJS 구성 요소 등록
 ChartJS.register(
