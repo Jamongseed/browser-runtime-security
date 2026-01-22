@@ -278,7 +278,14 @@ const STORAGE_KEYS = {
       const baseMeta = { ruleId, scoreDelta };
 
       const matched = ruleEngine ? ruleEngine.match({ type, data: eventData, ctx: {} }) : null;
-      const meta = matched ? ruleEngine.apply(matched, baseMeta) : baseMeta;
+     const meta = matched ? ruleEngine.apply(matched, baseMeta) : baseMeta;
+
+     // scoreDelta는 "센서 계산값"을 우선한다 (ruleset이 0으로 덮어쓰는 것 방지)
+     if (type === "INJECTED_SCRIPT_SCORE") {
+       const s = Number(eventData && (eventData.score ?? eventData.data?.score));
+       if (Number.isFinite(s)) meta.scoreDelta = s;
+       else meta.scoreDelta = baseMeta.scoreDelta;
+     }
 
       // (추가) XHR PROTO_TAMPER meta 저장(룰 적용된 severity 반영)
       if (type === "PROTO_TAMPER" && isXhrProtoTamper(eventData)) {
@@ -324,8 +331,8 @@ const STORAGE_KEYS = {
 
                 const baseMeta2 = {
                   ruleId: "XHR_MIRRORING_SUSPECT",
-                  scoreDelta: 0,
-                  severity: "LOW",
+                  scoreDelta: 80,
+                  severity: "HIGH",
                   targetOrigin: String(net.targetOrigin || ""),
                   evidence: { dtMs, suspicionScore, suspicionBand }
                 };

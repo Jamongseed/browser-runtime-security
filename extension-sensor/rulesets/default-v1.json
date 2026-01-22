@@ -472,6 +472,28 @@
         "title": "Persistence-based reinjection attempt",
         "oneLine": "A reinjection signal was detected in a persistence chain, indicating the threat may reactivate after removal."
       }
+    },
+
+    "INJECTED_SCRIPT_SCORE": {
+      "ko": {
+        "title": "주입 스크립트 점수 산출",
+        "oneLine": "스크립트 덤프 내용으로 휴리스틱 점수를 산출했습니다."
+      },
+      "en": {
+        "title": "Injected script score computed",
+        "oneLine": "A heuristic score was computed from the script dump."
+      }
+    },
+
+    "INJECTED_SCRIPT_AI_VERDICT": {
+      "ko": {
+        "title": "주입 스크립트 AI 판정",
+        "oneLine": "중간 점수(50~79) 구간 스크립트를 AI로 분류했습니다."
+      },
+      "en": {
+        "title": "Injected script AI verdict",
+        "oneLine": "AI classification was performed for mid-band (50–79) scripts."
+      }
     }
   },
 
@@ -1063,6 +1085,45 @@
         "messageKey": "PERSISTENCE_REINJECT",
         "scoreDelta": 90,
         "severity": "HIGH"
+      }
+    },
+    {
+      "id": "INJECTED_SCRIPT_SCORE",
+      "enabled": true,
+      "when": { "type": "INJECTED_SCRIPT_SCORE" },
+      "action": {
+        "ruleId": "INJECTED_SCRIPT_SCORE",
+        "messageKey": "INJECTED_SCRIPT_SCORE",
+        "scoreDelta": 0,
+        "severity": "LOW"
+      }
+    },
+    {
+      "id": "INJECTED_SCRIPT_AI_VERDICT_MALICIOUS",
+      "enabled": true,
+      "when": {
+        "type": "INJECTED_SCRIPT_AI_VERDICT",
+        "equals": { "data.aiVerdict": "MALICIOUS" }
+      },
+      "action": {
+        "ruleId": "INJECTED_SCRIPT_AI_VERDICT",
+        "messageKey": "INJECTED_SCRIPT_AI_VERDICT",
+        "scoreDelta": 0,
+        "severity": "HIGH"
+      }
+    },
+    {
+      "id": "INJECTED_SCRIPT_AI_VERDICT_BENIGN",
+      "enabled": true,
+      "when": {
+        "type": "INJECTED_SCRIPT_AI_VERDICT",
+        "equals": { "data.aiVerdict": "BENIGN" }
+      },
+      "action": {
+        "ruleId": "INJECTED_SCRIPT_AI_VERDICT",
+        "messageKey": "INJECTED_SCRIPT_AI_VERDICT",
+        "scoreDelta": 0,
+        "severity": "LOW"
       }
     }
   ]

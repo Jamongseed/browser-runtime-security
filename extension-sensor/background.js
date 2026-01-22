@@ -13,6 +13,11 @@ import "./dump_fetcher.js";
 
 initInstallId();
 
+function injectedScoreSeverity(score) {
+  const s = Number(score || 0);
+  return s >= 80 ? "HIGH" : "LOW";
+}
+
 // scoring model (script dump -> score)
 const SCORING_MODEL_PATH = "rulesets/scoring-model-v1.json";
 let scoringModelCache = null;
@@ -335,6 +340,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         // compute SCRIPT_SCORE right before dump transmit
         let scriptScore = null;
+        let scoreReportId = null;
         try {
           const model = await loadScoringModel();
           const { score, hits, comboBonus, comboHits } = scoreScriptText(clipped, model);
@@ -356,8 +362,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }
 
           const scoreEvent = {
-            type: "SCRIPT_SCORE",
-            ruleId: "SCRIPT_SCORE",
+            type: "INJECTED_SCRIPT_SCORE",
+            ruleId: "INJECTED_SCRIPT_SCORE",
             ts: now,
             sessionId: payload.sessionId || null,
             tabId,
@@ -366,8 +372,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             page: payload.page || sender?.tab?.url || "",
             origin: payload.origin || "",
             targetOrigin: payload.targetOrigin || "",
-            severity: "LOW",
-            scoreDelta: 0,
+            severity: injectedScoreSeverity(score),
+            // 집계/표시용: 숫자 scoreDelta로 넣어야 ingest에서 scoreSum에 반영됨
+            scoreDelta: Math.max(0, Math.round(Number(score || 0))),
             data: {
               modelId: model.modelId || "scoring-model-v1",
               modelUpdatedAt: model.modelUpdatedAt || model.generatedAt || "",
@@ -396,14 +403,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             }
           };
 
-          // ruleset(default-v1.json)이 SCRIPT_SCORE를 스코어링하지 않아도,
-          // dispatcher가 sinks(localStorage/badge/notification/http)로 보낼 수 있게 직접 dispatch.
           try {
-            await dispatcher.dispatch(scoreEvent, { sender });
+            await Promise.allSettled(
+              dispatcher.sinks
+                .map(s => s.send(scoreEvent, { sender }))
+            );
           } catch (e) {
-            console.warn("[BRS] SCRIPT_SCORE dispatch failed (non-fatal):", e?.message || e);
+            console.warn("[BRS] INJECTED_SCRIPT_SCORE local dispatch failed (non-fatal):", e?.message || e);
           }
-          console.log("[BRS] SCRIPT_SCORE dispatched", { score, hitCount: hits.length, sha256, norm });
+          scoreReportId = scoreEvent.reportId;
+          console.log("[BRS] INJECTED_SCRIPT_SCORE dispatched", { score, hitCount: hits.length, sha256, norm });
           scriptScore = { score, hitCount: hits.length, comboBonus: comboBonus || 0, comboHitCount: (comboHits || []).length };
         } catch (e) {
           console.warn("[BRS] SCRIPT_SCORE skipped:", e?.message || e);
@@ -412,6 +421,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const dumpEvent = {
           type: "SCRIPT_DUMP",
           ts: Date.now(),
+          sessionId: payload.sessionId || null,
           tabId,
           installId,
           page: payload.page || sender?.tab?.url || "",
@@ -421,6 +431,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             url,
             norm,
             sha256,
+            score: scriptScore?.score ?? null,
+            scoreReportId: scoreReportId || null,
             length: payload.length ?? text.length,
             contentType: payload.contentType || "",
             via: payload.via || "",
@@ -432,7 +444,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await postJsonWithRetry(SYSTEM_CONFIG.DUMPS_ENDPOINT, dumpEvent);
         sendResponse({ ok: true, scriptScore });
       } catch (e) {
-        console.error("[BRS] dump transmit failed:", e);
+          console.error("[BRS] dump transmit failed:", {
+            msg: String(e?.message || e),
+            name: e?.name,
+            dumpsEndpoint: SYSTEM_CONFIG.DUMPS_ENDPOINT,
+          });
         sendResponse({ ok: false, err: String(e?.message || e) });
       }
     })();
