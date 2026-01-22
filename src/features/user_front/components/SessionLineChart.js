@@ -8,6 +8,7 @@ import {
   Tooltip,
   Filler,
   Legend,
+  TimeScale, // 시간축을 위해 추가
 } from "chart.js";
 import { Line } from "react-chartjs-2";
 import moment from "moment";
@@ -39,7 +40,7 @@ function SessionLineChart({
   const labels = sortedEvents.map((e, index) => {
     // 처음(0)과 마지막(lastIdx)은 실제 시각 표시
     if (index === 0 || index === lastIdx) {
-      return moment(e.ts).format("HH:mm:ss:SSS");
+      return moment(e.ts).format("HH:mm:ss");
     }
 
     // 그 외 중간 지점들은 시작 시간 대비 경과 초 표시
@@ -104,7 +105,6 @@ function SessionLineChart({
       },
     },
     scales: {
-      
       y: {
         min: 0,
         suggestedMax: 100,

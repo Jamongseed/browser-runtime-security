@@ -1,37 +1,72 @@
-import axios from "axios"
+import axios from "axios";
+
+// 비로그인(user)이 접근하면 안 되는 admin 전용 페이지들
+const ADMIN_ONLY_PREFIXES = ["/app/events", "/app/domains", "/app/analytics"];
 
 const checkAuth = () => {
-/*  Getting token value stored in localstorage, if token is not present we will open login page 
-    for all internal dashboard routes  */
-    const TOKEN = localStorage.getItem("token")
-    const PUBLIC_ROUTES = ["login", "forgot-password", "register", "documentation"]
+  const token = localStorage.getItem("token");
+  const role = localStorage.getItem("role") || "user";
+  const path = window.location.pathname;
 
-    const isPublicPage = PUBLIC_ROUTES.some( r => window.location.href.includes(r))
+  const isAdminOnlyPage = ADMIN_ONLY_PREFIXES.some((p) => path.startsWith(p));
 
-    if(!TOKEN && !isPublicPage){
-        window.location.href = '/login'
-        return;
-    }else{
-        axios.defaults.headers.common['Authorization'] = `Bearer ${TOKEN}`
-
-        axios.interceptors.request.use(function (config) {
-            // UPDATE: Add this code to show global loading indicator
-            document.body.classList.add('loading-indicator');
-            return config
-          }, function (error) {
-            return Promise.reject(error);
-          });
-          
-          axios.interceptors.response.use(function (response) {
-            // UPDATE: Add this code to hide global loading indicator
-            document.body.classList.remove('loading-indicator');
-            return response;
-          }, function (error) {
-            document.body.classList.remove('loading-indicator');
-            return Promise.reject(error);
-          });
-        return TOKEN
+  // 비로그인(user)
+  if (!token) {
+    // admin 전용 페이지 접근만 막고, 나머지 user 페이지는 허용
+    if (isAdminOnlyPage) {
+      window.location.replace("/login"); // 절대경로 + replace
     }
-}
 
-export default checkAuth
+    return {
+      token: null,
+      role: "user",
+      isLoggedIn: false,
+    };
+  }
+
+  // 로그인(admin)일 때만 axios 설정
+  axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+
+  // 인터셉터는 매번 추가되면 중복 쌓임 → 한 번만 등록되도록 가드
+  if (!axios.__HAS_LOADING_INTERCEPTORS__) {
+    axios.__HAS_LOADING_INTERCEPTORS__ = true;
+
+    axios.interceptors.request.use(
+      function (config) {
+        document.body.classList.add("loading-indicator");
+        return config;
+      },
+      function (error) {
+        document.body.classList.remove("loading-indicator");
+        return Promise.reject(error);
+      }
+    );
+
+    axios.interceptors.response.use(
+      function (response) {
+        document.body.classList.remove("loading-indicator");
+        return response;
+      },
+      function (error) {
+        document.body.classList.remove("loading-indicator");
+        return Promise.reject(error);
+      }
+    );
+  }
+
+  return {
+    token,
+    role,
+    isLoggedIn: true,
+  };
+};
+
+export default checkAuth;
+
+export function logout() {
+  localStorage.removeItem("token");
+  localStorage.removeItem("role");
+
+  // ✅ 로그아웃 후 user 페이지로
+  window.location.replace("/app/dashboard");
+}

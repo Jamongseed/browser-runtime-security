@@ -43,7 +43,7 @@ function Dashboard() {
 
   const gotoDetail = (id) => {
     // 상세 페이지 경로로 이동 (예: /app/details/아이디)
-    navigate(`/app/details/${id}`);
+    navigate(`/app/user_front/detail/${id}`);
   };
 
   const [severityData, setseverityData] = useState(null);
@@ -110,6 +110,7 @@ function Dashboard() {
           )}
         </div>
       </div>
+
 
       {/** ---------------------- Different stats content 2 ------------------------- */}
       {
@@ -230,7 +231,7 @@ function Dashboard() {
                       <td className="text-center">
                         <button
                           className="btn btn-sm btn-ghost btn-outline border-base-300 hover:btn-primary hover:border-primary transition-all normal-case"
-                          onClick={() => gotoDetail(l.installId)}
+                          onClick={() => gotoDetail(l.eventId)}
                         >
                           자세히
                           <svg

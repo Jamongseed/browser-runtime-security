@@ -1,16 +1,18 @@
-// front\src\routes\index.js
 import { lazy } from "react";
 
 const Login = lazy(() => import("../pages/Login"));
 const Dashboard = lazy(() => import("../pages/protected/Dashboard"));
 //const EventList = lazy(() => import('../features/events/EventListPage'))
-//const EventDetail = lazy(() => import('../features/events/EventDetailPage'))
+
+const UserEventDetailPage = lazy(() => import("../features/user_front/detail"));
+
 //const DomainRanking = lazy(() => import('../features/domains/DomainRankingPage'))
 //const Analytics = lazy(() => import('../features/analytics/AnalyticsPage'))
 const UserDashboard = lazy(() => import("../features/user_front"));
 const UserSessionList = lazy(() => import("../features/user_front/listpage_session"),);
 const UserSessionDetail = lazy(() => import("../features/user_front/listpage_session/detail"),);
 const UserDomainList = lazy(() => import("../features/user_front/listpage_domain"),);
+const UserDetail = lazy(() => import("../features/user_front/detail"));
 
 //const Welcome = lazy(() => import("../pages/protected/Welcome"));
 //const Page404 = lazy(() => import("../pages/protected/404"));
@@ -22,7 +24,7 @@ const UserDomainList = lazy(() => import("../features/user_front/listpage_domain
 //const Team = lazy(() => import("../pages/protected/Team"));
 //const Transactions = lazy(() => import("../pages/protected/Transactions"));
 //const Bills = lazy(() => import("../pages/protected/Bills"));
-//const ProfileSettings = lazy(() => import("../pages/protected/ProfileSettings"),);
+//const ProfileSettings = lazy(  () => import("../pages/protected/ProfileSettings"),);
 //const GettingStarted = lazy(() => import("../pages/GettingStarted"));
 //const DocFeatures = lazy(() => import("../pages/DocFeatures"));
 //const DocComponents = lazy(() => import("../pages/DocComponents"));
@@ -35,6 +37,10 @@ const routes = [
   {
     path: '/login',
     component: Login,
+  },
+  {
+    path: "/user_front/:eventId",
+    component: UserEventDetailPage,
   },
 
   // 보안 운영 페이지 추가
@@ -72,6 +78,10 @@ const routes = [
   {
     path: "/user_front/listpage_domain",
     component: UserDomainList,
+  },
+  {
+    path: "/user_front/detail/:eventId",
+    component: UserDetail,
   },
 
   // 기존 유지
