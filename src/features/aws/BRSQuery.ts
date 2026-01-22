@@ -55,6 +55,7 @@ export const BRS_Query = {
 
   severityRange: "/severity-range",
   topn: "/topn",
+  agg: "/agg/global",
 
   trendDomain: "/trends/domain",
   trendRule: "/trends/rule",
@@ -76,35 +77,39 @@ export type ThreatEventItem = {
   eventId: string;
 };
 
-export type ListResponse<T> = {
-  ok: boolean;
-  query?: any;
-  items: T[];
-  nextToken?: string | null;
-};
-
-export type EventBodyResponse = {
-  ok: boolean;
-  eventId: string;
-  meta: any;
+export type EventItem = {
+  ts: number;
+  day: string;
+  type: string;
   ruleId: string;
-  payload: {
-    payloadJson?: any;
-    payloadTruncated?: boolean;
-    payloadHash?: string;
+  severity: "LOW" | "MEDIUM" | "HIGH"; // 예상되는 값들을 유니온 타입으로 지정
+  scoreDelta: string | number;
+  sessionId: string;
+  installId: string;
+  origin: string;
+  domain: string;
+  page: string;
+  eventId: string;
+  rulesetId: string;
+  display: {
+    title: string;
+    oneLine: string;
+    locale: string;
+    rulesetId: string;
   };
 };
 
-export type RuleDescriptionResponse = {
-  ok: boolean;
-  rulesetId: string;
-  ruleId: string;
-  locale: string;
-  online: string;
-  titme: string;
+export type AggItem = {
+  sk: string;
+  cnt: number;
+  scoreSum: number;
 };
 
-// ---- Events API ----
+export type TopNItem = { key: string; cnt: number; scoreSum?: number };
+
+export type SeverityAggItem = { key: string; cnt: number };
+
+// ---- params start ----------
 export type EventsRangeParams = {
   startDay: string; // YYYY-MM-DD
   endDay: string; // YYYY-MM-DD
@@ -117,13 +122,19 @@ export type EventsBySevParams = EventsRangeParams & {
   newest?: boolean; // true -> newest mode (qs.newest=true) :contentReference[oaicite:6]{index=6}
 };
 
-export type EventsByDomainParams = EventsRangeParams & {
+export type EventsByDomainParams = {
   domain: string;
+  startDay: string;
+  endDay: string;
+  limit: number;
   newest?: boolean;
 };
 
-export type EventsByRuleParams = EventsRangeParams & {
+export type EventsByRuleParams = {
   ruleId: string;
+  startDay: string;
+  endDay: string;
+  limit: number;
   newest?: boolean;
 };
 
@@ -143,9 +154,43 @@ export type AggRangeParams = {
   limit?: number;
 };
 
-export type TopNItem = { key: string; cnt: number; scoreSum?: number };
+export type AggParams = {
+  kind: string;
+  startDay: string;
+  endDay: string;
+};
 
-export type SeverityAggItem = { key: string; cnt: number };
+//------------param end ------------
+// -----------response start -----------
+
+export type ListResponse<T> = {
+  ok: boolean;
+  query?: any;
+  items: T[];
+  nextToken?: string | null;
+};
+
+export type EventBodyResponse = {
+  ok: boolean;
+  eventId: string;
+  meta: any;
+  ruleId: string;
+  domain: string;
+  payload: {
+    payloadJson?: any;
+    payloadTruncated?: boolean;
+    payloadHash?: string;
+  };
+};
+
+export type RuleDescriptionResponse = {
+  ok: boolean;
+  rulesetId: string;
+  ruleId: string;
+  locale: string;
+  online: string;
+  titme: string;
+};
 
 export type TrendDaysResponse = {
   ok: boolean;
@@ -155,6 +200,24 @@ export type TrendDaysResponse = {
 };
 
 export type ruleDescribtionParams = { ruleId: string; local: string };
+
+export type EventsByRuleResponse = {
+  ok: boolean;
+  query: any;
+  items: EventItem[];
+};
+
+export type EventsByDomainResponse = {
+  ok: boolean;
+  query: any;
+  items: EventItem[];
+};
+
+export type AggResponse = {
+  ok: boolean;
+  query: any;
+  items: AggItem[];
+};
 
 export const brsQueryApi = {
   // ----- events list (day fan-out, token은 shard fanout token) -----
@@ -179,39 +242,21 @@ export const brsQueryApi = {
 
   // ----- by domain/rule/sev -----
   eventsByDomain: (args: EventsByDomainParams, origin?: string) =>
-    getJson<ListResponse<ThreatEventItem>>(
-      BRS_Query.eventsByDomain,
-      {
-        ...args,
-        newest: args.newest ? "true" : undefined,
-      },
-      origin,
-    ),
+    getJson<EventsByDomainResponse>(BRS_Query.eventsByDomain, args),
 
-  eventsByRule: (args: EventsByRuleParams, origin?: string) =>
-    getJson<ListResponse<ThreatEventItem>>(
-      BRS_Query.eventsByRule,
-      {
-        ...args,
-        newest: args.newest ? "true" : undefined,
-      },
-      origin,
-    ),
+  eventsByRule: (args: EventsByRuleParams) =>
+    getJson<EventsByRuleResponse>(BRS_Query.eventsByRule, args),
 
   // ----- aggregates -----
-  topnDomains: (args: AggRangeParams, origin?: string) =>
-    getJson<{ ok: boolean; query: any; items: TopNItem[] }>(BRS_Query.topn, {
-      ...args,
-      type: "domain",
-    }),
+  aggSearch: (args: AggParams) => getJson<AggResponse>(BRS_Query.agg, args),
 
-  topnRules: (args: AggRangeParams, origin?: string) =>
+  topnRules: (args: AggRangeParams) =>
     getJson<{ ok: boolean; query: any; items: TopNItem[] }>(BRS_Query.topn, {
       ...args,
       type: "rule",
     }),
 
-  severityRange: (args: AggRangeParams, origin?: string) =>
+  severityRange: (args: AggRangeParams) =>
     getJson<{ ok: boolean; query: any; items: SeverityAggItem[] }>(
       BRS_Query.severityRange,
       args,

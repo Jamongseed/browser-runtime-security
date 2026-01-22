@@ -17,7 +17,11 @@ const sevenDaysAgo = moment().subtract(7, "days").format("YYYY-MM-DD");
 
 export const getSeverity = async ({ startDay, endDay }) => {
   try {
-    const response = await brsQueryApi.severityRange({ startDay, endDay });
+    const kind = "sev";
+    const response = await brsQueryApi.aggSearch({ kind, startDay, endDay });
+    console.log("getSeverity 로그1");
+    console.log(response);
+
     const rawData = response?.items || [];
 
     if (rawData.length === 0) {
@@ -61,10 +65,10 @@ export const getSeverity = async ({ startDay, endDay }) => {
   }
 };
 
-export const getDomain = async ({ startDay, endDay }) => {
+export const getAggDomain = async ({ startDay, endDay }) => {
   try {
-    console.log("전달된 날짜 확인2:", { startDay, endDay });
-    const response = await brsQueryApi.topDomains({ startDay, endDay });
+    const kind = "domain";
+    const response = await brsQueryApi.aggSearch({ kind, startDay, endDay });
 
     // response.items가 배열인지 확인하고 안전하게 가져오기
     const rawData = response?.items || [];
@@ -82,6 +86,10 @@ export const getDomain = async ({ startDay, endDay }) => {
       };
     }
 
+    const topData = [...rawData]
+      .sort((a, b) => (b.cnt || 0) - (a.cnt || 0))
+      .slice(0, 15);
+
     const getRandomColor = () => {
       const r = Math.floor(Math.random() * 255);
       const g = Math.floor(Math.random() * 255);
@@ -92,15 +100,15 @@ export const getDomain = async ({ startDay, endDay }) => {
     // 2. 응답 구조(sk, cnt)에 맞춰 추출하여 리턴
     return {
       // "DOMAIN#google.com"에서 "google.com"만 추출
-      labels: rawData.map((item) =>
+      labels: topData.map((item) =>
         item.sk ? item.sk.split("#")[1] : "Unknown",
       ),
       datasets: [
         {
           label: "도메인별 탐지 건수",
           // item.val이 아니라 item.cnt를 사용해야 합니다.
-          data: rawData.map((item) => item.cnt),
-          backgroundColor: rawData.map(() => getRandomColor()), // 도메인 차트는 보통 파란색 계열 사용
+          data: topData.map((item) => item.cnt),
+          backgroundColor: topData.map(() => getRandomColor()), // 도메인 차트는 보통 파란색 계열 사용
           borderColor: "rgba(54, 162, 235, 1)",
           borderWidth: 1,
         },
@@ -112,83 +120,157 @@ export const getDomain = async ({ startDay, endDay }) => {
   }
 };
 
-export const getHighSeverityEvents = async ({ startDay, endDay }) => {
+export const getAggRule = async ({ startDay, endDay }) => {
   try {
-    const origin = "https://poc-a-main.onrender.com";
-    const severity = "HIGH";
-    const limit = 20;
-    const newest = "";
-    const response = await brsQueryApi.severityLists({
-      origin,
-      severity,
+    const kind = "rule";
+    const response = await brsQueryApi.aggSearch({ kind, startDay, endDay });
+
+    // response.items가 배열인지 확인하고 안전하게 가져오기
+    const rawData = response?.items || [];
+
+    if (rawData.length === 0) {
+      return {
+        labels: ["데이터 없음"],
+        datasets: [
+          {
+            label: "룰 데이터가 없습니다",
+            data: [0],
+            backgroundColor: "#e5e7eb",
+          },
+        ],
+      };
+    }
+
+    const topData = [...rawData]
+      .sort((a, b) => (b.cnt || 0) - (a.cnt || 0))
+      .slice(0, 5);
+
+    const getRandomColor = () => {
+      const r = Math.floor(Math.random() * 255);
+      const g = Math.floor(Math.random() * 255);
+      const b = Math.floor(Math.random() * 255);
+      return `rgba(${r}, ${g}, ${b}, 0.8)`; // 투명도 0.6
+    };
+
+    // 2. 응답 구조(sk, cnt)에 맞춰 추출하여 리턴
+    return {
+      // "DOMAIN#google.com"에서 "google.com"만 추출
+      labels: topData.map((item) =>
+        item.sk ? item.sk.split("#")[1] : "Unknown",
+      ),
+      datasets: [
+        {
+          label: "룰별 탐지 건수",
+          // item.val이 아니라 item.cnt를 사용해야 합니다.
+          data: topData.map((item) => item.cnt),
+          backgroundColor: topData.map(() => getRandomColor()), // 도메인 차트는 보통 파란색 계열 사용
+          borderColor: "rgba(54, 162, 235, 1)",
+          borderWidth: 1,
+        },
+      ],
+    };
+  } catch (error) {
+    console.error("데이터 조회 실패:", error);
+    return { labels: [], datasets: [] };
+  }
+};
+
+export const getEvents = async ({
+  installId,
+  startDay = sevenDaysAgo,
+  endDay = today,
+}) => {
+  try {
+    const response = await brsQueryApi.eventsByInstall({
+      installId,
+      startDay,
+      endDay,
+    });
+
+    const items = response?.items || [];
+
+    return {
+      data: items,
+      error: null,
+    };
+  } catch (error) {
+    console.error(`getEvents 조회 실패:`, error);
+    return {
+      data: null,
+      error: error?.message || "Unknown error",
+    };
+  }
+};
+
+export const getEventsByRule = async ({
+  ruleId,
+  startDay,
+  endDay,
+  limit = 50,
+  newest = true,
+}) => {
+  try {
+    if (!ruleId) return { data: null, error: "No Rule ID" };
+    const response = await brsQueryApi.eventsByRule({
+      ruleId,
       startDay,
       endDay,
       limit,
       newest,
     });
-    const rawData = response.data;
 
-    if (!rawData || !Array.isArray(rawData)) {
-      return [];
-    }
-
-    // ItemResponse 형식에 맞춰 필요한 데이터만 추출
-    return rawData.map((item) => ({
-      severity: item.severity, // 원본 severity
-      scoreDelta: item.scoreDelta,
-      domain: item.domain,
-      pageURL: item.page, // 원본의 'page' 필드를 'pageURL'로 매핑
-      eventId: item.eventId,
-      installId: item.installId,
-    }));
-  } catch (error) {
-    console.error("데이터 조회 실패:", error);
-    return [];
-  }
-};
-
-export const getEvents = async ({ installId }) => {
-  try {
-    if (userDataResponse.length == 0) {
-      const response = await brsQueryApi.eventsByInstall({ installId });
-      userDataResponse = response;
-    }
-
-    const rawData = userDataResponse?.items || [];
-    if (rawData.length === 0) return { groupedList: [] };
-
-    // 1. 최신순 정렬 (ts가 높은 숫자일수록 최신)
-    // 만약 ts가 문자열이라면 (b.ts > a.ts ? 1 : -1) 형식을 사용하세요.
-    const sortedData = [...rawData].sort((a, b) => (b.ts || 0) - (a.ts || 0));
-
-    // 2. 세션별 그룹화 및 순서 유지
-    const grouped = sortedData.reduce((acc, item) => {
-      const sId = item.sessionId || "Unknown Session";
-      if (!acc[sId]) {
-        acc[sId] = {
-          sessionId: sId,
-          latestTs: item.ts, // 세션의 최신 시간을 기준으로 세션 순서 정렬용
-          events: [],
-        };
-      }
-      acc[sId].events.push(item);
-      return acc;
-    }, {});
-
-    // 3. 세션 자체도 최신 이벤트가 있는 세션이 위로 오도록 정렬하여 배열로 변환
-    const sortedGroupedList = Object.values(grouped).sort(
-      (a, b) => b.latestTs - a.latestTs,
-    );
+    const items = response?.items || [];
 
     return {
-      groupedList: sortedGroupedList, // 세션별로 묶인 배열
-      totalCount: rawData.length,
+      data: items,
+      error: null,
     };
   } catch (error) {
-    console.error("이벤트 목록 조회 실패:", error);
-    return { groupedList: [], totalCount: 0 };
+    console.error(`룰아이디(${ruleId}) 조회 실패:`, error);
+    return {
+      data: null,
+      error: error?.message || "Unknown error",
+    };
   }
 };
+
+export const getEventsByDomain = async ({
+  domain,
+  startDay,
+  endDay,
+  limit = 50,
+  newest = true,
+}) => {
+  try {
+    // 1. 유효성 검사 (함수 인자 이름은 ruleId지만, 메시지는 문맥에 맞게 수정)
+    if (!domain) return { data: null, error: "No Rule ID or Domain provided" };
+
+    const response = await brsQueryApi.eventsByDomain({
+      domain,
+      startDay,
+      endDay,
+      limit,
+      newest,
+    });
+
+    // 2. response.items가 없을 경우를 대비해 빈 배열로 처리
+    const items = response?.items || [];
+
+    // 3. 리턴 객체 내부 구분자는 쉼표(,)여야 합니다.
+    return {
+      data: items, // 세미콜론(;) 제거
+      error: null, // 세미콜론(;) 제거
+    };
+  } catch (error) {
+    console.error(`룰아이디(${domain}) 조회 실패:`, error);
+    return {
+      data: null,
+      error: error?.message || "Unknown error",
+    };
+  }
+};
+
+//---------------유저용 -------------------
 
 export const getUserSessionEvents = async ({
   installId,
@@ -482,10 +564,10 @@ export const getUserEventBytime = async ({
   }
 };
 
-export const getRule = async () => {
+export const getRule = async ({ startDay, endDay, limit = 7 }) => {
   try {
     // 1. AWS rule 트랜드
-    const response = await axios.get("/trends/rule");
+    const response = await brsQueryApi.topnRules({ startDay, endDay, limit });
     const rawData = response.data;
 
     // 2. labels와 datasets만 추출하여 리턴
@@ -502,6 +584,8 @@ export const getRule = async () => {
     return { labels: [], datasets: [] };
   }
 };
+
+//---------------------공용--------------
 
 export const getDetail = async () => {
   try {
@@ -566,6 +650,64 @@ export const getEventDetail = async ({ eventId }) => {
 
     return {
       data: formattedData,
+      error: null,
+    };
+  } catch (error) {
+    console.error(`이벤트(${eventId}) 조회 실패:`, error);
+    return {
+      data: null,
+      error: error?.message || "Unknown error",
+    };
+  }
+};
+
+export const getOneEvent = async ({ eventId }) => {
+  try {
+    if (!eventId) return { data: null, error: "No Event ID" };
+
+    const response = await brsQueryApi.eventBody({ eventId });
+
+    if (!response || !response.ok) {
+      throw new Error("데이터를 찾을 수 없습니다.");
+    }
+
+    // 1. payloadJson 파싱 (문자열 -> 객체)
+    let parsedInnerPayload = {};
+    try {
+      parsedInnerPayload = response.payload?.payloadJson
+        ? JSON.parse(response.payload.payloadJson)
+        : {};
+    } catch (e) {
+      console.error("Payload 파싱 실패", e);
+    }
+
+    // 2. 데이터 평탄화 및 포맷팅 (items 배열에 들어갈 객체 생성)
+    const eventItem = {
+      // meta 및 기본 정보 추출
+      ts: response.meta?.tsMs || Date.now(),
+      day: response.meta?.day || "",
+      eventId: response.eventId,
+      rulesetId: response.rulesetId,
+      domain: response.domain,
+
+      // 파싱된 내부 payload 데이터 추출
+      type: parsedInnerPayload.type || "",
+      ruleId: parsedInnerPayload.ruleId || "",
+      severity: parsedInnerPayload.severity || "INFO",
+      scoreDelta: String(parsedInnerPayload.scoreDelta || "0"),
+      sessionId: parsedInnerPayload.sessionId || "",
+      installId: parsedInnerPayload.installId || "",
+      origin: parsedInnerPayload.origin || "",
+      page: parsedInnerPayload.page || "",
+    };
+
+    // 3. 최종 반환 구조 (query + items 배열)
+
+    console.log("getOneEvent 리스폰스");
+    console.log(eventItem);
+
+    return {
+      data: [eventItem],
       error: null,
     };
   } catch (error) {

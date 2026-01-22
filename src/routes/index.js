@@ -19,6 +19,9 @@ const UserDomainList = lazy(
 );
 const UserDetail = lazy(() => import("../features/user_front/detail"));
 
+const AdminDashboard = lazy(() => import("../features/admin_front"));
+const AdminSearch = lazy(() => import("../features/admin_front/admin_search"));
+
 const Welcome = lazy(() => import("../pages/protected/Welcome"));
 const Page404 = lazy(() => import("../pages/protected/404"));
 const Blank = lazy(() => import("../pages/protected/Blank"));
@@ -85,6 +88,14 @@ const routes = [
   {
     path: "/user_front/detail/:eventId",
     component: UserDetail,
+  },
+  {
+    path: "/admin_front",
+    component: AdminDashboard,
+  },
+  {
+    path: "/admin_front/table",
+    component: AdminSearch,
   },
 
   // 기존 유지
