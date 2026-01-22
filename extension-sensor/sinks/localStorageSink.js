@@ -1,7 +1,5 @@
 import { runWithLock } from "../utils/lock.js";
-import { STORAGE_KEYS } from '../config.js';
-
-const STORAGE_LOCK = "brs_local_storage_lock";
+import { STORAGE_KEYS, LOCK_KEYS } from '../config.js';
 
 export function createLocalStorageSink({ maxLogCount = 200, targets = [] } = {}) {
   return {
@@ -12,23 +10,21 @@ export function createLocalStorageSink({ maxLogCount = 200, targets = [] } = {})
     },
 
     async send(threat) {
-      return runWithLock(STORAGE_LOCK, async (lock) => {
+      return runWithLock(LOCK_KEYS.LOCAL_STORAGE, async () => {
         try {
-          let { [STORAGE_KEYS.LOGS]: logs } = await chrome.storage.local.get({
-            [STORAGE_KEYS.LOGS]: [],  
-          });
+          const { [STORAGE_KEYS.LOGS]: existingLogs } = await chrome.storage.local.get({ [STORAGE_KEYS.LOGS]: [] });
 
-          const logEntry = { ...threat, savedAt: Date.now() };
-          logs.push(logEntry);
+          let logList = Array.isArray(existingLogs) ? existingLogs : [];
+          logList.push({ ...threat, savedAt: Date.now() });
 
-          if (logs.length > maxLogCount) logs = logs.slice(-maxLogCount);
+          if (logList.length > maxLogCount) logList = logList.slice(-maxLogCount);
 
-          await chrome.storage.local.set({ [STORAGE_KEYS.LOGS]: logs });
+          await chrome.storage.local.set({ [STORAGE_KEYS.LOGS]: logList });
 
-          return { status: "saved", totalLogs: logs.length };
-
+          return { status: "saved", totalLogs: logList.length };
         } catch (err) {
-          throw new Error(`Storage Write Failed: ${err.message}`);
+          console.error(`[BRS] ${this.name} failed:`, err);
+          throw new Error(`Local Storage Write Failed: ${err.message}`);
         }
       });
     }

@@ -4,7 +4,7 @@
       if (typeof crypto !== "undefined" && crypto && crypto.randomUUID) {
         return crypto.randomUUID();
       }
-    } catch (_) {}
+    } catch (_) { }
     return `sess-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 
@@ -41,7 +41,7 @@
             evidence = { stack: String(stackFromData).slice(0, 2000) };
           }
         }
-      } catch (_) {}
+      } catch (_) { }
 
       const payload = {
         type,

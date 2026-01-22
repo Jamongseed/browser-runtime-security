@@ -14,7 +14,7 @@ function openDashboard(installId, reportId) {
   }
 
   const targetUrl = `${dashboardUrl}?${params.toString()}`;
-  
+
   chrome.tabs.create({ url: targetUrl });
 }
 
@@ -27,7 +27,7 @@ function renderEmpty(element, msg) {
 function updateStatusUI(isOn) {
   const statusText = document.getElementById('status-text');
   const toggle = document.getElementById('master-toggle');
-  
+
   if (toggle) toggle.checked = isOn;
 
   if (statusText) {
@@ -64,11 +64,17 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  chrome.storage.local.get({ 
+  chrome.storage.local.get({
     [STORAGE_KEYS.LOGS]: [],
     [STORAGE_KEYS.INSTALL_ID]: null,
     [STORAGE_KEYS.IS_ENABLED]: true
   }, async (result) => {
+
+    if (chrome.runtime.lastError) {
+      console.error("[BRS] Storage Access Failed:", chrome.runtime.lastError.message);
+      renderEmpty(logArea, "데이터 로드 실패<br>(Storage Error)");
+      return;
+    }
 
     const logs = result[STORAGE_KEYS.LOGS] || [];
     const installId = result[STORAGE_KEYS.INSTALL_ID];
@@ -80,12 +86,21 @@ document.addEventListener('DOMContentLoaded', () => {
     if (toggle) {
       toggle.addEventListener('change', (e) => {
         const newState = e.target.checked;
-        
-        // 스토리지에 ON/OFF 상태 저장
-        chrome.storage.local.set({ [STORAGE_KEYS.IS_ENABLED]: newState });
-        
-        // UI 업데이트
-        updateStatusUI(newState);
+
+        toggle.disabled = true;
+
+        chrome.storage.local.set({ [STORAGE_KEYS.IS_ENABLED]: newState }, () => {
+          toggle.disabled = false; // 저장 완료 후 해제
+
+          if (chrome.runtime.lastError) {
+            console.error("[BRS] Toggle Save Failed:", chrome.runtime.lastError.message);
+            // 에러 시 UI를 이전 상태로 복구
+            toggle.checked = !newState;
+            updateStatusUI(!newState);
+          } else {
+            updateStatusUI(newState);
+          }
+        });
       });
     }
 
@@ -93,8 +108,15 @@ document.addEventListener('DOMContentLoaded', () => {
       renderEmpty(logArea);
       return;
     }
-  
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+    let tab;
+    try {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      tab = activeTab;
+    } catch (e) {
+      console.error("[BRS] Tab Query Failed:", e);
+    }
+
     // URL을 못 찾으면 그냥 빈 창 띄우기
     if (!tab || !tab.url) {
       renderEmpty(logArea);
@@ -103,11 +125,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const currentTabId = tab.id;
     const sessionLogs = logs.filter(log => {
-    const severity = (log.severity || "").toUpperCase();
-    const isTargetSeverity = ['MEDIUM', 'HIGH'].includes(severity);
-    
-    return log.tabId === currentTabId && isTargetSeverity;
-  });
+      const severity = (log.severity || "").toUpperCase();
+      const isTargetSeverity = ['MEDIUM', 'HIGH'].includes(severity);
+
+      return log.tabId === currentTabId && isTargetSeverity;
+    });
 
     if (sessionLogs.length === 0) {
       renderEmpty(logArea, "현재 탭에서 탐지된<br>주요 위협(Medium 이상)이 없습니다.");
@@ -117,19 +139,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const logsToDisplay = sessionLogs
       .sort((a, b) => b.ts - a.ts)
       .slice(0, 20);
-  
-    if (logArea){
+
+    if (logArea) {
       logArea.innerHTML = '';
       logsToDisplay.forEach(log => {
         const siteInfo = log?.browserUrl || log?.targetOrigin || "Internal/Page";
 
         const timeStr = new Date(log.ts).toLocaleTimeString();
-        let dataStr = "";
-        try {
-          dataStr = JSON.stringify(log.data, null, 2).replace(/"/g, '').slice(0, 100);
-        } catch (e) {
-          dataStr = "Data Parsing Error";
-        }
 
         const itemDiv = document.createElement('div');
         itemDiv.className = `log-item ${log.severity}`;
@@ -156,27 +172,21 @@ document.addEventListener('DOMContentLoaded', () => {
         originDiv.style.marginTop = '4px';
         originDiv.textContent = `SITE: ${siteInfo}`;
 
-        const dataDiv = document.createElement('div');
-        dataDiv.className = 'log-data';
-        dataDiv.textContent = dataStr;
-
         const footerDiv = document.createElement('div');
         footerDiv.style.marginTop = '5px';
         footerDiv.style.fontSize = '11px';
         footerDiv.style.color = '#888';
-        
+
         footerDiv.appendChild(document.createTextNode("위험도: "));
-        
+
         const bTag = document.createElement('b');
         bTag.textContent = log.severity;
         footerDiv.appendChild(bTag);
-        
+
         footerDiv.appendChild(document.createTextNode(` (점수: ${log.scoreDelta})`));
 
         itemDiv.appendChild(headerDiv);
         itemDiv.appendChild(originDiv);
-        // rawdata는 안 넣는 게 더 나을 것 같아서 일단 주석 처리
-        // itemDiv.appendChild(dataDiv);
         itemDiv.appendChild(footerDiv);
         logArea.appendChild(itemDiv);
       });

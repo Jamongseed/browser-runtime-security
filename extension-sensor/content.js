@@ -1,17 +1,17 @@
 const STORAGE_KEYS = {
-	WHITELIST: 'whitelist',
-	NOTIFICATIONS: 'notification_settings',
-	LOGS: 'brs_threat_logs',
-	DASHBOARD_URL: 'dashboardUrl',
-	LAST_NOTI_TIME: 'lastNotiTime',
-	TAB_SESSIONS: 'tabSessions',
-	INSTALL_ID: "brs_installId",
-	FAILED_QUEUE: "failed_log_queue",
-	HTTP_SINK_URL: "httpSinkUrl",
-	IS_ENABLED: "brs_is_enabled"
+  WHITELIST: 'whitelist',
+  NOTIFICATIONS: 'notification_settings',
+  LOGS: 'brs_threat_logs',
+  LAST_NOTI_TIME: 'lastNotiTime',
+  TAB_SESSIONS: 'tabSessions',
+  INSTALL_ID: "brs_installId",
+  FAILED_QUEUE: "failed_log_queue",
+  IS_ENABLED: "brs_is_enabled"
 };
 
 (function () {
+  let currentTabId = null;
+
   // page_hook 주입
   function startHooks() {
     const s = document.createElement("script");
@@ -120,7 +120,7 @@ const STORAGE_KEYS = {
               dtMs: st.ts ? (Date.now() - st.ts) : null,
             };
           }
-        } catch (_) {}
+        } catch (_) { }
 
         const baseMeta = {
           ruleId: d.mismatch ? "PHISHING_FORM_MISMATCH" : "FORM_ACTION_MATCH",
@@ -171,7 +171,7 @@ const STORAGE_KEYS = {
             ruleId: baseMeta.ruleId,
             data: d,
           };
-        } catch (_) {}
+        } catch (_) { }
 
         const matched2 = ruleEngine ? ruleEngine.match({ type: "PROTO_TAMPER", data: d, ctx: {} }) : null;
         const meta2 = matched2 ? ruleEngine.apply(matched2, baseMeta) : baseMeta;
@@ -206,10 +206,10 @@ const STORAGE_KEYS = {
               try {
                 initiatorOrigin = new URL(initiatorUrl).origin;
                 initiatorCrossSite = !!(initiatorOrigin && initiatorOrigin !== location.origin);
-              } catch (_) {}
+              } catch (_) { }
             }
           }
-        } catch (_) {}
+        } catch (_) { }
 
         d.initiatorUrl = initiatorUrl;
         d.initiatorOrigin = initiatorOrigin;
@@ -217,23 +217,23 @@ const STORAGE_KEYS = {
 
         const baseMeta = initiatorCrossSite
           ? {
-              ruleId: "SW_REGISTER_INITIATED_BY_CROSS_SITE_SCRIPT",
-              scoreDelta: 80,
-              severity: "HIGH",
-              targetOrigin: initiatorOrigin || ""
-            }
+            ruleId: "SW_REGISTER_INITIATED_BY_CROSS_SITE_SCRIPT",
+            scoreDelta: 80,
+            severity: "HIGH",
+            targetOrigin: initiatorOrigin || ""
+          }
           : {
-              ruleId: "SW_REGISTER",
-              scoreDelta: 10,
-              severity: "LOW",
-              targetOrigin: (d && d.targetOrigin) ? d.targetOrigin : ""
-            };
+            ruleId: "SW_REGISTER",
+            scoreDelta: 10,
+            severity: "LOW",
+            targetOrigin: (d && d.targetOrigin) ? d.targetOrigin : ""
+          };
 
         let swScriptOrigin = "";
         try {
           const swAbs = String(d.abs || "");
           if (swAbs) swScriptOrigin = new URL(swAbs).origin;
-        } catch (_) {}
+        } catch (_) { }
 
         baseMeta.evidence = {
           stack: String(d.stack || (d.evidence && d.evidence.stack) || ""),
@@ -261,7 +261,7 @@ const STORAGE_KEYS = {
           corr.seen = true;
           corr.ts = Date.now();
           corr.lastProto = data || null;
-        } catch (_) {}
+        } catch (_) { }
       }
 
       let scoreDelta = 0;
@@ -282,7 +282,7 @@ const STORAGE_KEYS = {
 
       // (추가) XHR PROTO_TAMPER meta 저장(룰 적용된 severity 반영)
       if (type === "PROTO_TAMPER" && isXhrProtoTamper(eventData)) {
-        try { corr.lastProtoMeta = meta || null; } catch (_) {}
+        try { corr.lastProtoMeta = meta || null; } catch (_) { }
       }
 
       // (추가) XHR mirroring correlation: PROTO_TAMPER 이후 N초 이내 crossSite 전송이면 1회 시그널 emit
@@ -338,7 +338,7 @@ const STORAGE_KEYS = {
               }
             }
           }
-        } catch (_) {}
+        } catch (_) { }
       }
 
       reporter.send(type, eventData, meta);
@@ -346,17 +346,38 @@ const STORAGE_KEYS = {
   }
 
   async function init() {
+    // --- 토스트 알림 로직 추가 ---
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message.action === "SHOW_TOAST") {
+        renderShadowToast(message.data, 10000, currentTabId);
+      }
+    });
+
+    try {
+      // background.js에게 Tab ID 요청
+      const response = await chrome.runtime.sendMessage({ action: "GET_MY_TAB_ID" });
+      if (response && response.tabId) {
+        currentTabId = response.tabId;
+        // 토스트 알림은 페이지 이동 시 사리지기 때문에 
+        // 해당 Tab ID에 10초 이내에 발생한 알림이 있으면 다시 띄움
+        await checkAndRecoverToast(response.tabId);
+      }
+    }
+    catch (err) {
+      console.debug("[BRS] Toast recovery skipped or Context lost:", err.message);
+    }
+    // --- 토스트 알림 로직 ---
     try {
       const result = await new Promise((resolve, reject) => {
-				// 타이머 안전 장치
+        // 타이머 안전 장치
         const timeoutId = setTimeout(() => {
           console.warn("[BRS] Storage access timed out. Proceeding with default settings.");
-          resolve({}); 
+          resolve({});
         }, 2000);
 
-        chrome.storage.local.get({ 
-            [STORAGE_KEYS.WHITELIST]: [],
-            [STORAGE_KEYS.IS_ENABLED]: true
+        chrome.storage.local.get({
+          [STORAGE_KEYS.WHITELIST]: [],
+          [STORAGE_KEYS.IS_ENABLED]: true
         }, (res) => {
           clearTimeout(timeoutId);
           if (chrome.runtime.lastError) {
@@ -366,7 +387,7 @@ const STORAGE_KEYS = {
         });
       });
 
-			// 1. ON/OFF 확인 로직
+      // 1. ON/OFF 확인 로직
       const isEnabled = result[STORAGE_KEYS.IS_ENABLED] !== false;
 
       if (!isEnabled) {
@@ -374,7 +395,7 @@ const STORAGE_KEYS = {
         return;
       }
 
-			// 2. 화이트리스트 확인 로직
+      // 2. 화이트리스트 확인 로직
       const currentDomain = window.location.hostname.replace(/^www\./, '').toLowerCase();
 
       const whitelist = result[STORAGE_KEYS.WHITELIST] || [];
@@ -392,7 +413,7 @@ const STORAGE_KEYS = {
 
       if (isWhitelisted) {
         console.log(`[BRS] Whitelisted site. Disabling detector for: (${currentDomain})`);
-        return; 
+        return;
       }
 
     } catch (e) {
@@ -405,7 +426,7 @@ const STORAGE_KEYS = {
     const reporter = reporterFactory ? reporterFactory() : {
       sessionId: `sess-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       send: function (type, data, meta) {
-        try { chrome.runtime.sendMessage({ action: "REPORT_THREAT", data: { type, data, meta } }); } catch (_) {}
+        try { chrome.runtime.sendMessage({ action: "REPORT_THREAT", data: { type, data, meta } }); } catch (_) { }
       }
     };
 
@@ -416,7 +437,7 @@ const STORAGE_KEYS = {
     //startHooks();
 
     if (ruleEngine && typeof ruleEngine.load === "function") {
-      try { await ruleEngine.load(); } catch (_) {}
+      try { await ruleEngine.load(); } catch (_) { }
     }
 
     // detectors 호출 (탐지 로직은 detectors/* 로 이동)
@@ -424,47 +445,47 @@ const STORAGE_KEYS = {
 
     const domMutation = detectors.domMutation;
     if (domMutation && typeof domMutation.start === "function") {
-      try { domMutation.start(reporter.send, ruleEngine); } catch (_) {}
+      try { domMutation.start(reporter.send, ruleEngine); } catch (_) { }
     }
 
     const formsDetector = detectors.forms;
     if (formsDetector && typeof formsDetector.start === "function") {
-      try { formsDetector.start(reporter.send, ruleEngine); } catch (_) {}
+      try { formsDetector.start(reporter.send, ruleEngine); } catch (_) { }
     }
 
     const invisibleLayerDetector = detectors.invisibleLayer;
     if (invisibleLayerDetector && typeof invisibleLayerDetector.start === "function") {
-      try { invisibleLayerDetector.start(reporter.send, ruleEngine); } catch (_) {}
+      try { invisibleLayerDetector.start(reporter.send, ruleEngine); } catch (_) { }
     }
 
     const postMessageDetector = detectors.postMessage;
     if (postMessageDetector && typeof postMessageDetector.start === "function") {
-      try { postMessageDetector.start(reporter.send, ruleEngine); } catch (_) {}
+      try { postMessageDetector.start(reporter.send, ruleEngine); } catch (_) { }
     }
 
     const linkHrefSwapDetector = detectors.linkHrefSwap;
     if (linkHrefSwapDetector && typeof linkHrefSwapDetector.start === "function") {
-      try { linkHrefSwapDetector.start(reporter.send, ruleEngine); } catch (_) {}
+      try { linkHrefSwapDetector.start(reporter.send, ruleEngine); } catch (_) { }
     }
-    
+
     const protoTamperDetector = detectors.formSubmitPrototypeTamper;
     if (protoTamperDetector && typeof protoTamperDetector.start === "function") {
-      try { protoTamperDetector.start(reporter.send, ruleEngine); } catch (_) {}
+      try { protoTamperDetector.start(reporter.send, ruleEngine); } catch (_) { }
     }
 
     const swPersistenceDetector = detectors.swPersistence;
     if (swPersistenceDetector && typeof swPersistenceDetector.start === "function") {
-      try { swPersistenceDetector.start(reporter.send, ruleEngine); } catch (_) {}
+      try { swPersistenceDetector.start(reporter.send, ruleEngine); } catch (_) { }
     }
 
     const moDetector = detectors.mutationObserver;
     if (moDetector && typeof moDetector.start === "function") {
-      try { moDetector.start(reporter.send, ruleEngine); } catch (_) {}
+      try { moDetector.start(reporter.send, ruleEngine); } catch (_) { }
     }
-    
+
     const xhrProtoTamperDetector = detectors.xhrPrototypeTamper;
     if (xhrProtoTamperDetector && typeof xhrProtoTamperDetector.start === "function") {
-      try { xhrProtoTamperDetector.start(reporter.send, ruleEngine); } catch (_) {}
+      try { xhrProtoTamperDetector.start(reporter.send, ruleEngine); } catch (_) { }
     }
 
     // SENSOR_READY
@@ -481,6 +502,144 @@ const STORAGE_KEYS = {
     const readyMeta = readyMatched ? ruleEngine.apply(readyMatched, readyBaseMeta) : readyBaseMeta;
 
     reporter.send("SENSOR_READY", readyData, readyMeta);
+  }
+
+  // --- 토스트 알림 함수 ---
+  async function checkAndRecoverToast(tabId) {
+    const storageKey = `pending_toast_${tabId}`;
+    try {
+      const res = await chrome.storage.local.get(storageKey);
+      const data = res[storageKey];
+
+      if (data && data.ts) {
+        const passedMs = Date.now() - data.ts;
+        const remainingMs = 10000 - passedMs;
+
+        if (remainingMs > 0) {
+          // 남은 시간 정보를 함께 넘김
+          renderShadowToast(data, remainingMs, tabId);
+        } else {
+          await chrome.storage.local.remove(storageKey);
+        }
+      }
+    } catch (err) {
+      console.debug("[BRS] Storage recovery failed:", err.message);
+    }
+
+  }
+
+  // Shadow DOM 렌더링 함수
+  function renderShadowToast(data, displayMs = 10000, tabId = null) {
+    const existingHost = document.getElementById('brs-toast-host');
+    if (existingHost) existingHost.remove();
+
+    const host = document.createElement('div');
+    host.id = 'brs-toast-host';
+    Object.assign(host.style, {
+      position: 'fixed',
+      top: '0',
+      right: '0',
+      zIndex: '2147483647'
+    });
+
+    const root = host.attachShadow({ mode: 'open' });
+
+    const style = document.createElement('style');
+    style.textContent = `
+      .toast-box {
+        position: fixed; top: 20px; right: 20px;
+        background: ${data.severity === 'HIGH' ? '#ff4d4f' : '#2f3542'};
+        color: white; padding: 16px; border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        font-family: sans-serif; cursor: pointer;
+        animation: slideIn 0.3s ease-out;
+        min-width: 250px; line-height: 1.5;
+      }
+      @keyframes slideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+      }
+      .close-btn {
+        position: absolute;
+        top: 5px;
+        right: 10px;
+        font-size: 18px;
+        font-weight: bold;
+        color: rgba(255, 255, 255, 0.6);
+        cursor: pointer;
+        transition: color 0.2s;
+        line-height: 1;
+      }
+      .close-btn:hover {
+        color: white;
+      }
+      .toast-box {
+        position: relative;
+
+      }
+    `;
+
+    const toast = document.createElement('div');
+    toast.className = 'toast-box';
+    toast.innerHTML = `
+      <span class="close-btn" id="brs-close-btn">&times;</span>
+      <strong>⚠️ 보안 위협 탐지</strong><br>${data.message}
+    `;
+
+    let timeoutId;
+
+    const closeBtn = toast.querySelector('.close-btn');
+    closeBtn.onclick = async (e) => {
+      e.stopPropagation();
+
+      if (timeoutId) clearTimeout(timeoutId);
+
+
+      if (tabId) {
+        try {
+          await chrome.storage.local.remove(`pending_toast_${tabId}`);
+        } catch (err) {
+          console.debug("[BRS] Cleanup failed on manual close");
+        }
+      }
+
+      host.remove();
+    };
+
+    toast.onclick = async () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      try {
+        const response = await chrome.runtime.sendMessage({
+          action: "OPEN_DASHBOARD_FROM_TOAST",
+          reportId: data.reportId
+        });
+
+        if (response && response.ok) {
+          host.remove();
+        } else {
+          const label = toast.querySelector('.toast-label');
+          if (label) label.textContent = "오류: 대시보드를 열 수 없습니다.";
+          console.error("[BRS] Dashboard open failed:", response?.error);
+        }
+      } catch (err) {
+        console.error("[BRS] Communication error:", err);
+        host.remove();
+      }
+    };
+
+    root.appendChild(style);
+    root.appendChild(toast);
+    document.body.appendChild(host);
+
+    // 10초 후 자동 소멸
+    timeoutId = setTimeout(async () => {
+      if (host.parentNode) host.remove();
+      if (tabId) {
+        try {
+          await chrome.storage.local.remove(`pending_toast_${tabId}`);
+        } catch (_) { }
+      }
+    }, displayMs);
   }
 
   init();
