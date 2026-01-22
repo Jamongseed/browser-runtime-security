@@ -6,6 +6,7 @@ import { createNotificationSink } from "./sinks/notificationSink.js";
 import { generateReportHash, stableHash32 } from "./utils/crypto.js";
 import { updateTabSession, removeTabSession } from "./utils/sessionManager.js";
 import { getOrCreateInstallId, initInstallId } from "./utils/installIdManager.js";
+import { withRetry } from "./utils/retryHelper.js";
 import { SYSTEM_CONFIG, STORAGE_KEYS } from "./config.js";
 
 import "./dump_fetcher.js";
@@ -181,6 +182,13 @@ async function fetchWithTimeout(url, options, timeoutMs) {
 async function postJsonWithRetry(url, bodyObj) {
   let lastErr = null;
 
+  // payload 사이즈에 따라 keepalive를 결정
+  // 64KB 이상인데 keepalive가 true면 전송 실패
+  const jsonBody = JSON.stringify(bodyObj);
+  const encoder = new TextEncoder();
+  const payloadSize = encoder.encode(jsonBody).length;
+  const useKeepalive = payloadSize < 60 * 1024;
+
   for (let i = 0; i < MAX_RETRY; i++) {
     try {
       const res = await fetchWithTimeout(
@@ -189,7 +197,7 @@ async function postJsonWithRetry(url, bodyObj) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(bodyObj),
-          keepalive: true,
+          keepalive: useKeepalive,
         },
         FETCH_TIMEOUT_MS
       );
@@ -209,16 +217,10 @@ async function postJsonWithRetry(url, bodyObj) {
   throw lastErr;
 }
 
-// ---- dashboard url ----
-const DASHBOARD_URL =
-  SYSTEM_CONFIG.USE_SERVER_DASHBOARD && SYSTEM_CONFIG.AWS_DASHBOARD_URL
-    ? SYSTEM_CONFIG.AWS_DASHBOARD_URL
-    : chrome.runtime.getURL(SYSTEM_CONFIG.LOCAL_DASHBOARD_PATH);
-
+// 기존 DASHBOARD_URL 상수를 없애고 config.js로 옮김
 // dispatcher 생성
 const dispatcher = createDispatcher([
   createHttpSink({
-    url: SYSTEM_CONFIG.API_ENDPOINT,
     targets: ["LOW", "MEDIUM", "HIGH"],
   }),
   createLocalStorageSink({
@@ -226,26 +228,74 @@ const dispatcher = createDispatcher([
     targets: ["LOW", "MEDIUM", "HIGH"],
   }),
   createBadgeSink(),
-  createNotificationSink({
-    dashboardUrl: DASHBOARD_URL,
-  }),
+  createNotificationSink(),
 ]);
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // 발신자가 우리 익스텐션인지 검증
+  if (sender.id !== chrome.runtime.id) {
+    return false;
+  }
+
+  // --- 토스트 알림 로직 추가---
+  const currentTabId = sender.tab ? sender.tab.id : null;
+
+  // Tab ID 요청 처리
+  if (message.action === "GET_MY_TAB_ID") {
+    sendResponse({ tabId: currentTabId });
+    return true;
+  }
+
+  // 토스트 알림 클릭 시 대시보드 열기
+  if (message.action === "OPEN_DASHBOARD_FROM_TOAST") {
+    const tabId = currentTabId;
+    if (tabId) {
+      chrome.storage.local.remove(`pending_toast_${tabId}`, () => {
+        if (chrome.runtime.lastError) console.debug("[BRS] Pending toast removal failed");
+      });
+    }
+
+    const reportId = message.reportId || "";
+    const dashboardBase = SYSTEM_CONFIG.DASHBOARD_URL;
+    if (!dashboardBase) {
+      sendResponse({ ok: false, error: "Missing Dashboard URL" });
+      return true;
+    }
+    const targetUrl = `${dashboardBase}?reportId=${reportId}`;
+
+    chrome.tabs.create({ url: targetUrl }, (tab) => {
+      if (chrome.runtime.lastError) {
+        console.error("[BRS] Failed to open dashboard:", chrome.runtime.lastError);
+        sendResponse({ ok: false, error: chrome.runtime.lastError.message });
+      } else {
+        sendResponse({ ok: true });
+      }
+    });
+    return true;
+  }
+
+  if (message.action === "CLEAR_MY_PENDING_TOAST") {
+    if (currentTabId) {
+      chrome.storage.local.remove(`pending_toast_${sender.tab.id}`);
+    }
+    return true;
+  }
+  // --- 토스트 알림 로직 ---
+
   // 화이트리스트 업데이트 요청 처리
   if (message.action === "UPDATE_WHITELIST") {
     const newWhitelist = message.data || [];
-    
+
     // 크롬 저장소에 저장
-  chrome.storage.local.set({ [STORAGE_KEYS.WHITELIST]: newWhitelist }, () => {
-    if (chrome.runtime.lastError) {
-      console.error("[BRS] Save error:", chrome.runtime.lastError);
-      sendResponse({ status: "error", message: "Failed to save to storage" });
-    } else {
-      console.log(`[BRS] Whitelist updated: ${newWhitelist.length} domains`);
-      sendResponse({ status: "success" });
-    }
-  });
+    chrome.storage.local.set({ [STORAGE_KEYS.WHITELIST]: newWhitelist }, () => {
+      if (chrome.runtime.lastError) {
+        console.error("[BRS] Save error:", chrome.runtime.lastError);
+        sendResponse({ status: "error", message: "Failed to save to storage" });
+      } else {
+        console.log(`[BRS] Whitelist updated: ${newWhitelist.length} domains`);
+        sendResponse({ status: "success" });
+      }
+    });
 
     return true;
   }
@@ -267,7 +317,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         const tabId = sender?.tab?.id ?? null;
-        const installId = await getOrCreateInstallId();
+        const installId = await withRetry(() => getOrCreateInstallId());
         // dumpIndex 업데이트 (scriptId 매칭용)
         if (tabId != null && norm && sha256) {
           dumpIndex.set(`${tabId}|${norm}`, { sha256, ts: Date.now() });
@@ -396,7 +446,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
       const inputData = message.data;
       const tabId = sender.tab ? sender.tab.id : null;
-      const installId = await getOrCreateInstallId();
+      // withRetry로 실패 시 재시도
+      const installId = await withRetry(() => getOrCreateInstallId());
 
       if (!tabId && inputData.type !== "SENSOR_READY") {
         console.warn("[BRS] Message received without tabId");
@@ -405,13 +456,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       // tabId <-> sessionId 매핑
+      // 현재 쓰이는 곳이 없음.
       if (tabId && inputData.sessionId) {
-        await updateTabSession(tabId, inputData.sessionId);
+        withRetry(() => updateTabSession(tabId, inputData.sessionId))
+          .catch(err => console.warn("[BRS] Session update failed after retries:", err));
       }
 
       let reportId = null;
       if (inputData.type !== "SENSOR_READY") {
-        reportId = await generateReportHash(inputData.sessionId, inputData.ts);
+        // withRetry로 해시 생성 실패 시 재시도
+        reportId = await withRetry(() => generateReportHash(inputData.sessionId, inputData.ts));
       }
 
       // incidentId / scriptId / reinjectCount enrichment
@@ -475,8 +529,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         browserUrl: sender.tab?.url,
       };
 
-      const result = await dispatcher.dispatch(enrichedData, { sender });
-      sendResponse({ ok: true, result });
+      let dispatchResult = await dispatcher.dispatch(enrichedData, { sender });
+
+      // --- sink 실패시 재시도 로직 (1회) ---
+      const retryTargets = dispatchResult.results.filter(r =>
+        r.status === "rejected" &&
+        r.sinkName !== "HttpSink"
+      );
+
+      if (retryTargets.length > 0) {
+        console.log(`[BRS] ${retryTargets.length} sinks failed. Retrying in 1second...`);
+        await sleep(1000);
+
+        const retryPromises = retryTargets.map(async (failed) => {
+          const targetSink = dispatcher.sinks.find(s => s.name === failed.sinkName);
+          if (!targetSink) return failed;
+
+          try {
+            const res = await targetSink.send(enrichedData, { sender });
+            return { status: "fulfilled", sinkName: failed.sinkName, result: res };
+          } catch (retryErr) {
+            return { status: "rejected", sinkName: failed.sinkName, error: retryErr.message };
+          }
+        });
+
+        const retryResults = await Promise.all(retryPromises);
+
+        retryResults.forEach(updated => {
+          const idx = dispatchResult.results.findIndex(r => r.sinkName === updated.sinkName);
+          if (idx !== -1) dispatchResult.results[idx] = updated;
+        });
+
+        dispatchResult.failures = dispatchResult.results.filter(r => r.status === "rejected").length;
+      }
+      sendResponse({ ok: true, result: dispatchResult });
     } catch (err) {
       console.error("[BRS] Background Process Error:", err);
       sendResponse({ ok: false, error: err.message });
@@ -488,7 +574,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // 탭 세션 정보 삭제
 chrome.tabs.onRemoved.addListener(async (tabId) => {
-  await removeTabSession(tabId);
+  try {
+    await removeTabSession(tabId);
+  } catch (err) {
+    console.error(`[BRS] Failed to cleanup session for tab ${tabId}:`, err);
+  }
+
+  try {
+    const keysToRemove = [
+      `last_noti_tab_${tabId}`,
+      `pending_toast_${tabId}`
+    ];
+
+    await chrome.storage.local.remove(keysToRemove);
+  } catch (err) {
+    console.warn(`[BRS] Notification cleanup failed for tab ${tabId}:`, err);
+  }
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
