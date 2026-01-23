@@ -33,14 +33,14 @@ function DoughnutChart({ title, chartData }) {
         label: "# of Events",
         data: chartData?.datasets?.[0]?.data || [],
         backgroundColor: [
-          "rgba(255, 99, 132, 0.8)", // HIGH (Red)
-          "rgba(255, 159, 64, 0.8)", // MEDIUM (Orange)
           "rgba(75, 192, 192, 0.8)", // LOW (Green)
+          "rgba(255, 159, 64, 0.8)", // MEDIUM (Orange)
+          "rgba(255, 99, 132, 0.8)", // HIGH (Red)
         ],
         borderColor: [
-          "rgba(255, 99, 132, 1)",
-          "rgba(255, 159, 64, 1)",
           "rgba(75, 192, 192, 1)",
+          "rgba(255, 159, 64, 1)",
+          "rgba(255, 99, 132, 1)",
         ],
         borderWidth: 1,
       },
