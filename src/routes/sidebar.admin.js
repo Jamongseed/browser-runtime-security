@@ -1,6 +1,5 @@
-// src/routes/sidebar.js
+// front\src\routes\sidebar.admin.js
 /** Icons are imported separatly to reduce build time */
-import BellIcon from "@heroicons/react/24/outline/BellIcon";
 import DocumentTextIcon from "@heroicons/react/24/outline/DocumentTextIcon";
 import Squares2X2Icon from "@heroicons/react/24/outline/Squares2X2Icon";
 import TableCellsIcon from "@heroicons/react/24/outline/TableCellsIcon";
@@ -14,81 +13,47 @@ import UserIcon from "@heroicons/react/24/outline/UserIcon";
 import Cog6ToothIcon from "@heroicons/react/24/outline/Cog6ToothIcon";
 import BoltIcon from "@heroicons/react/24/outline/BoltIcon";
 import ChartBarIcon from "@heroicons/react/24/outline/ChartBarIcon";
-import CurrencyDollarIcon from "@heroicons/react/24/outline/CurrencyDollarIcon";
-import InboxArrowDownIcon from "@heroicons/react/24/outline/InboxArrowDownIcon";
 import UsersIcon from "@heroicons/react/24/outline/UsersIcon";
 import KeyIcon from "@heroicons/react/24/outline/KeyIcon";
 import DocumentDuplicateIcon from "@heroicons/react/24/outline/DocumentDuplicateIcon";
+import { UserGroupIcon } from "@heroicons/react/24/outline";
+import { GlobeAltIcon } from "@heroicons/react/24/outline";
+import ArrowLeftOnRectangleIcon from "@heroicons/react/24/outline/ArrowLeftOnRectangleIcon";
+import { logout } from "../app/auth";
 
-import checkAuth from "../app/auth";
-import adminRoutes from "./sidebar.admin";
-import userRoutes from "./sidebar.user";
 const iconClasses = `h-6 w-6`;
 const submenuIconClasses = `h-5 w-5`;
 
 const routes = [
   {
-    path: "/app/dashboard",
+    path: "/app/admin_front",
     icon: <Squares2X2Icon className={iconClasses} />,
-    name: "Dashboard",
+    name: "Admin Dashboard",
   },
   {
-    path: "/app/leads", // url
-    icon: <InboxArrowDownIcon className={iconClasses} />, // icon component
-    name: "Leads", // name that appear in Sidebar
+    path: "/app/admin_front/listPage",
+    icon: <UserGroupIcon className={iconClasses} />,
+    name: "Admin Events List",
   },
   {
-    path: "/app/transactions", // url
-    icon: <CurrencyDollarIcon className={iconClasses} />, // icon component
-    name: "Transactions", // name that appear in Sidebar
+    path: "/app/admin_front/detail",
+    icon: <GlobeAltIcon className={iconClasses} />,
+    name: "Admin Detail",
   },
   {
-    path: "/app/charts", // url
-    icon: <ChartBarIcon className={iconClasses} />, // icon component
-    name: "Analytics", // name that appear in Sidebar
+    path: "/app/charts",
+    icon: <ChartBarIcon className={iconClasses} />,
+    name: "Analytics",
   },
   {
-    path: "/app/integration", // url
-    icon: <BoltIcon className={iconClasses} />, // icon component
-    name: "Integration", // name that appear in Sidebar
+    path: "/app/integration",
+    icon: <BoltIcon className={iconClasses} />,
+    name: "Integration",
   },
   {
-    path: "/app/calendar", // url
-    icon: <CalendarDaysIcon className={iconClasses} />, // icon component
-    name: "Calendar", // name that appear in Sidebar
-  },
-
-  {
-    path: "", //no url needed as this has submenu
-    icon: <DocumentDuplicateIcon className={`${iconClasses} inline`} />, // icon component
-    name: "Pages", // name that appear in Sidebar
-    submenu: [
-      {
-        path: "/login",
-        icon: <ArrowRightOnRectangleIcon className={submenuIconClasses} />,
-        name: "Login",
-      },
-      {
-        path: "/register", //url
-        icon: <UserIcon className={submenuIconClasses} />, // icon component
-        name: "Register", // name that appear in Sidebar
-      },
-      {
-        path: "/forgot-password",
-        icon: <KeyIcon className={submenuIconClasses} />,
-        name: "Forgot Password",
-      },
-      {
-        path: "/app/blank",
-        icon: <DocumentIcon className={submenuIconClasses} />,
-        name: "Blank Page",
-      },
-      {
-        path: "/app/404",
-        icon: <ExclamationTriangleIcon className={submenuIconClasses} />,
-        name: "404",
-      },
-    ],
+    path: "/app/calendar",
+    icon: <CalendarDaysIcon className={iconClasses} />,
+    name: "Calendar",
   },
   {
     path: "", //no url needed as this has submenu
@@ -134,11 +99,12 @@ const routes = [
       },
     ],
   },
+  {
+    path: "/login",
+    name: "Logout",
+    icon: <ArrowLeftOnRectangleIcon className={iconClasses} />,
+    onClick: () => logout(),
+  },
 ];
 
 export default routes;
-
-export function getSidebarRoutes() {
-  const { role } = checkAuth();
-  return role === "admin" ? adminRoutes : userRoutes;
-}

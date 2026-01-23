@@ -1,10 +1,13 @@
 import { lazy } from "react";
 
+const Login = lazy(() => import("../pages/Login"));
 const Dashboard = lazy(() => import("../pages/protected/Dashboard"));
 //const EventList = lazy(() => import('../features/events/EventListPage'))
 
 const UserEventDetailPage = lazy(() => import("../features/user_front/detail"));
-
+const AdminEventDetailPage = lazy(
+  () => import("../features/admin_front/detail"),
+);
 //const DomainRanking = lazy(() => import('../features/domains/DomainRankingPage'))
 //const Analytics = lazy(() => import('../features/analytics/AnalyticsPage'))
 const UserDashboard = lazy(() => import("../features/user_front"));
@@ -45,8 +48,16 @@ const routes = [
     component: Dashboard,
   },
   {
+    path: "/login",
+    component: Login,
+  },
+  {
     path: "/user_front/:eventId",
     component: UserEventDetailPage,
+  },
+  {
+    path: "/admin_front/:eventId",
+    component: AdminEventDetailPage,
   },
 
   // 보안 운영 페이지 추가
@@ -99,20 +110,20 @@ const routes = [
   },
 
   // 기존 유지
-  { path: "/welcome", component: Welcome },
-  { path: "/leads", component: Leads },
-  { path: "/settings-team", component: Team },
-  { path: "/calendar", component: Calendar },
-  { path: "/transactions", component: Transactions },
-  { path: "/settings-profile", component: ProfileSettings },
-  { path: "/settings-billing", component: Bills },
-  { path: "/getting-started", component: GettingStarted },
-  { path: "/features", component: DocFeatures },
-  { path: "/components", component: DocComponents },
-  { path: "/integration", component: Integration },
-  { path: "/charts", component: Charts },
-  { path: "/404", component: Page404 },
-  { path: "/blank", component: Blank },
+  //{ path: "/welcome", component: Welcome },
+  //{ path: "/leads", component: Leads },
+  //{ path: "/settings-team", component: Team },
+  //{ path: "/calendar", component: Calendar },
+  //{ path: "/transactions", component: Transactions },
+  //{ path: "/settings-profile", component: ProfileSettings },
+  //{ path: "/settings-billing", component: Bills },
+  //{ path: "/getting-started", component: GettingStarted },
+  //{ path: "/features", component: DocFeatures },
+  //{ path: "/components", component: DocComponents },
+  //{ path: "/integration", component: Integration },
+  //{ path: "/charts", component: Charts },
+  //{ path: "/404", component: Page404 },
+  //{ path: "/blank", component: Blank },
 ];
 
 export default routes;
