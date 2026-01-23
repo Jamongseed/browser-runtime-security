@@ -89,17 +89,23 @@ function Dashboard() {
 
       {/** ---------------------- Different charts ------------------------- */}
       <div className="grid lg:grid-cols-2 mt-0 grid-cols-1 gap-6">
-        {severityData?.labels ? (
-          <DoughnutChart title="위험도 비율" chartData={severityData} />
-        ) : (
-          <div>불러오는중</div>
-        )}
+        {/* 위험도 비율(도넛) */}
+        <div className="bg-base-100 rounded-xl shadow-sm border border-base-200 min-h-[420px] flex flex-col">
+          {severityData?.labels ? (
+            <DoughnutChart title="위험도 비율" chartData={severityData} />
+          ) : (
+            <div>불러오는중</div>
+          )}
+        </div>
 
-        {ruleData?.labels ? (
-          <BarChart title="TOP5 많이 탐지된 룰" chartData={ruleData} />
-        ) : (
-          <div>불러오는중</div>
-        )}
+        {/* 도메인별 집계(바) */}
+        <div className="bg-base-100 rounded-xl shadow-sm border border-base-200 min-h-[420px] flex flex-col">
+          {ruleData?.labels ? (
+            <BarChart title="TOP5 많이 탐지된 룰" chartData={ruleData} />
+          ) : (
+            <div>불러오는중</div>
+          )}
+        </div>
       </div>
 
       {/** ---------------------- Different stats content 2 ------------------------- */}
