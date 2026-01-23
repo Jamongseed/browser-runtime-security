@@ -93,11 +93,36 @@ async function flushFailedQueue(url) {
 }
 
 async function transmitWithRetry(url, threat) {
+  // 서버가 reportId를 필수로 요구하는 경우가 있어서,
+  // 일부 이벤트(SENSOR_READY 등)에서 reportId가 null이면 클라에서 채운다.
+  if (threat && !threat.reportId) {
+    const sid = threat.sessionId || "NO_SESSION";
+    const ts = typeof threat.ts === "number" ? threat.ts : Date.now();
+    // 너무 길 필요 없음. (멱등/중복방지용으로 충분)
+    threat.reportId = `EVT#${sid}#${ts}#${threat.type || "NO_TYPE"}`;
+  }
+  
   let lastErr = null;
 
   // payload 사이즈에 따라 keepalive를 결정
   // 64KB 이상인데 keepalive가 true면 전송 실패
   const jsonBody = JSON.stringify(threat);
+
+  // DEBUG: 서버 400(MISSING_REQUIRED_FIELD) 원인 확인용
+  // - 콘솔에서 실제로 어떤 필드가 비었는지 바로 보이게 최소 핵심만 찍는다
+  try {
+    console.log("[BRS][HttpSink] outgoing keys:", Object.keys(threat || {}));
+    console.log("[BRS][HttpSink] outgoing summary:", {
+      type: threat?.type,
+      ruleId: threat?.ruleId,
+      severity: threat?.severity,
+      reportId: threat?.reportId,
+      sessionId: threat?.sessionId,
+      ts: threat?.ts,
+      installId: threat?.installId,
+    });
+  } catch (_) {}
+
   const encoder = new TextEncoder();
   const payloadSize = encoder.encode(jsonBody).length;
   const useKeepalive = payloadSize < 60 * 1024;
