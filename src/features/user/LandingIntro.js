@@ -1,27 +1,23 @@
-import TemplatePointers from "./components/TemplatePointers"
+import TemplatePointers from "./components/TemplatePointers";
 
+function LandingIntro() {
+  return (
+    <div className="hero min-h-full rounded-l-xl bg-base-200">
+      <div className="hero-content py-12">
+        <div className="max-w-md text-center">
+          {/* 로고 + 서비스명 */}
+          <h1 className="text-3xl font-bold flex items-center justify-center gap-2">
+            Browser Runtime Security
+          </h1>
 
+          <p className="mt-4 text-sm opacity-70"></p>
 
-function LandingIntro(){
+          {/* 프로젝트 설명 */}
+          <TemplatePointers />
+        </div>
+      </div>
+    </div>
+  );
+}
 
-    return(
-        <div className="hero min-h-full rounded-l-xl bg-base-200">
-            <div className="hero-content py-12">
-              <div className="max-w-md">
-
-              <h1 className='text-3xl text-center font-bold '><img src="/logo192.png" className="w-12 inline-block mr-2 mask mask-circle" alt="dashwind-logo" />DashWind</h1>
-
-                <div className="text-center mt-12"><img src="./intro.png" alt="Dashwind Admin Template" className="w-48 inline-block"></img></div>
-              
-              {/* Importing pointers component */}
-              <TemplatePointers />
-              
-              </div>
-
-            </div>
-          </div>
-    )
-      
-  }
-  
-  export default LandingIntro
+export default LandingIntro;
