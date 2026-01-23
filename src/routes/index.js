@@ -103,7 +103,7 @@ const routes = [
   },
   {
     path: "/admin_front/detail/:eventId",
-    component: UserDetail,
+    component: AdminEventDetailPage,
   },
 
   // 기존 유지

@@ -216,6 +216,13 @@ export default function AdminEventDetailPage() {
     else navigate(-1);
   }
 
+  const gotoSessionDetail = (sessionId, sessionEvent) => {
+    // session 상세 페이지 경로로 이동 ()
+    navigate(`/app/user_front/listpage_session/detail`, {
+      state: { sessionId, sessionEvent },
+    });
+  };
+
   return (
     <TitleCard title="이벤트 상세" topMargin="mt-2">
       <div className="mb-4 flex items-start justify-between gap-3">
@@ -236,7 +243,10 @@ export default function AdminEventDetailPage() {
             ← 뒤로
           </button>
           {/* TODO: 실제 라우트에 맞춰 조정 */}
-          <Link className="btn btn-sm btn-primary" to="../events">
+          <Link
+            className="btn btn-sm btn-primary"
+            onClick={() => gotoSessionDetail(summary.sessionId, summary.events)}
+          >
             해당 세션
           </Link>
         </div>

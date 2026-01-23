@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import moment from "moment";
 import TitleCard from "../../../components/Cards/TitleCard";
+import { useNavigate } from "react-router-dom";
 // 사용할 API 함수들을 가져옵니다.
 import {
   getEventsByRule,
@@ -80,7 +81,7 @@ const TopSideButtons = ({ applySearch, removeFilter }) => {
 function Transactions() {
   const [userTableData, setUserTableData] = useState([]);
   const [loading, setLoading] = useState(false);
-
+  const navigate = useNavigate();
   // 핵심 데이터 요청 함수
   const fetchEvents = async (searchParams = {}) => {
     const { type, query } = searchParams;
@@ -155,7 +156,10 @@ function Transactions() {
 
   const applySearch = (params) => fetchEvents(params);
   const removeFilter = () => fetchEvents({});
-  const gotoDetail = (id) => console.log("Detail ID:", id);
+  const gotoDetail = (id) => {
+    // 상세 페이지 경로로 이동 (예: /app/details/아이디)
+    navigate(`/app/admin_front/detail/${id}`);
+  };
 
   return (
     <TitleCard

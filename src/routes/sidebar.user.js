@@ -15,28 +15,18 @@ const submenuIconClasses = `h-5 w-5`;
 const routes = [
   {
     path: "/app/user_front/dashboard/",
-    icon: <Squares2X2Icon className={iconClasses} />,
-    name: "User Dashboard",
+    icon: <ChartBarIcon className={iconClasses} />,
+    name: "대시보드",
   },
   {
     path: "/app/user_front/listpage_session/",
     icon: <UserIcon className={iconClasses} />,
-    name: "User SessionList",
+    name: "세션별 조회",
   },
   {
     path: "/app/user_front/listpage_domain/",
     icon: <GlobeAltIcon className={iconClasses} />,
-    name: "User DomainList",
-  },
-  {
-    path: "/app/login",
-    icon: <ArrowRightOnRectangleIcon className={iconClasses} />,
-    name: "Admin Login",
-  },
-  {
-    path: "/app/charts",
-    icon: <ChartBarIcon className={iconClasses} />,
-    name: "Analytics",
+    name: "도메인별 조회",
   },
 ];
 

@@ -16,7 +16,7 @@ import ChartBarIcon from "@heroicons/react/24/outline/ChartBarIcon";
 import UsersIcon from "@heroicons/react/24/outline/UsersIcon";
 import KeyIcon from "@heroicons/react/24/outline/KeyIcon";
 import DocumentDuplicateIcon from "@heroicons/react/24/outline/DocumentDuplicateIcon";
-import { UserGroupIcon } from "@heroicons/react/24/outline";
+import { MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 import { GlobeAltIcon } from "@heroicons/react/24/outline";
 import ArrowLeftOnRectangleIcon from "@heroicons/react/24/outline/ArrowLeftOnRectangleIcon";
 import { logout } from "../app/auth";
@@ -28,76 +28,12 @@ const routes = [
   {
     path: "/app/admin_front",
     icon: <Squares2X2Icon className={iconClasses} />,
-    name: "Admin Dashboard",
+    name: "대시보드",
   },
   {
-    path: "/app/admin_front/listPage",
-    icon: <UserGroupIcon className={iconClasses} />,
-    name: "Admin Events List",
-  },
-  {
-    path: "/app/admin_front/detail",
-    icon: <GlobeAltIcon className={iconClasses} />,
-    name: "Admin Detail",
-  },
-  {
-    path: "/app/charts",
-    icon: <ChartBarIcon className={iconClasses} />,
-    name: "Analytics",
-  },
-  {
-    path: "/app/integration",
-    icon: <BoltIcon className={iconClasses} />,
-    name: "Integration",
-  },
-  {
-    path: "/app/calendar",
-    icon: <CalendarDaysIcon className={iconClasses} />,
-    name: "Calendar",
-  },
-  {
-    path: "", //no url needed as this has submenu
-    icon: <Cog6ToothIcon className={`${iconClasses} inline`} />, // icon component
-    name: "Settings", // name that appear in Sidebar
-    submenu: [
-      {
-        path: "/app/settings-profile", //url
-        icon: <UserIcon className={submenuIconClasses} />, // icon component
-        name: "Profile", // name that appear in Sidebar
-      },
-      {
-        path: "/app/settings-billing",
-        icon: <WalletIcon className={submenuIconClasses} />,
-        name: "Billing",
-      },
-      {
-        path: "/app/settings-team", // url
-        icon: <UsersIcon className={submenuIconClasses} />, // icon component
-        name: "Team Members", // name that appear in Sidebar
-      },
-    ],
-  },
-  {
-    path: "", //no url needed as this has submenu
-    icon: <DocumentTextIcon className={`${iconClasses} inline`} />, // icon component
-    name: "Documentation", // name that appear in Sidebar
-    submenu: [
-      {
-        path: "/app/getting-started", // url
-        icon: <DocumentTextIcon className={submenuIconClasses} />, // icon component
-        name: "Getting Started", // name that appear in Sidebar
-      },
-      {
-        path: "/app/features",
-        icon: <TableCellsIcon className={submenuIconClasses} />,
-        name: "Features",
-      },
-      {
-        path: "/app/components",
-        icon: <CodeBracketSquareIcon className={submenuIconClasses} />,
-        name: "Components",
-      },
-    ],
+    path: "/app/admin_front/admin_search",
+    icon: <MagnifyingGlassIcon className={iconClasses} />,
+    name: "검색 페이지",
   },
   {
     path: "/login",
