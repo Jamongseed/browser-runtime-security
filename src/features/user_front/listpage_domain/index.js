@@ -5,15 +5,9 @@ import XMarkIcon from "@heroicons/react/24/outline/XMarkIcon";
 import SearchBar from "../../../components/Input/SearchBar";
 import { getUserDomainEvents } from "../../aws/AwsSearch";
 import { useNavigate } from "react-router-dom";
-import { useParams } from "react-router-dom";
 import { getInstallId } from "../../../app/auth";
 
-const TopSideButtons = ({
-  applySearch,
-  removeFilter,
-  searchText,
-  setSearchText,
-}) => {
+const TopSideButtons = ({ removeFilter, searchText, setSearchText }) => {
   return (
     <div className="inline-block float-right">
       <SearchBar
@@ -34,29 +28,23 @@ const TopSideButtons = ({
 };
 
 function EventTransactions() {
-  const [groupedList, setGroupedList] = useState([]); // 세션별 그룹 데이터
-  const [originalList, setOriginalList] = useState([]); // 필터링 전 전체 데이터
+  const [groupedList, setGroupedList] = useState([]);
+  const [originalList, setOriginalList] = useState([]);
   const [searchText, setSearchText] = useState("");
-
-  const installId = getInstallId();
-
-  const navigate = useNavigate();
-
-  const gotoDetail = (id) => {
-    navigate(`/app/user_front/detail/${id}`);
-  };
-
   const [expandedSessions, setExpandedSessions] = useState({});
 
-  // 세션 토글 함수
-  const toggleSession = (sessionId) => {
+  const installId = getInstallId();
+  const navigate = useNavigate();
+
+  const gotoDetail = (id) => navigate(`/app/user_front/detail/${id}`);
+
+  const toggleSession = (domain) => {
     setExpandedSessions((prev) => ({
       ...prev,
-      [sessionId]: !prev[sessionId],
+      [domain]: !prev[domain],
     }));
   };
 
-  // 1. 데이터 가져오기
   useEffect(() => {
     fetchEvents();
   }, []);
@@ -67,7 +55,6 @@ function EventTransactions() {
     setOriginalList(res.groupedList || []);
   };
 
-  // 2. 검색 로직 (도메인이나 RuleId로 검색)
   useEffect(() => {
     if (searchText === "") {
       setGroupedList(originalList);
@@ -82,17 +69,16 @@ function EventTransactions() {
           ),
         }))
         .filter((session) => session.events.length > 0);
-
       setGroupedList(filtered);
     }
-  }, [searchText]);
+  }, [searchText, originalList]);
 
   const removeFilter = () => setSearchText("");
 
   return (
     <>
       <TitleCard
-        title="도메인별 탐지 이력 "
+        title="도메인별 탐지 이력"
         topMargin="mt-2"
         TopSideButtons={
           <TopSideButtons
@@ -103,34 +89,19 @@ function EventTransactions() {
         }
       >
         <div className="overflow-x-auto w-full">
-          <table className="table w-full table-auto">
-            {/* 테이블 헤더 정의 */}
-            <colgroup>
-              <col style={{ width: "120px" }} /> {/* Time */}
-              <col style={{ width: "300px" }} /> {/* Session */}
-              <col style={{ width: "100px" }} /> {/* Severity */}
-              <col style={{ width: "100px" }} /> {/* Score Delta */}
-              <col style={{ width: "auto" }} /> {/* Rule ID */}
-              <col style={{ width: "250px" }} />{" "}
-              {/* Page (남는 공간 다 차지) */}
-              <col style={{ width: "100px" }} /> {/* Action */}
-            </colgroup>
+          <table className="table w-full table-auto border-separate border-spacing-y-1">
+            {/* 메인 헤더 */}
             <thead className="bg-base-200/50">
               <tr className="text-base-content/70">
-                <th className="py-4 text-left pl-12">시간</th>
-                <th className="text-left">세션</th>
-                <th className="text-left">위험도</th>
-                <th className="text-left">위험 점수</th>
-                <th className="text-left">탐지규칙 ID</th>
-                <th className="text-left">사이트</th>
-                <th className="text-center">자세히보기</th>
+                <th colSpan="7" className="py-3 text-left pl-12">
+                  도메인 정보 (클릭하여 펼치기)
+                </th>
               </tr>
             </thead>
 
             <tbody>
-              {groupedList && groupedList.length > 0 ? (
+              {groupedList.length > 0 ? (
                 groupedList.map((group) => {
-                  // ✅ 그룹 키를 domain으로 변경 (toggleSession도 domain 기준)
                   const isExpanded = expandedSessions[group.domain];
 
                   return (
@@ -156,26 +127,22 @@ function EventTransactions() {
                                 d="M19 9l-7 7-7-7"
                               />
                             </svg>
-
-                            <div className="flex items-center gap-3 min-w-0 flex-1">
-                              <span className="text-[10px] font-black opacity-40 uppercase whitespace-nowrap">
-                                도메인
+                            <div className="flex items-center gap-3 flex-1">
+                              <span className="text-[10px] font-bold opacity-40 uppercase">
+                                도메인 :
                               </span>
-                              {/* ✅ 도메인 명칭 출력 */}
-                              <span
-                                className="font-bold text-sm text-primary truncate"
-                                title={group.domain}
-                              >
+                              <span className="font-bold text-[14px] text-primary">
                                 {group.domain}
                               </span>
-
-                              <div className="flex items-center gap-2 shrink-0 border-l border-slate-400/30 pl-3">
+                              <div className="flex items-center gap-2 border-l border-slate-400/30 pl-3">
                                 <span className="badge badge-sm bg-slate-400/20 border-none text-slate-600 font-bold">
                                   {group.events.length}개의 위험
                                 </span>
-                                <span className="text-[11px] font-bold text-slate-500 font-mono">
-                                  최근발생:{" "}
-                                  {moment(group.latestTs).format("HH:mm:ss")}
+                                <span className="text-[12px] font-bold text-slate-500 font-mono">
+                                  최근위험:{" "}
+                                  {moment(group.latestTs).format(
+                                    "YYYY-MM-DD HH:mm:ss",
+                                  )}
                                 </span>
                               </div>
                             </div>
@@ -183,32 +150,45 @@ function EventTransactions() {
                         </td>
                       </tr>
 
-                      {/* ✅ 펼쳐지는 상세 이벤트 데이터 (도메인 내부 이벤트들) */}
+                      {/* ✅ 서브 헤더 (펼쳐졌을 때만 표시, 밑의 코드와 동일하게 세팅) */}
+                      {isExpanded && (
+                        <tr className="bg-base-100 text-base-content/70 text-[13px] uppercase tracking-wider">
+                          <th className="py-2 pl-12 text-left">시간</th>
+                          <th className="text-left">세션 ID</th>
+                          <th className="text-left">위험도</th>
+                          <th className="text-left">위험 점수</th>
+                          <th className="text-left">탐지규칙 ID</th>
+                          <th className="text-left">사이트</th>
+                          <th
+                            className="text-center"
+                            style={{ width: "100px" }}
+                          >
+                            자세히
+                          </th>
+                        </tr>
+                      )}
+
+                      {/* ✅ 실제 데이터 행 (스타일 통일) */}
                       {isExpanded &&
                         group.events.map((event, index) => (
                           <tr
                             key={`${group.domain}-${index}`}
-                            className="bg-white hover:bg-base-100/50 border-b border-base-100 last:border-none transition-colors"
+                            className="bg-white border-b border-base-100 last:border-none hover:bg-slate-50/50 transition-colors"
                           >
-                            <td className="py-4 pl-12 truncate">
+                            <td className="py-3 pl-12">
                               <div className="flex flex-col">
-                                <span className="font-bold text-sm">
+                                <span className="font-bold text-[13px]">
                                   {moment(event.ts).format("HH:mm:ss")}
                                 </span>
-                                <span className="text-[10px] opacity-50">
+                                <span className="text-[11px] opacity-60">
                                   {moment(event.ts).format("YYYY-MM-DD")}
                                 </span>
                               </div>
                             </td>
-
-                            {/* 상세 열에서는 세션 ID를 보여줌으로써 어떤 방문에서 발생했는지 식별 */}
-                            <td
-                              className="truncate font-mono text-[11px] opacity-70"
-                              title={event.sessionId}
-                            >
+                            {/* 세션 ID (도메인 뷰이므로 세션을 표시) */}
+                            <td className="truncate opacity-90 text-[12px] font-mono font-medium">
                               {event.sessionId}
                             </td>
-
                             <td>
                               <div
                                 className={`badge badge-sm border-none font-bold ${
@@ -222,27 +202,23 @@ function EventTransactions() {
                                 {event.severity}
                               </div>
                             </td>
-
-                            <td className="font-mono font-bold text-orange-600">
+                            <td className="font-mono font-bold text-orange-600 text-[13px]">
                               +{event.scoreDelta}
                             </td>
-
-                            <td className="truncate opacity-80 text-xs font-mono">
+                            {/* ✅ 탐지규칙 ID: font-medium 적용 및 크기 업 */}
+                            <td className="truncate opacity-90 text-[12px] font-mono font-medium">
                               {event.ruleId}
                             </td>
-
-                            <td className="px-4">
-                              <div
-                                className="text-xs opacity-60 max-w-full truncate cursor-help hover:text-primary transition-colors"
-                                title={event.page}
-                              >
-                                {event.page || "/"}
-                              </div>
+                            {/* ✅ 사이트: 불투명도 조절 및 선명도 업 */}
+                            <td
+                              className="px-4 max-w-[250px] truncate text-[13px] font-medium opacity-90 text-base-content/80"
+                              title={event.page}
+                            >
+                              {event.page || "/"}
                             </td>
-
                             <td className="text-center">
                               <button
-                                className="btn btn-xs btn-ghost btn-outline border-base-300 hover:btn-primary"
+                                className="btn btn-ghost btn-sm text-primary font-bold"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   gotoDetail(event.eventId);
@@ -258,18 +234,16 @@ function EventTransactions() {
                 })
               ) : (
                 <tr>
-                  <td colSpan="7" className="text-center py-20 opacity-40">
-                    조회된 도메인이 없습니다.
+                  <td
+                    colSpan="7"
+                    className="text-center py-20 opacity-40 text-[13px]"
+                  >
+                    조회된 내역이 없습니다.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
-          {groupedList.length === 0 && (
-            <div className="text-center py-10 text-gray-400">
-              조회된 이벤트가 없습니다.
-            </div>
-          )}
         </div>
       </TitleCard>
     </>
