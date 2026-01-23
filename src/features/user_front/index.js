@@ -86,7 +86,8 @@ function Dashboard() {
 
   useEffect(() => {
     // getDomain() 함수를 실행해서 나온 결과를 domainData에 넣습니다.
-    getUserDomain({ installId }).then((res) => {
+    const update = true;
+    getUserDomain({ installId, update }).then((res) => {
       setDomainData(res);
     });
   }, []); // 처음 한 번만 실행
@@ -96,7 +97,8 @@ function Dashboard() {
   // ✅ 2. 화면이 켜질 때 데이터를 가져오라고 명령합니다.
   useEffect(() => {
     // getAllEvents() 함수를 실행해서 나온 결과를 recentData에 넣습니다.
-    getUserEventBytime({ installId }).then((res) => {
+    const update = true;
+    getUserEventBytime({ installId, update }).then((res) => {
       setUserTableData(res.sortedData);
     });
   }, []); // 처음 한 번만 실행
