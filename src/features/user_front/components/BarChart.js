@@ -7,14 +7,14 @@ import {
   Tooltip,
   Legend,
 } from "chart.js";
-import { Bar, getElementAtEvent } from "react-chartjs-2";
+import { Bar } from "react-chartjs-2";
 import { useRef } from "react";
-import { useNavigate } from "react-router-dom";
 import TitleCard from "../../../components/Cards/TitleCard";
-ChartJS.defaults.font.family = "'Pretendard', sans-serif";
-ChartJS.defaults.font.size = 16;
 
-// ChartJS 구성 요소 등록
+// 기본 폰트 설정
+ChartJS.defaults.font.family = "'Pretendard', sans-serif";
+ChartJS.defaults.font.size = 14;
+
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -24,55 +24,47 @@ ChartJS.register(
   Legend,
 );
 
-const severityKeywords = ["HIGH", "MEDIUM", "LOW"];
-
-function BarChart({ title, chartData }) {
+function BarChart({ title, chartData, onClick }) {
+  // onClick 프롭 추가
   const chartRef = useRef(null);
-  const navigate = useNavigate();
-
-  const onClick = (event) => {
-    const { current: chart } = chartRef;
-    if (!chart) return;
-
-    const element = getElementAtEvent(chart, event);
-    if (element.length > 0) {
-      const { index } = element[0];
-      // 넘어온 데이터의 labels에서 클릭한 값을 가져옵니다.
-      const clickedLabel = chartData.labels[index];
-
-      if (severityKeywords.includes(clickedLabel)) {
-        navigate("/app/detail/severity", {
-          state: { value: clickedLabel, title: title },
-        });
-      }
-    }
-  };
 
   const options = {
     responsive: true,
     maintainAspectRatio: false,
-    onClick,
+    onClick: onClick || null, // 클릭 핸들러가 있을 때만 연결
     plugins: {
-      legend: { display: false }, // 범례가 필요 없으면 끕니다.
+      legend: { display: false },
+    },
+    scales: {
+      y: { beginAtZero: true }, // 바 차트는 0부터 시작하는 게 보기 좋습니다.
     },
   };
 
-  // 중요: 부모가 준 데이터가 있으면 그대로 쓰고, 없으면 기본 구조를 잡습니다.
-  const data = chartData || {
-    labels: [],
+  // 1. 데이터 존재 여부를 안전하게 확인 (옵셔널 체이닝 사용)
+  const hasData =
+    chartData?.datasets?.[0]?.data && chartData.datasets[0].data.length > 0;
+
+  // 2. 렌더링용 데이터 구조 (chartData가 null이어도 에러 안 나게 방어)
+  const data = {
+    labels: chartData?.labels || [],
     datasets: [
-      { label: title, data: [], backgroundColor: "rgba(53, 162, 235, 0.5)" },
+      {
+        label: title || "Events",
+        data: chartData?.datasets?.[0]?.data || [],
+        backgroundColor: "rgba(53, 162, 235, 0.5)",
+        borderRadius: 4, // 바 끝을 살짝 둥글게 하면 예쁩니다.
+      },
     ],
   };
 
   return (
     <TitleCard title={title || "Chart Title"} topMargin="mt-2">
       <div style={{ height: "300px" }}>
-        {/* 데이터의 실제 숫자(datasets[0].data)가 있는지 확인 */}
-        {data.datasets[0].data.length > 0 ? (
+        {/* 3. 데이터가 확실히 있을 때만 차트 렌더링 */}
+        {hasData ? (
           <Bar ref={chartRef} options={options} data={data} />
         ) : (
-          <div className="flex items-center justify-center h-full text-gray-400">
+          <div className="flex items-center justify-center h-full text-gray-400 italic">
             데이터를 불러오는 중이거나 결과가 없습니다.
           </div>
         )}
