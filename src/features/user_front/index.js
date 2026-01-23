@@ -22,6 +22,8 @@ import {
 import TitleCard from "../../components/Cards/TitleCard";
 import { useSearchParams } from "react-router-dom";
 import { useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
+import { setInstallId, getInstallId } from "../../app/auth";
 
 function Dashboard() {
   const dispatch = useDispatch();
@@ -29,7 +31,27 @@ function Dashboard() {
 
   // const [searchParams] = useSearchParams();
   // const installId = searchParams.get('installId');
-  const installId = "14f85da9-93aa-4b72-bbea-457f07945305"; //테스트용 임시값
+
+  // useParams에서 가져오는 변수명을 urlId로 잠시 별칭을 주어 이름 충돌을 피합니다.
+  const { installId: urlId } = useParams();
+
+  // 1. URL값이 없으면 저장소(getInstallId)에서 꺼내와서 'installId' 결정
+  const installId = urlId || getInstallId();
+
+  console.log("대시보드에서 사용할 최종 ID:", installId);
+
+  useEffect(() => {
+    // 2. installId가 존재할 때만 실행
+    if (installId) {
+      // 3. 현재 확정된 ID를 다시 저장소에 업데이트 (동기화)
+      setInstallId(installId);
+
+      console.log("저장소에 적용된 ID:", getInstallId());
+
+      // 여기서 API 호출 시에도 installId를 사용하면 됩니다.
+      // fetchSeverityData(installId);
+    }
+  }, [urlId, installId]); // URL이 바뀌거나 계산된 installId가 바뀔 때 실행
 
   const updateDashboardPeriod = (newRange) => {
     // Dashboard range changed, write code to refresh your values

@@ -7,23 +7,24 @@ import {
   ChartBarIcon,
   GlobeAltIcon,
 } from "@heroicons/react/24/outline";
+import { getInstallId } from "../app/auth";
 
 const iconClasses = `h-6 w-6`;
 const submenuIconClasses = `h-5 w-5`;
 
 const routes = [
   {
-    path: "/app/user_front",
+    path: "/app/user_front/dashboard/",
     icon: <Squares2X2Icon className={iconClasses} />,
     name: "User Dashboard",
   },
   {
-    path: "/app/user_front/listpage_session",
+    path: "/app/user_front/listpage_session/",
     icon: <UserIcon className={iconClasses} />,
     name: "User SessionList",
   },
   {
-    path: "/app/user_front/listpage_domain",
+    path: "/app/user_front/listpage_domain/",
     icon: <GlobeAltIcon className={iconClasses} />,
     name: "User DomainList",
   },

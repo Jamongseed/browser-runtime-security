@@ -1,10 +1,8 @@
 import { lazy } from "react";
 
 const Login = lazy(() => import("../pages/Login"));
-const Dashboard = lazy(() => import("../pages/protected/Dashboard"));
 //const EventList = lazy(() => import('../features/events/EventListPage'))
 
-const UserEventDetailPage = lazy(() => import("../features/user_front/detail"));
 const AdminEventDetailPage = lazy(
   () => import("../features/admin_front/detail"),
 );
@@ -28,7 +26,6 @@ const AdminSearch = lazy(() => import("../features/admin_front/admin_search"));
 const Welcome = lazy(() => import("../pages/protected/Welcome"));
 const Page404 = lazy(() => import("../pages/protected/404"));
 const Blank = lazy(() => import("../pages/protected/Blank"));
-const Charts = lazy(() => import("../pages/protected/Charts"));
 const Leads = lazy(() => import("../pages/protected/Leads"));
 const Integration = lazy(() => import("../pages/protected/Integration"));
 const Calendar = lazy(() => import("../pages/protected/Calendar"));
@@ -44,16 +41,8 @@ const DocComponents = lazy(() => import("../pages/DocComponents"));
 
 const routes = [
   {
-    path: "/dashboard",
-    component: Dashboard,
-  },
-  {
     path: "/login",
     component: Login,
-  },
-  {
-    path: "/user_front/:eventId",
-    component: UserEventDetailPage,
   },
   {
     path: "/admin_front/:eventId",
@@ -81,7 +70,11 @@ const routes = [
  },
  */
   {
-    path: "/user_front",
+    path: "/user_front/dashboard",
+    component: UserDashboard,
+  },
+  {
+    path: "/user_front/dashboard/:installId",
     component: UserDashboard,
   },
   {
@@ -105,8 +98,12 @@ const routes = [
     component: AdminDashboard,
   },
   {
-    path: "/admin_front/table",
+    path: "/admin_front/admin_search",
     component: AdminSearch,
+  },
+  {
+    path: "/admin_front/detail/:eventId",
+    component: UserDetail,
   },
 
   // 기존 유지

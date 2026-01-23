@@ -5,6 +5,8 @@ import XMarkIcon from "@heroicons/react/24/outline/XMarkIcon";
 import SearchBar from "../../../components/Input/SearchBar";
 import { getUserSessionEvents } from "../../aws/AwsSearch";
 import { useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
+import { getInstallId } from "../../../app/auth";
 
 const TopSideButtons = ({
   applySearch,
@@ -35,7 +37,10 @@ function EventTransactions() {
   const [groupedList, setGroupedList] = useState([]); // 세션별 그룹 데이터
   const [originalList, setOriginalList] = useState([]); // 필터링 전 전체 데이터
   const [searchText, setSearchText] = useState("");
-  const installId = "e025b1ff-be5b-429e-87bf-00f0b0b05f59"; // 테스트용 ID
+
+  const installId = getInstallId();
+  console.log("세션 유저아이디");
+  console.log(installId);
 
   const navigate = useNavigate();
 
@@ -64,14 +69,12 @@ function EventTransactions() {
   // 1. 데이터 가져오기
   useEffect(() => {
     fetchEvents();
-  }, []);
+  }, [installId]);
 
   const fetchEvents = async () => {
-    const res = await getUserSessionEvents({ installId });
+    const res = await getUserSessionEvents({ installId, update: true });
     setGroupedList(res.groupedList || []);
     setOriginalList(res.groupedList || []);
-    console.log("세션조회 결과");
-    console.log(res);
   };
 
   // 2. 검색 로직 (도메인이나 RuleId로 검색)
@@ -118,7 +121,7 @@ function EventTransactions() {
               <col style={{ width: "100px" }} /> {/* Severity */}
               <col style={{ width: "100px" }} /> {/* Score Delta */}
               <col style={{ width: "auto" }} /> {/* Rule ID */}
-              <col style={{ width: "250px" }} />{" "}
+              <col style={{ width: "250px" }} />
               {/* Page (남는 공간 다 차지) */}
               <col style={{ width: "100px" }} /> {/* Action */}
             </colgroup>
