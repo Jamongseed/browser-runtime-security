@@ -9,7 +9,6 @@ import CreditCardIcon from "@heroicons/react/24/outline/CreditCardIcon";
 import UserChannels from "./components/UserChannels";
 import LineChart from "./components/LineChart";
 import BarChart from "./components/BarChart";
-import DashboardTopBar from "./components/DashboardTopBar";
 import { useDispatch } from "react-redux";
 import { showNotification } from "../common/headerSlice";
 import DoughnutChart from "./components/DoughnutChart";
@@ -24,6 +23,9 @@ import { useSearchParams } from "react-router-dom";
 import { useNavigate } from "react-router-dom";
 import { useParams } from "react-router-dom";
 import { setInstallId, getInstallId } from "../../app/auth";
+import DashboardTopBar from "./components/DashboardTopBar";
+import { getStartDay, setStartDay, getEndDay, setEndDay } from "../../app/auth";
+import moment from "moment";
 
 function Dashboard() {
   const dispatch = useDispatch();
@@ -37,7 +39,6 @@ function Dashboard() {
 
   // 1. URL값이 없으면 저장소(getInstallId)에서 꺼내와서 'installId' 결정
   const installId = urlId || getInstallId();
-
   console.log("대시보드에서 사용할 최종 ID:", installId);
 
   useEffect(() => {
@@ -53,19 +54,25 @@ function Dashboard() {
     }
   }, [urlId, installId]); // URL이 바뀌거나 계산된 installId가 바뀔 때 실행
 
-  const updateDashboardPeriod = (newRange) => {
-    // Dashboard range changed, write code to refresh your values
-    dispatch(
-      showNotification({
-        message: `Period updated to ${newRange.startDate} to ${newRange.endDate}`,
-        status: 1,
-      }),
-    );
-  };
-
   const gotoDetail = (id) => {
     // 상세 페이지 경로로 이동 (예: /app/details/아이디)
     navigate(`/app/user_front/detail/${id}`);
+  };
+
+  // ---날자 관련 업데이트
+  const [startDay, setStartDayState] = useState(() => getStartDay());
+  const [endDay, setEndDayState] = useState(() => getEndDay());
+
+  const updateDashboardPeriod = (newRange) => {
+    // Dashboard range changed, write code to refresh your values
+    const newStartDay = moment(newRange.startDate).format("YYYY-MM-DD");
+    const newEndDay = moment(newRange.endDate).format("YYYY-MM-DD");
+
+    setStartDayState(newStartDay);
+    setEndDayState(newEndDay);
+
+    setStartDay(newStartDay);
+    setEndDay(newEndDay);
   };
 
   const [severityData, setseverityData] = useState(null);
@@ -75,10 +82,15 @@ function Dashboard() {
     // getDomain() 함수를 실행해서 나온 결과를 domainData에 넣습니다.
     // 임시 데이터
     const update = true;
-    getUserSeverity({ installId, update }).then((res) => {
+    getUserSeverity({ installId, update, startDay, endDay }).then((res) => {
+      console.log("매개변수");
+      console.log(installId);
+      console.log(startDay);
+      console.log(endDay);
+
       setseverityData(res);
     });
-  }, []); // 처음 한 번만 실행
+  }, [startDay, endDay]); // 날자가 변경될때 실행
 
   const [domainData, setDomainData] = useState(null);
 
@@ -87,10 +99,10 @@ function Dashboard() {
   useEffect(() => {
     // getDomain() 함수를 실행해서 나온 결과를 domainData에 넣습니다.
     const update = true;
-    getUserDomain({ installId, update }).then((res) => {
+    getUserDomain({ installId, update, startDay, endDay }).then((res) => {
       setDomainData(res);
     });
-  }, []); // 처음 한 번만 실행
+  }, [startDay, endDay]); // 날자가 변경될때 실행
 
   const [userTableData, setUserTableData] = useState([]);
 
@@ -98,10 +110,10 @@ function Dashboard() {
   useEffect(() => {
     // getAllEvents() 함수를 실행해서 나온 결과를 recentData에 넣습니다.
     const update = true;
-    getUserEventBytime({ installId, update }).then((res) => {
+    getUserEventBytime({ installId, update, startDay, endDay }).then((res) => {
       setUserTableData(res.sortedData);
     });
-  }, []); // 처음 한 번만 실행
+  }, [startDay, endDay]); // 날자가 변경될때 실행
 
   return (
     <>

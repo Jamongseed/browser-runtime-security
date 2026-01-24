@@ -1,7 +1,10 @@
 import axios from "axios";
+import moment from "moment";
 
 // 초기값 설정 (기본값)
 let installId = localStorage.getItem("installId") || "";
+let startDay = moment().subtract(2, "weeks").format("YYYY-MM-DD");
+let endDay = moment().format("YYYY-MM-DD");
 
 export const setInstallId = (newId) => {
   if (typeof newId !== "string") {
@@ -15,6 +18,32 @@ export const setInstallId = (newId) => {
 
 export const getInstallId = () => {
   return installId || localStorage.getItem("installID");
+};
+
+export const setStartDay = (newDate) => {
+  if (!moment(newDate, "YYYY-MM-DD", true).isValid()) {
+    console.error("올바른 날짜 형식이 아닙니다 (YYYY-MM-DD).");
+    return;
+  }
+  startDay = newDate;
+  localStorage.setItem("startDay", startDay);
+};
+
+export const getStartDay = () => {
+  return startDay || localStorage.getItem("startDay");
+};
+
+export const setEndDay = (newDate) => {
+  if (!moment(newDate, "YYYY-MM-DD", true).isValid()) {
+    console.error("올바른 날짜 형식이 아닙니다 (YYYY-MM-DD).");
+    return;
+  }
+  endDay = newDate;
+  localStorage.setItem("endDay", endDay);
+};
+
+export const getEndDay = () => {
+  return endDay || localStorage.getItem("endDay");
 };
 
 // 비로그인(user)이 접근하면 안 되는 admin 전용 페이지들

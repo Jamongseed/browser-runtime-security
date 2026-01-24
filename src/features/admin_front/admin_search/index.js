@@ -9,9 +9,13 @@ import {
   getEvents,
   getOneEvent,
 } from "../../aws/AwsSearch";
-
-const START_DAY = "2026-01-01";
-const END_DAY = "2026-01-30";
+import DashboardTopBar from "../components/DashboardTopBar";
+import {
+  getStartDay,
+  setStartDay,
+  getEndDay,
+  setEndDay,
+} from "../../../app/auth";
 
 const TopSideButtons = ({ applySearch, removeFilter }) => {
   const [searchType, setSearchType] = useState("domain");
@@ -82,6 +86,23 @@ function Transactions() {
   const [userTableData, setUserTableData] = useState([]);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  // ---날자 관련 업데이트
+  const [startDay, setStartDayState] = useState(getStartDay());
+  const [endDay, setEndDayState] = useState(getEndDay());
+
+  const updateDashboardPeriod = (newRange) => {
+    // Dashboard range changed, write code to refresh your values
+    const newStartDay = moment(newRange.startDate).format("YYYY-MM-DD");
+    const newEndDay = moment(newRange.endDate).format("YYYY-MM-DD");
+
+    setStartDayState(newStartDay);
+    setEndDayState(newEndDay);
+
+    setStartDay(newStartDay);
+    setEndDay(newEndDay);
+  };
+
   // 핵심 데이터 요청 함수
   const fetchEvents = async (searchParams = {}) => {
     const { type, query } = searchParams;
@@ -93,8 +114,8 @@ function Transactions() {
         // 기본값: 전체 도메인 조회 등
         res = await getEventsByDomain({
           domain: "all",
-          startDay: START_DAY,
-          endDay: END_DAY,
+          startDay: startDay,
+          endDay: endDay,
         });
       } else {
         // 검색 타입별 분기 처리
@@ -103,8 +124,8 @@ function Transactions() {
             console.log("검색domain");
             res = await getEventsByDomain({
               domain: query,
-              startDay: START_DAY,
-              endDay: END_DAY,
+              startDay: startDay,
+              endDay: endDay,
               limit: 20,
             });
             console.log(res);
@@ -112,8 +133,8 @@ function Transactions() {
           case "ruleId":
             res = await getEventsByRule({
               ruleId: query,
-              startDay: START_DAY,
-              endDay: END_DAY,
+              startDay: startDay,
+              endDay: endDay,
               limit: 20,
             });
             break;
@@ -121,8 +142,8 @@ function Transactions() {
             // 인스톨 ID 검색 시 getEvents 사용 (필요한 파라미터에 맞춰 수정 가능)
             res = await getEvents({
               installId: query,
-              startDay: START_DAY,
-              endDay: END_DAY,
+              startDay: startDay,
+              endDay: endDay,
             });
             break;
           case "eventId":
@@ -169,6 +190,7 @@ function Transactions() {
         <TopSideButtons applySearch={applySearch} removeFilter={removeFilter} />
       }
     >
+      <DashboardTopBar updateDashboardPeriod={updateDashboardPeriod} />
       <div className="overflow-x-auto w-full relative">
         {loading && (
           <div className="absolute inset-0 bg-base-100/50 z-10 flex items-center justify-center min-h-[200px]">

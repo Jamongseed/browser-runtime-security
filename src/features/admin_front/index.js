@@ -23,26 +23,27 @@ import {
 import TitleCard from "../../components/Cards/TitleCard";
 import { useSearchParams } from "react-router-dom";
 import { useNavigate } from "react-router-dom";
+import { getStartDay, setStartDay, getEndDay, setEndDay } from "../../app/auth";
+import moment from "moment";
 
 function Dashboard() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
 
-  const startDay = "2026-01-01";
-  const endDay = "2026-01-30";
+  // ---날자 관련 업데이트
+  const [startDay, setStartDayState] = useState(getStartDay());
+  const [endDay, setEndDayState] = useState(getEndDay());
 
   const updateDashboardPeriod = (newRange) => {
     // Dashboard range changed, write code to refresh your values
-    dispatch(
-      showNotification({
-        message: `Period updated to ${newRange.startDate} to ${newRange.endDate}`,
-        status: 1,
-      }),
-    );
-  };
+    const newStartDay = moment(newRange.startDate).format("YYYY-MM-DD");
+    const newEndDay = moment(newRange.endDate).format("YYYY-MM-DD");
 
-  const gotoDetail = (id) => {
-    navigate(`/app/user_front/detail/${id}`);
+    setStartDayState(newStartDay);
+    setEndDayState(newEndDay);
+
+    setStartDay(newStartDay);
+    setEndDay(newEndDay);
   };
 
   const [severityData, setSeverityData] = useState([]);
@@ -51,10 +52,10 @@ function Dashboard() {
   useEffect(() => {
     getSeverity({ startDay, endDay }).then((res) => {
       setSeverityData(res);
-      console.log("getSeverity 로그");
-      console.log(res);
+      //console.log("getSeverity 로그");
+      //console.log(res);
     });
-  }, []); // 처음 한 번만 실행
+  }, [startDay, endDay]); // 일자가 변경될때 실행
 
   const [domainData, setDomainData] = useState([]);
 
@@ -64,8 +65,6 @@ function Dashboard() {
     // getDomain() 함수를 실행해서 나온 결과를 domainData에 넣습니다.
     getAggDomain({ startDay, endDay }).then((res) => {
       setDomainData(res);
-      console.log("getDomain 로그");
-      console.log(res);
     });
   }, []); // 처음 한 번만 실행
 
@@ -75,8 +74,8 @@ function Dashboard() {
     // getAggRule() 함수를 실행해서 나온 결과를 ruleData에 넣습니다.
     getAggRule({ startDay, endDay }).then((res) => {
       setRuleData(res);
-      console.log("getRule 로그");
-      console.log(res);
+      //console.log("getRule 로그");
+      //console.log(res);
     });
   }, []); // 처음 한 번만 실행
 

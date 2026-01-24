@@ -6,6 +6,13 @@ import SearchBar from "../../../components/Input/SearchBar";
 import { getUserDomainEvents } from "../../aws/AwsSearch";
 import { useNavigate } from "react-router-dom";
 import { getInstallId } from "../../../app/auth";
+import DashboardTopBar from "../components/DashboardTopBar";
+import {
+  getStartDay,
+  setStartDay,
+  getEndDay,
+  setEndDay,
+} from "../../../app/auth";
 
 function EventTransactions() {
   const [groupedList, setGroupedList] = useState([]);
@@ -18,6 +25,22 @@ function EventTransactions() {
 
   const gotoDetail = (id) => navigate(`/app/user_front/detail/${id}`);
 
+  // ---날자 관련 업데이트
+  const [startDay, setStartDayState] = useState(getStartDay());
+  const [endDay, setEndDayState] = useState(getEndDay());
+
+  const updateDashboardPeriod = (newRange) => {
+    // Dashboard range changed, write code to refresh your values
+    const newStartDay = moment(newRange.startDate).format("YYYY-MM-DD");
+    const newEndDay = moment(newRange.endDate).format("YYYY-MM-DD");
+
+    setStartDayState(newStartDay);
+    setEndDayState(newEndDay);
+
+    setStartDay(newStartDay);
+    setEndDay(newEndDay);
+  };
+
   const toggleSession = (domain) => {
     setExpandedSessions((prev) => ({
       ...prev,
@@ -27,10 +50,15 @@ function EventTransactions() {
 
   useEffect(() => {
     fetchEvents();
-  }, []);
+  }, [startDay, endDay]);
 
   const fetchEvents = async () => {
-    const res = await getUserDomainEvents({ installId, update: true });
+    const res = await getUserDomainEvents({
+      installId,
+      update: true,
+      startDay,
+      endDay,
+    });
     setGroupedList(res.groupedList || []);
     setOriginalList(res.groupedList || []);
   };
@@ -58,6 +86,7 @@ function EventTransactions() {
   return (
     <>
       <TitleCard title="도메인별 탐지 이력" topMargin="mt-2">
+        <DashboardTopBar updateDashboardPeriod={updateDashboardPeriod} />
         <div className="overflow-x-auto w-full">
           <table className="table w-full table-auto border-separate border-spacing-y-1">
             {/* 메인 헤더 */}

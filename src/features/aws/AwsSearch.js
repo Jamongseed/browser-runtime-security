@@ -1,6 +1,7 @@
 import axios from "axios";
 import { brsQueryApi } from "./BRSQuery.ts";
 import moment from "moment";
+import { getStartDay, getEndDay } from "../../app/auth";
 
 const now = new Date();
 let userDataResponse = [];
@@ -9,11 +10,6 @@ let userDataResponse = [];
 /**
  * AWS에서 차트 데이터를 조회하고 가공하여 반환합니다.
  */
-
-// 1. 오늘 날짜 (YYYY-MM-DD 형식)
-
-const today = moment().format("YYYY-MM-DD");
-const sevenDaysAgo = moment().subtract(7, "days").format("YYYY-MM-DD");
 
 export const getSeverity = async ({ startDay, endDay }) => {
   try {
@@ -177,8 +173,8 @@ export const getAggRule = async ({ startDay, endDay }) => {
 
 export const getEvents = async ({
   installId,
-  startDay = sevenDaysAgo,
-  endDay = today,
+  startDay,
+  endDay,
 }) => {
   try {
     const response = await brsQueryApi.eventsByInstall({
@@ -275,8 +271,8 @@ export const getEventsByDomain = async ({
 export const getUserSessionEvents = async ({
   installId,
   update = false,
-  startDay = sevenDaysAgo,
-  endDay = today,
+  startDay,
+  endDay,
 }) => {
   try {
     if (update || !userDataResponse || userDataResponse.length === 0) {
@@ -335,8 +331,8 @@ export const getUserSessionEvents = async ({
 export const getUserDomainEvents = async ({
   installId,
   update = false,
-  startDay = sevenDaysAgo,
-  endDay = today,
+  startDay,
+  endDay,
 }) => {
   try {
     if (update || !userDataResponse || userDataResponse.length === 0) {
@@ -397,8 +393,8 @@ export const getUserDomainEvents = async ({
 export const getUserSeverity = async ({
   installId,
   update = false,
-  startDay = sevenDaysAgo,
-  endDay = today,
+  startDay,
+  endDay,
 }) => {
   try {
     // 1. 데이터 가져오기 (기존 로직 유지)
@@ -464,8 +460,8 @@ export const getUserSeverity = async ({
 export const getUserDomain = async ({
   installId,
   update = false,
-  startDay = sevenDaysAgo,
-  endDay = today,
+  startDay,
+  endDay,
 }) => {
   try {
     // 1. 데이터 가져오기 (기존 로직 유지)
@@ -527,8 +523,8 @@ export const getUserDomain = async ({
 export const getUserEventBytime = async ({
   installId,
   update = false,
-  startDay = sevenDaysAgo,
-  endDay = today,
+  startDay,
+  endDay,
 }) => {
   try {
     // 1. 데이터가 없으면 API 호출하여 저장

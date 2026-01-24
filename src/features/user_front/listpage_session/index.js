@@ -7,6 +7,13 @@ import { getUserSessionEvents } from "../../aws/AwsSearch";
 import { useNavigate } from "react-router-dom";
 import { useParams } from "react-router-dom";
 import { getInstallId } from "../../../app/auth";
+import DashboardTopBar from "../components/DashboardTopBar";
+import {
+  getStartDay,
+  setStartDay,
+  getEndDay,
+  setEndDay,
+} from "../../../app/auth";
 
 function EventTransactions() {
   const [groupedList, setGroupedList] = useState([]); // 세션별 그룹 데이터
@@ -14,6 +21,7 @@ function EventTransactions() {
   const [searchText, setSearchText] = useState("");
 
   const installId = getInstallId();
+
   console.log("세션 유저아이디");
   console.log(installId);
 
@@ -31,6 +39,21 @@ function EventTransactions() {
     });
   };
 
+  const [startDay, setStartDayState] = useState(getStartDay());
+  const [endDay, setEndDayState] = useState(getEndDay());
+
+  const updateDashboardPeriod = (newRange) => {
+    // Dashboard range changed, write code to refresh your values
+    const newStartDay = moment(newRange.startDate).format("YYYY-MM-DD");
+    const newEndDay = moment(newRange.endDate).format("YYYY-MM-DD");
+
+    setStartDayState(newStartDay);
+    setEndDayState(newEndDay);
+
+    setStartDay(newStartDay);
+    setEndDay(newEndDay);
+  };
+
   const [expandedSessions, setExpandedSessions] = useState({});
 
   // 세션 토글 함수
@@ -44,10 +67,15 @@ function EventTransactions() {
   // 1. 데이터 가져오기
   useEffect(() => {
     fetchEvents();
-  }, [installId]);
+  }, [installId, startDay, endDay]);
 
   const fetchEvents = async () => {
-    const res = await getUserSessionEvents({ installId, update: true });
+    const res = await getUserSessionEvents({
+      installId,
+      update: true,
+      startDay,
+      endDay,
+    });
     setGroupedList(res.groupedList || []);
     setOriginalList(res.groupedList || []);
   };
@@ -76,6 +104,7 @@ function EventTransactions() {
   return (
     <>
       <TitleCard title="세션별 탐지 이력" topMargin="mt-2">
+        <DashboardTopBar updateDashboardPeriod={updateDashboardPeriod} />
         <div className="overflow-x-auto w-full">
           <table className="table w-full border-separate border-spacing-y-2">
             {/* 1. 세션용 메인 헤더 (가장 상단) */}
