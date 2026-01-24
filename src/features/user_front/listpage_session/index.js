@@ -8,31 +8,6 @@ import { useNavigate } from "react-router-dom";
 import { useParams } from "react-router-dom";
 import { getInstallId } from "../../../app/auth";
 
-const TopSideButtons = ({
-  applySearch,
-  removeFilter,
-  searchText,
-  setSearchText,
-}) => {
-  return (
-    <div className="inline-block float-right">
-      <SearchBar
-        searchText={searchText}
-        styleClass="mr-4"
-        setSearchText={setSearchText}
-      />
-      {searchText !== "" && (
-        <button
-          onClick={removeFilter}
-          className="btn btn-xs mr-2 btn-active btn-ghost normal-case"
-        >
-          Clear <XMarkIcon className="w-4 ml-2" />
-        </button>
-      )}
-    </div>
-  );
-};
-
 function EventTransactions() {
   const [groupedList, setGroupedList] = useState([]); // 세션별 그룹 데이터
   const [originalList, setOriginalList] = useState([]); // 필터링 전 전체 데이터
@@ -100,17 +75,7 @@ function EventTransactions() {
   const removeFilter = () => setSearchText("");
   return (
     <>
-      <TitleCard
-        title="세션별 탐지 이력"
-        topMargin="mt-2"
-        TopSideButtons={
-          <TopSideButtons
-            searchText={searchText}
-            setSearchText={setSearchText}
-            removeFilter={removeFilter}
-          />
-        }
-      >
+      <TitleCard title="세션별 탐지 이력" topMargin="mt-2">
         <div className="overflow-x-auto w-full">
           <table className="table w-full border-separate border-spacing-y-2">
             {/* 1. 세션용 메인 헤더 (가장 상단) */}

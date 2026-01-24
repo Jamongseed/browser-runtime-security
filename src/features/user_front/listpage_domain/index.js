@@ -7,26 +7,6 @@ import { getUserDomainEvents } from "../../aws/AwsSearch";
 import { useNavigate } from "react-router-dom";
 import { getInstallId } from "../../../app/auth";
 
-const TopSideButtons = ({ removeFilter, searchText, setSearchText }) => {
-  return (
-    <div className="inline-block float-right">
-      <SearchBar
-        searchText={searchText}
-        styleClass="mr-4"
-        setSearchText={setSearchText}
-      />
-      {searchText !== "" && (
-        <button
-          onClick={removeFilter}
-          className="btn btn-xs mr-2 btn-active btn-ghost normal-case"
-        >
-          Clear <XMarkIcon className="w-4 ml-2" />
-        </button>
-      )}
-    </div>
-  );
-};
-
 function EventTransactions() {
   const [groupedList, setGroupedList] = useState([]);
   const [originalList, setOriginalList] = useState([]);
@@ -77,17 +57,7 @@ function EventTransactions() {
 
   return (
     <>
-      <TitleCard
-        title="도메인별 탐지 이력"
-        topMargin="mt-2"
-        TopSideButtons={
-          <TopSideButtons
-            searchText={searchText}
-            setSearchText={setSearchText}
-            removeFilter={removeFilter}
-          />
-        }
-      >
+      <TitleCard title="도메인별 탐지 이력" topMargin="mt-2">
         <div className="overflow-x-auto w-full">
           <table className="table w-full table-auto border-separate border-spacing-y-1">
             {/* 메인 헤더 */}
