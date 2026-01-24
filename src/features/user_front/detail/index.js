@@ -7,6 +7,7 @@ import {
 } from "react-router-dom";
 import TitleCard from "../../../components/Cards/TitleCard";
 import { getEventDetail, getRuleDescription } from "../../aws/AwsSearch";
+import { setInstallId } from "../../../app/auth";
 
 function safeJsonParse(v) {
   if (v == null) return null;
@@ -136,6 +137,14 @@ export default function AdminEventDetailPage() {
   const params = useParams();
 
   const eventId = params.eventId || sp.get("eventId") || "";
+  const installId = params.InstallId;
+  useEffect(() => {
+    // 2. installId가 존재할 때만 실행
+    if (installId) {
+      // 3. 현재 확정된 ID를 다시 저장소에 업데이트 (동기화)
+      setInstallId(installId);
+    }
+  }, [installId]); // URL이 바뀌거나 계산된 installId가 바뀔 때 실행
   const from = sp.get("from") || "";
 
   const [loading, setLoading] = useState(false);
