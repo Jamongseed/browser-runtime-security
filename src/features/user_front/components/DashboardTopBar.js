@@ -28,66 +28,27 @@ function DashboardTopBar({ updateDashboardPeriod }) {
     setDateValue(newValue);
     updateDashboardPeriod(newValue);
   };
-
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      <div className="">
+    <div className="flex justify-end items-center w-full gap-3">
+      {/* gap-3을 통해 라벨과 데이트피커 사이의 간격을 벌립니다. */}
+
+      <span className="text-base font-semibold whitespace-nowrap text-base-content">
+        {/* text-base로 크기를 키우고 font-semibold로 강조했습니다. */}
+        탐지기간:
+      </span>
+
+      <div className="inline-block">
         <Datepicker
-          containerClassName="w-72 "
+          containerClassName="w-72 relative"
           value={dateValue}
           theme={"light"}
-          inputClassName="input input-bordered w-72"
+          inputClassName="input input-bordered input-sm w-72 h-[38px] min-h-[38px] block"
           popoverDirection={"down"}
-          toggleClassName="invisible"
+          toggleClassName="invisible absolute"
           onChange={handleDatePickerValueChange}
           showShortcuts={true}
           primaryColor={"white"}
         />
-        {/* <SelectBox 
-                options={periodOptions}
-                labelTitle="Period"
-                placeholder="Select date range"
-                containerStyle="w-72"
-                labelStyle="hidden"
-                defaultValue="TODAY"
-                updateFormValue={updateSelectBoxValue}
-            /> */}
-      </div>
-      <div className="text-right ">
-        <button className="btn btn-ghost btn-sm normal-case">
-          <ArrowPathIcon className="w-4 mr-2" />
-          Refresh Data
-        </button>
-        <button className="btn btn-ghost btn-sm normal-case  ml-2">
-          <ShareIcon className="w-4 mr-2" />
-          Share
-        </button>
-
-        <div className="dropdown dropdown-bottom dropdown-end  ml-2">
-          <label
-            tabIndex={0}
-            className="btn btn-ghost btn-sm normal-case btn-square "
-          >
-            <EllipsisVerticalIcon className="w-5" />
-          </label>
-          <ul
-            tabIndex={0}
-            className="dropdown-content menu menu-compact  p-2 shadow bg-base-100 rounded-box w-52"
-          >
-            <li>
-              <a>
-                <EnvelopeIcon className="w-4" />
-                Email Digests
-              </a>
-            </li>
-            <li>
-              <a>
-                <ArrowDownTrayIcon className="w-4" />
-                Download
-              </a>
-            </li>
-          </ul>
-        </div>
       </div>
     </div>
   );

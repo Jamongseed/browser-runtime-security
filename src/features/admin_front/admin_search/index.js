@@ -24,15 +24,12 @@ const TopSideButtons = ({ applySearch, removeFilter }) => {
   const searchOptions = [
     { label: "도메인", value: "domain" },
     { label: "규칙 ID", value: "ruleId" },
-    { label: "인스톨 ID", value: "installId" }, // 인스톨 ID 옵션 유지
+    { label: "인스톨 ID", value: "installId" },
     { label: "이벤트 ID", value: "eventId" },
   ];
 
   const handleSearch = () => {
     if (!searchText.trim()) return;
-    console.log("검색");
-    console.log(searchType);
-    console.log(searchText);
     applySearch({ type: searchType, query: searchText });
   };
 
@@ -42,10 +39,13 @@ const TopSideButtons = ({ applySearch, removeFilter }) => {
     removeFilter();
   };
 
+  // 모든 요소의 높이를 통일하기 위한 공통 클래스
+  const commonHeight = "h-[38px] min-h-[38px]";
+
   return (
-    <div className="flex items-center gap-2 float-right">
+    <div className="flex items-center gap-2">
       <select
-        className="select select-bordered select-sm w-32"
+        className={`select select-bordered select-sm w-32 ${commonHeight}`}
         value={searchType}
         onChange={(e) => setSearchType(e.target.value)}
       >
@@ -60,14 +60,14 @@ const TopSideButtons = ({ applySearch, removeFilter }) => {
         <input
           type="text"
           placeholder="검색어 입력..."
-          className="input input-bordered input-sm w-64 pr-8"
+          className={`input input-bordered input-sm w-64 pr-8 ${commonHeight}`}
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSearch()}
         />
         {searchText && (
           <button
-            className="absolute right-2 top-1.5 opacity-50 hover:opacity-100"
+            className="absolute right-2 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100 text-lg"
             onClick={handleReset}
           >
             ×
@@ -75,7 +75,10 @@ const TopSideButtons = ({ applySearch, removeFilter }) => {
         )}
       </div>
 
-      <button className="btn btn-sm btn-primary" onClick={handleSearch}>
+      <button
+        className={`btn btn-sm btn-primary ${commonHeight}`}
+        onClick={handleSearch}
+      >
         검색
       </button>
     </div>
@@ -187,10 +190,21 @@ function Transactions() {
       title="검색결과"
       topMargin="mt-2"
       TopSideButtons={
-        <TopSideButtons applySearch={applySearch} removeFilter={removeFilter} />
+        <div className="flex items-center gap-2">
+          {/* 1. 날짜 선택기 */}
+          <DashboardTopBar updateDashboardPeriod={updateDashboardPeriod} />
+
+          {/* 2. 구분선이 필요하다면 넣으세요 (선택사항) */}
+          <div className="divider divider-horizontal mx-0 h-8"></div>
+
+          {/* 3. 검색 버튼들 */}
+          <TopSideButtons
+            applySearch={applySearch}
+            removeFilter={removeFilter}
+          />
+        </div>
       }
     >
-      <DashboardTopBar updateDashboardPeriod={updateDashboardPeriod} />
       <div className="overflow-x-auto w-full relative">
         {loading && (
           <div className="absolute inset-0 bg-base-100/50 z-10 flex items-center justify-center min-h-[200px]">
