@@ -15,8 +15,6 @@ export const getSeverity = async ({ startDay, endDay }) => {
   try {
     const kind = "sev";
     const response = await brsQueryApi.aggSearch({ kind, startDay, endDay });
-    console.log("getSeverity 로그1");
-    console.log(response);
 
     const rawData = response?.items || [];
 
@@ -36,10 +34,20 @@ export const getSeverity = async ({ startDay, endDay }) => {
       const labelB = b.sk?.split("#")[1] || "";
       return (priority[labelA] || 99) - (priority[labelB] || 99);
     });
+    // 한글 변환용 맵 추가
+    const labelMap = {
+      LOW: "낮음",
+      MEDIUM: "중간",
+      HIGH: "높음",
+      UNKNOWN: "알 수 없음",
+    };
 
     // 3. 정렬된 데이터로 리턴
     return {
-      labels: sortedData.map((item) => item.sk?.split("#")[1] || "UNKNOWN"),
+      labels: sortedData.map((item) => {
+        const level = item.sk?.split("#")[1] || "UNKNOWN";
+        return labelMap[level] || level; // 맵에 없으면 원래 값 출력
+      }),
       datasets: [
         {
           label: "위험도 건수",
@@ -171,7 +179,12 @@ export const getAggRule = async ({ startDay, endDay }) => {
   }
 };
 
-export const getEventsAll = async ({ startDay, endDay, limit = 200, nextToken }) => {
+export const getEventsAll = async ({
+  startDay,
+  endDay,
+  limit = 200,
+  nextToken,
+}) => {
   try {
     const response = await brsQueryApi.events({
       startDay,
@@ -187,11 +200,7 @@ export const getEventsAll = async ({ startDay, endDay, limit = 200, nextToken })
   }
 };
 
-export const getEvents = async ({
-  installId,
-  startDay,
-  endDay,
-}) => {
+export const getEvents = async ({ installId, startDay, endDay }) => {
   try {
     const response = await brsQueryApi.eventsByInstall({
       installId,
@@ -443,14 +452,14 @@ export const getUserSeverity = async ({
     });
 
     // 3. 정렬 기준 정의 (LOW -> MEDIUM -> HIGH 순서)
-    const severityOrder = ["HIGH", "MEDIUM", "LOW"];
-    const severityOrderKorean = ["높음", "중간", "낮음"];
+    const severityOrder = ["LOW", "MEDIUM", "HIGH"];
+    const severityOrderKorean = ["낮음", "중간", "높음"];
 
     // 4. 정렬된 결과 생성
     const labels = severityOrderKorean;
     const data = severityOrder.map((level) => counts[level]);
     const backgroundColors = severityOrder.map((level) => {
-      if (level === "HIGH") return "rgba(243, 4, 56, 0.7)"; // 빨강
+      if (level === "HIGH") return "rgba(255, 99, 132, 0.7)"; // 빨강
       if (level === "MEDIUM") return "rgba(255, 159, 64, 0.7)"; // 주황
       return "rgba(75, 192, 192, 0.7)"; // 초록
     });
