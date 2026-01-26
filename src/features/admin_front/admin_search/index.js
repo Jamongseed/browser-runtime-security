@@ -125,14 +125,14 @@ function Transactions() {
         // 검색 타입별 분기 처리
         switch (type) {
           case "domain":
-            console.log("검색domain");
+            //console.log("검색domain");
             res = await getEventsByDomain({
               domain: query,
               startDay: startDay,
               endDay: endDay,
               limit: 20,
             });
-            console.log(res);
+            //console.log(res);
             break;
           case "ruleId":
             res = await getEventsByRule({
@@ -234,7 +234,6 @@ function Transactions() {
             </tr>
           </thead>
           <tbody>
-            {console.log(userTableData)}
             {userTableData.length > 0 ? (
               userTableData.map((l, k) => (
                 <tr

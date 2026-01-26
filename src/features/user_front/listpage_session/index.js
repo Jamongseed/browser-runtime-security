@@ -21,12 +21,7 @@ function EventTransactions() {
   const [searchText, setSearchText] = useState("");
 
   const installId = getInstallId();
-
-  console.log("세션 유저아이디");
-  console.log(installId);
-
   const navigate = useNavigate();
-
   const gotoDetail = (id) => {
     // 상세 페이지 경로로 이동 (예: /app/details/아이디)
     navigate(`/app/user_front/detail/${id}`);

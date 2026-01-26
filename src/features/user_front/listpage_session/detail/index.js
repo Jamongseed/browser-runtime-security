@@ -25,7 +25,7 @@ function SessionDetail() {
     if (element) {
       element.scrollIntoView({ behavior: "smooth", block: "center" });
       element.classList.add("bg-blue-50");
-      console.log("클릭이벤트");
+      //console.log("클릭이벤트");
       setSelectedIdx(index);
       setTimeout(() => element.classList.remove("bg-blue-50"), 2000);
     }

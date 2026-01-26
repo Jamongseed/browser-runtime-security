@@ -39,7 +39,7 @@ function Dashboard() {
 
   // 1. URL값이 없으면 저장소(getInstallId)에서 꺼내와서 'installId' 결정
   const installId = urlId || getInstallId();
-  console.log("대시보드에서 사용할 최종 ID:", installId);
+  //console.log("대시보드에서 사용할 최종 ID:", installId);
 
   useEffect(() => {
     // 2. installId가 존재할 때만 실행
@@ -47,10 +47,7 @@ function Dashboard() {
       // 3. 현재 확정된 ID를 다시 저장소에 업데이트 (동기화)
       setInstallId(installId);
 
-      console.log("저장소에 적용된 ID:", getInstallId());
-
-      // 여기서 API 호출 시에도 installId를 사용하면 됩니다.
-      // fetchSeverityData(installId);
+      //console.log("저장소에 적용된 ID:", getInstallId());
     }
   }, [urlId, installId]); // URL이 바뀌거나 계산된 installId가 바뀔 때 실행
 
@@ -83,11 +80,6 @@ function Dashboard() {
     // 임시 데이터
     const update = true;
     getUserSeverity({ installId, update, startDay, endDay }).then((res) => {
-      console.log("매개변수");
-      console.log(installId);
-      console.log(startDay);
-      console.log(endDay);
-
       setseverityData(res);
     });
   }, [startDay, endDay]); // 날자가 변경될때 실행

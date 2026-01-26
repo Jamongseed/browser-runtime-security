@@ -722,11 +722,6 @@ export const getOneEvent = async ({ eventId }) => {
       page: parsedInnerPayload.page || "",
     };
 
-    // 3. 최종 반환 구조 (query + items 배열)
-
-    console.log("getOneEvent 리스폰스");
-    console.log(eventItem);
-
     return {
       data: [eventItem],
       error: null,
