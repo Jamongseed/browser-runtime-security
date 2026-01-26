@@ -17,7 +17,7 @@ export const setInstallId = (newId) => {
 };
 
 export const getInstallId = () => {
-  return installId || localStorage.getItem("installID");
+  return installId || localStorage.getItem("installId");
 };
 
 export const setStartDay = (newDate) => {

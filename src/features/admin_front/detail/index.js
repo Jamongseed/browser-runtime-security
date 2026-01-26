@@ -1,16 +1,6 @@
 // src/features/admin_front/detail/index.js
-// ✅ 단일 파일 통합 버전: type→category→VM(고정 UI, 확장 가능한 매핑)
-// - 기존 summary/useEffect 구조 유지
-// - KPI/Activity는 VM 기반으로 자동 분기
-// - 새 이벤트 타입이 늘어나도 UI는 고정(매핑/VM만 확장)
-
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Link,
-  useNavigate,
-  useParams,
-  useSearchParams,
-} from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import TitleCard from "../../../components/Cards/TitleCard";
 import { getEventDetail, getRuleDescription } from "../../aws/AwsSearch";
 
@@ -38,13 +28,7 @@ function relTime(tsMs) {
   const hr = Math.round(min / 60);
   const day = Math.round(hr / 24);
   const label =
-    day >= 1
-      ? `${day}일`
-      : hr >= 1
-        ? `${hr}시간`
-        : min >= 1
-          ? `${min}분`
-          : `${sec}초`;
+    day >= 1 ? `${day}일` : hr >= 1 ? `${hr}시간` : min >= 1 ? `${min}분` : `${sec}초`;
   return diff >= 0 ? `${label} 전` : `${label} 후`;
 }
 function sevBadgeClass(sev) {
@@ -105,6 +89,57 @@ function hostFromUrl(urlLike) {
   }
 }
 
+
+function normalizeSrc(raw = {}) {
+  // 다양한 센서/수집기에서 키 이름이 조금씩 달라져도 VM이 깨지지 않도록 alias를 정규화
+  const chain = raw.chain || {};
+  return {
+    ...raw,
+
+    // url alias (script/iframe/sw 등)
+    url: raw.url ?? raw.abs ?? raw.src ?? raw.href,
+    abs: raw.abs ?? raw.url ?? raw.src,
+    src: raw.src ?? raw.url ?? raw.abs,
+    scriptUrl: raw.scriptUrl ?? raw.scriptURL ?? raw.abs ?? raw.url,
+    swScriptUrl: raw.swScriptUrl ?? raw.scriptUrl ?? raw.scriptURL ?? raw.abs ?? raw.url,
+
+    // form alias
+    action: raw.action ?? raw.actionResolved ?? raw.actionAttr ?? raw.formAction,
+    actionOrigin: raw.actionOrigin ?? raw.targetOrigin,
+    pageOrigin: raw.pageOrigin ?? raw.origin,
+
+    // cross-site 의미를 분리해서 보존
+    crossSite: raw.crossSite ?? raw.cross_site,
+    initiatorCrossSite: raw.initiatorCrossSite ?? raw.initiator_cross_site,
+
+    // chain alias
+    chain: {
+      ...chain,
+      norm: chain.norm ?? raw.norm,
+      reinjectCount: chain.reinjectCount ?? raw.reinjectCount,
+      startedAt: chain.startedAt ?? raw.startedAt,
+      incidentId: chain.incidentId ?? raw.incidentId,
+      scriptId: chain.scriptId ?? raw.scriptId,
+    },
+  };
+}
+
+
+function shouldShowValue(value, options = {}) {
+  const {
+    hideZero = true,
+    hideDash = true,
+    hideFalse = false,
+  } = options;
+
+  if (value == null) return false;
+  if (hideDash && value === "-") return false;
+  if (hideZero && typeof value === "number" && value === 0) return false;
+  if (hideFalse && value === false) return false;
+
+  return true;
+}
+
 /** -----------------------------
  * UI atoms
  * ------------------------------ */
@@ -129,36 +164,31 @@ function KpiCard({ label, value, hint }) {
   );
 }
 
-function KV({ k, v, copy, mono, link }) {
+function fmtValue(v) {
+  if (v === true) return "true";
+  if (v === false) return "false";
+  if (v == null) return "";
+  return String(v);
+}
+
+function KV({ k, v, copy, mono, link, hideZero = true, hideDash = true }) {
+  // ✅ 0 / "-" / null 이면 행 자체 숨김
+  if (!shouldShowValue(v, { hideZero, hideDash })) return null;
+
   return (
-    <div className="flex items-start justify-between gap-3 py-2 border-b last:border-b-0">
-      <div className="text-xs opacity-60 w-32 shrink-0">{k}</div>
-      <div className="flex-1 min-w-0">
+    <div className="flex items-start justify-between gap-3 py-2 border-b border-base-200">
+      <div className="text-xs opacity-60 min-w-[140px]">{k}</div>
+      <div className="flex-1 text-left">
         {link ? (
-          <a
-            className="link link-primary break-all"
-            href={link}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <span className={mono ? "font-mono text-xs" : ""}>{v ?? "-"}</span>
+          <a className="link link-primary break-all" href={link} target="_blank" rel="noreferrer">
+            {String(v)}
           </a>
         ) : (
-          <div
-            className={`break-all ${mono ? "font-mono text-xs" : "text-sm"}`}
-          >
-            {v ?? "-"}
-          </div>
+          <div className={`break-all`}>{fmtValue(v)}</div>
         )}
       </div>
       {copy ? (
-        <button
-          className="btn btn-ghost btn-xs"
-          onClick={async () => {
-            const ok = await copyToClipboard(copy);
-            alert(ok ? "Copied" : "Copy failed");
-          }}
-        >
+        <button className="btn btn-xs btn-ghost" onClick={() => copyToClipboard(copy)}>
           Copy
         </button>
       ) : null}
@@ -205,7 +235,7 @@ function JsonViewer({ title, obj, raw }) {
           </button>
         </div>
       </div>
-      <pre className="p-3 text-xs font-mono break-all overflow-auto max-h-[520px] bg-base-100">
+      <pre className="p-3 text-xs break-all overflow-auto max-h-[520px] bg-base-100">
         {pretty || "-"}
       </pre>
     </div>
@@ -219,6 +249,7 @@ function JsonViewer({ title, obj, raw }) {
 // 1) Category enum (고정)
 const EventCategory = {
   SYSTEM: "system",
+  INJECTED_SCRIPT_SCORE: "scoring",
   DOM_INJECTION: "dom_injection",
   PERSISTENCE: "persistence",
   FORM_FLOW: "form_flow",
@@ -235,6 +266,9 @@ const EventCategory = {
 const TYPE_TO_CATEGORY = {
   // system
   SENSOR_READY: EventCategory.SYSTEM,
+
+  // score
+  INJECTED_SCRIPT_SCORE: EventCategory.INJECTED_SCRIPT_SCORE,
 
   // DOM/script/iframe
   DYN_SCRIPT_INSERT: EventCategory.DOM_INJECTION,
@@ -295,6 +329,100 @@ function formatKpiValue(k) {
 }
 
 // VM builders
+function buildInjectedScriptScoreVM({ detail, summary, parsedPayload, ruleOneLine }) {
+  const det = detail?.details || {};
+  const data = det?.data || parsedPayload?.data || {};
+
+  const score = data.score ?? summary.scoreDelta ?? null;
+  const modelId = data.modelId || "-";
+  const modelUpdatedAt = data.modelUpdatedAt || "-";
+
+  const hits = Array.isArray(data.hits) ? data.hits : [];
+  const comboHits = Array.isArray(data.comboHits) ? data.comboHits : [];
+  const comboBonus = data.comboBonus ?? 0;
+
+  // top hit 3개 (가중치 큰 순)
+  const topHits = [...hits].sort((a,b)=>(b.score||0)-(a.score||0)).slice(0,3);
+
+  const chain = data.chain || {};
+  const chainNorm = chain.norm || null;
+
+  return {
+    title: `악성 스크립트 주입 점수(${modelId})`,
+    oneLine:
+      ruleOneLine ||
+      `총점 ${score}점 (hits ${hits.length}개, combo ${comboHits.length}개 +${comboBonus}) — 스크립트 주입/후킹/유출 조합 가능`,
+    category: "scoring",
+
+    // ✅ KPI는 “왜 점수가 큰지” 중심
+    kpis: [
+      kpiNum("score", "Total Score", score),
+      kpiText("model", "Model", `${modelId} (${modelUpdatedAt})`, "scoring model"),
+      kpiNum("hits", "Signals", hits.length, "hit count"),
+      kpiText("combo", "Combo", comboHits.length ? `+${comboBonus} (${comboHits.length})` : "-", "combo bonus"),
+    ].filter(k => shouldShowValue(k.value, { hideZero: true, hideDash: true })),
+
+    // ✅ Activity는 “근거 목록”을 보여줘야 함
+    activityRows: [
+      { label: "url", value: data.url || det.page || summary.page || null },
+      { label: "norm", value: data.norm || null },
+      { label: "sha256", value: data.sha256 || null },
+      { label: "length", value: data.length ?? null },
+      { label: "truncated", value: data.truncated ?? null },
+      { label: "comboBonus", value: comboBonus || null },
+      { label: "chain.norm", value: chainNorm },
+      { label: "chain.incidentId", value: chain.incidentId || null },
+      { label: "chain.scriptId", value: chain.scriptId || null },
+      { label: "chain.reinjectCount", value: chain.reinjectCount ?? null },
+    ].filter(r => shouldShowValue(r.value, { hideZero: true, hideDash: true })),
+
+    // ✅ Evidence 탭에서 hits/combos를 표 형태로 보여주기 위해 vm에 “tables” 같은 확장 필드를 넣는 게 베스트
+    tables: [
+      {
+        key: "top_hits",
+        title: "Top Signals",
+        columns: ["id", "axis", "signal", "score", "reason"],
+        rows: topHits.map(h => [h.id, h.axis, h.signal, h.score, h.reason]),
+      },
+      {
+        key: "all_hits",
+        title: `All Signals (${hits.length})`,
+        columns: ["id", "axis", "category", "signal", "score"],
+        rows: hits
+          .sort((a,b)=>(b.score||0)-(a.score||0))
+          .map(h => [h.id, h.axis, (h.category||"").replace("\n"," "), h.signal, h.score]),
+      },
+      {
+        key: "combos",
+        title: `Combo Hits (+${comboBonus})`,
+        columns: ["comboId", "title", "bonus", "requires"],
+        rows: comboHits.map(c => [c.comboId, c.title, c.bonus, (c.requires||[]).join(", ")]),
+      },
+    ],
+
+    // ✅ 추천조치는 “가장 위험한 조합”을 바로 때려줘야 함
+    recommendations: [
+      { when: true, text: "이 이벤트는 ‘행위’가 아니라 ‘스코어링 결과’입니다. Signals/Combo를 근거로 즉시 조사 우선순위를 올리세요." },
+      { when: true, text: `sha256(${data.sha256 || "-"}) 기준으로 동일 스크립트 재발 여부(다른 session/install) 검색을 권장합니다.` },
+
+      // 강한 조합(예: network hook → exfil)
+      { when: comboHits.some(c => (c.requires||[]).includes("A_XHR_OPEN_SEND_OVERRIDE") && (c.requires||[]).includes("A_FETCH_XHR_ABS_URL")),
+        text: "Network hook → exfil 조합 감지: XHR/fetch 후킹으로 모든 요청을 가로채 외부로 전송 가능. 차단/격리 우선." },
+
+      // overlay/clickjacking 시그널이 포함되면
+      { when: hits.some(h => h.id === "B_FULLSCREEN_OVERLAY"),
+        text: "Fullscreen overlay 시그널 포함: 클릭 하이재킹(UI redress) 가능. UI_HIJACK 이벤트와 같은 incidentId로 연관 분석." },
+
+      // injection/loader 시그널 포함 시
+      { when: hits.some(h => String(h.id||"").includes("SCRIPT") || String(h.id||"").includes("IFRAME")),
+        text: "주입/로더 시그널 포함: 동적 <script>/<iframe> 삽입이 의심됩니다. initiator(삽입 주체)와 로드된 origin allowlist를 확인하세요." },
+
+      // chain.norm이 있으면 체인 추적
+      { when: !!chainNorm, text: `loader chain 추적: chain.norm(${chainNorm})를 기준으로 로더→페이로드 흐름을 타임라인으로 확인하세요.` },
+    ].filter(r => r.when),
+  };
+}
+
 function buildDomMutationVM({ detail, summary, ruleOneLine }) {
   const ms = summary.mutationSummary || {};
   const chain = summary.chain || {};
@@ -304,20 +432,16 @@ function buildDomMutationVM({ detail, summary, ruleOneLine }) {
   const reinjectCount = chain.reinjectCount ?? null;
 
   return {
-    title: summary.severity
-      ? `${sevKo(summary.severity)}: DOM/스크립트 변조 의심`
-      : "DOM/스크립트 변조 의심",
+    title:
+      summary.severity
+        ? `${sevKo(summary.severity)}: DOM/스크립트 변조 의심`
+        : "DOM/스크립트 변조 의심",
     oneLine: ruleOneLine || "DOM 변경 패턴에서 의심 행위가 감지되었습니다.",
     category: EventCategory.MUTATION_OBSERVER,
     kpis: [
-      kpiNum("risk", "Risk Score", summary.scoreDelta, "scoreDelta"),
+      kpiNum("risk", "Risk Score", summary.scoreDelta),
       kpiNum("dom_mutations", "DOM Mutations", mutationCount, "mutationCount"),
-      kpiNum(
-        "scripts_added",
-        "Scripts Added",
-        addedScripts,
-        `with src: ${addedWithSrc ?? "-"}`,
-      ),
+      kpiNum("scripts_added", "Scripts Added", addedScripts, `with src: ${addedWithSrc ?? "-"}`),
       kpiNum("reinject", "Reinject", reinjectCount, "reinjectCount"),
     ],
     activityRows: [
@@ -331,15 +455,27 @@ function buildDomMutationVM({ detail, summary, ruleOneLine }) {
     recommendations: [
       {
         when: (addedScripts ?? 0) > 0,
-        text: `스크립트 삽입 가능성(addedScripts=${addedScripts ?? "-"})`,
+        text: `페이지에 동적으로 스크립트가 추가되었습니다(총 ${addedScripts ?? "-"}건). 정상 동작인지, 악성 스크립트 삽입 시도인지 확인이 필요합니다.`,
       },
       {
         when: (addedWithSrc ?? 0) > 0,
-        text: `외부 코드 로드 가능성(addedWithSrc=${addedWithSrc ?? "-"})`,
+        text: `외부 출처에서 스크립트가 로드되었습니다(총 ${addedWithSrc ?? "-"}건). 승인되지 않은 도메인일 경우 공격 가능성이 있습니다.`,
+      },
+      {
+        when: (ms.addedIframes ?? 0) > 0,
+        text: `동적으로 iframe이 추가되었습니다(총 ${ms.addedIframes ?? "-"}건). 클릭재킹 또는 외부 콘텐츠 주입 가능성을 점검하세요.`,
+      },
+      {
+        when: (mutationCount ?? 0) >= 10,
+        text: `짧은 시간 내 다수의 DOM 변경이 발생했습니다(mutations=${mutationCount}). 자동화된 주입 또는 변조 패턴일 수 있습니다.`,
+      },
+      {
+        when: (ms.removedNodes ?? 0) > 0 && (addedScripts ?? 0) > 0,
+        text: `DOM 요소 제거 이후 스크립트가 추가되었습니다(removedNodes=${ms.removedNodes ?? "-"}). 은폐 목적의 변조 시나리오를 점검하세요.`,
       },
       {
         when: (reinjectCount ?? 0) > 0,
-        text: `지속성/재주입 패턴(reinjectCount=${reinjectCount ?? "-"})`,
+        text: `스크립트 제거 이후 재주입이 반복되는 패턴이 탐지되었습니다(재주입 횟수: ${reinjectCount ?? "-"}). 지속성(persistence) 공격 기법일 가능성이 높습니다.`,
       },
     ],
   };
@@ -349,20 +485,18 @@ function buildDomInjectionVM({ detail, summary, parsedPayload, ruleOneLine }) {
   const det = detail?.details || {};
   const data = det?.data || {};
   const pData = parsedPayload?.data || {};
-  const src = { ...pData, ...data };
+  const src = normalizeSrc({ ...pData, ...data });
 
   const type = det.type || parsedPayload?.type || summary.type || "UNKNOWN";
 
   // 기대 가능한 필드(없어도 - 처리)
   const url = src.url || src.abs || src.src || "-";
-  const targetOrigin =
-    src.targetOrigin || src.targetHost || summary.targetHost || "-";
-  const crossSite = src.crossSite ?? src.initiatorCrossSite ?? null;
+  const targetOrigin = src.targetOrigin || src.targetHost || summary.targetHost || "-";
+  const crossSite = src.crossSite ?? null;
+  const initiatorCrossSite = src.initiatorCrossSite ?? null;
+  const initiatorOrigin = src.initiatorOrigin || "-";
 
-  const hidden =
-    src.hidden ??
-    src.isHidden ??
-    (type === "HIDDEN_IFRAME_INSERT" ? true : null);
+  const hidden = src.hidden ?? src.isHidden ?? (type === "HIDDEN_IFRAME_INSERT" ? true : null);
 
   const oneLine =
     ruleOneLine ||
@@ -371,48 +505,30 @@ function buildDomInjectionVM({ detail, summary, parsedPayload, ruleOneLine }) {
       : "동적 스크립트 삽입 감지");
 
   return {
-    title: summary.severity
-      ? `${sevKo(summary.severity)}: 스크립트/iframe 삽입`
-      : "스크립트/iframe 삽입",
+    title: summary.severity ? `${sevKo(summary.severity)}: 스크립트/iframe 삽입` : "스크립트/iframe 삽입",
     oneLine,
     category: EventCategory.DOM_INJECTION,
     kpis: [
-      kpiNum("risk", "Risk Score", summary.scoreDelta, "scoreDelta"),
+      kpiNum("risk", "Risk Score", summary.scoreDelta),
       kpiText("pattern", "Pattern", type, "삽입 유형"),
-      kpiBool(
-        "cross_site",
-        "Cross-site",
-        crossSite,
-        "외부 스크립트/도메인 기원",
-      ),
+      kpiBool("cross_site", "Cross-site", crossSite, "대상 URL이 cross-site"),
+      kpiBool("initiator_cross_site", "Initiator Cross-site", initiatorCrossSite, "외부 출처 트리거"),
       kpiText("target", "Target", targetOrigin, "전송/대상 도메인"),
     ],
     activityRows: [
       { label: "url/src", value: url },
       { label: "targetOrigin", value: targetOrigin },
-      {
-        label: "crossSite",
-        value: crossSite == null ? "-" : String(!!crossSite),
-      },
+      { label: "crossSite", value: crossSite == null ? "-" : String(!!crossSite) },
       { label: "hidden", value: hidden == null ? "-" : String(!!hidden) },
-      {
-        label: "initiatorUrl",
-        value: src.initiatorUrl || summary.initiatorUrl || "-",
-      },
+      { label: "initiatorUrl", value: src.initiatorUrl || summary.initiatorUrl || "-" },
+      { label: "initiatorOrigin", value: initiatorOrigin },
+      { label: "initiatorCrossSite", value: initiatorCrossSite == null ? "-" : String(!!initiatorCrossSite) },
+      { label: "chain.norm", value: src.chain?.norm || summary.chain?.norm || "-" },
     ],
     recommendations: [
-      {
-        when: true,
-        text: "동적 삽입은 주입/공급망 리스크가 있으니 삽입 대상 URL, initiator를 확인하세요.",
-      },
-      {
-        when: crossSite === true,
-        text: "cross-site 삽입: 외부 스크립트가 DOM을 변경했습니다(차단/allowlist 검토).",
-      },
-      {
-        when: hidden === true,
-        text: "숨김 iframe: 클릭 하이재킹/피싱 유도 채널일 수 있습니다(즉시 조사).",
-      },
+      { when: true, text: "동적 삽입은 주입/공급망 리스크가 있으니 삽입 대상 URL, initiator를 확인하세요." },
+      { when: initiatorCrossSite === true || crossSite === true, text: "외부 출처 트리거/삽입: 공급망/주입 가능성(initiator/allowlist 검토)." },
+      { when: hidden === true, text: "숨김 iframe: 클릭 하이재킹/피싱 유도 채널일 수 있습니다(즉시 조사)." },
     ],
   };
 }
@@ -421,15 +537,16 @@ function buildPersistenceVM({ detail, summary, parsedPayload, ruleOneLine }) {
   const det = detail?.details || {};
   const data = det?.data || {};
   const pData = parsedPayload?.data || {};
-  const src = { ...pData, ...data };
+  const src = normalizeSrc({ ...pData, ...data });
 
   const type = det.type || parsedPayload?.type || summary.type || "UNKNOWN";
 
   const scope = src.scope || src.swScope || "-";
-  const scriptUrl = src.scriptUrl || src.swScriptUrl || src.url || "-";
+  const scriptUrl = src.abs || src.injectSrc || src.scriptUrl || src.scriptURL || src.abs || src.swScriptUrl || src.url || "-";
+  const initiatorCrossSite = src.initiatorCrossSite ?? null;
+  const initiatorOrigin = src.initiatorOrigin || "-";
   const hasRegistrations = src.registrationsCount ?? src.count ?? null;
-  const reinjectCount =
-    src.reinjectCount ?? summary.chain?.reinjectCount ?? null;
+  const reinjectCount = src.reinjectCount ?? summary.chain?.reinjectCount ?? null;
   const chainNorm = src.norm || summary.chain?.norm || "-";
 
   const oneLine =
@@ -439,41 +556,37 @@ function buildPersistenceVM({ detail, summary, parsedPayload, ruleOneLine }) {
       : "재주입/지속성(reinject) 패턴 감지");
 
   return {
-    title: summary.severity
-      ? `${sevKo(summary.severity)}: 지속성(persistence) 의심`
-      : "지속성(persistence) 의심",
+    title: summary.severity ? `${sevKo(summary.severity)}: 지속성(persistence) 의심` : "지속성(persistence) 의심",
     oneLine,
     category: EventCategory.PERSISTENCE,
     kpis: [
-      kpiNum("risk", "Risk Score", summary.scoreDelta, "scoreDelta"),
+      kpiNum("risk", "Risk Score", summary.scoreDelta),
       kpiText("pattern", "Pattern", type, "persistence 유형"),
+      kpiBool("initiator_cross_site", "Initiator Cross-site", initiatorCrossSite, "외부 출처 트리거"),
+      kpiText("sw_script", "SW Script", scriptUrl, "scriptURL/abs"),
+      kpiText("sw_scope", "Scope", scope, "SW scope"),
       kpiNum("registrations", "SW Reg", hasRegistrations, "registrationsCount"),
       kpiNum("reinject", "Reinject", reinjectCount, "reinjectCount"),
     ],
     activityRows: [
       { label: "swScope", value: scope },
       { label: "swScriptUrl", value: scriptUrl },
+      { label: "initiatorUrl", value: src.initiatorUrl || summary.initiatorUrl || "-" },
+      { label: "initiatorOrigin", value: initiatorOrigin },
+      { label: "initiatorCrossSite", value: initiatorCrossSite == null ? "-" : String(!!initiatorCrossSite) },
       { label: "registrationsCount", value: hasRegistrations ?? "-" },
       { label: "reinjectCount", value: reinjectCount ?? "-" },
+      { label: "injectSrc", value: src.injectSrc || "-" },
       { label: "chain.norm", value: chainNorm },
-      {
-        label: "initiatorUrl",
-        value: src.initiatorUrl || summary.initiatorUrl || "-",
-      },
+      { label: "chain.incidentId", value: src.chain?.incidentId || "-" },
+      { label: "chain.scriptId", value: src.chain?.scriptId || "-" },
+      { label: "chain.startedAt", value: src.chain?.startedAt ? fmtTs(src.chain.startedAt) : "-" },
     ],
     recommendations: [
-      {
-        when: true,
-        text: "지속성 징후: SW 등록/활성 여부를 확인하고, 의심 스크립트 URL을 추적하세요.",
-      },
-      {
-        when: reinjectCount != null && reinjectCount > 0,
-        text: "재주입 패턴: 반복 이벤트/동일 installId에서 연속 발생 여부를 확인하세요.",
-      },
-      {
-        when: chainNorm && chainNorm !== "-",
-        text: "chain.norm을 기준으로 동일 공격 체인을 묶어 분석하세요(incident/timeline 필요).",
-      },
+      { when: true, text: "지속성 징후: SW 등록/활성 여부를 확인하고, 의심 스크립트 URL을 추적하세요." },
+      { when: reinjectCount != null && reinjectCount > 0, text: "재주입 패턴: 반복 이벤트/동일 installId에서 연속 발생 여부를 확인하세요." },
+      { when: initiatorCrossSite === true, text: "외부 출처에서 SW 등록을 트리거: supply-chain/주입 가능성(initiatorOrigin/initiatorUrl 우선 확인)." },
+      { when: chainNorm && chainNorm !== "-", text: "chain.norm을 기준으로 동일 공격 체인을 묶어 분석하세요(incident/timeline 필요)." },
     ],
   };
 }
@@ -482,14 +595,17 @@ function buildFormFlowVM({ detail, summary, parsedPayload, ruleOneLine }) {
   const det = detail?.details || {};
   const data = det?.data || {};
   const pData = parsedPayload?.data || {};
-  const src = { ...pData, ...data };
+  const src = normalizeSrc({ ...pData, ...data });
 
   const type = det.type || parsedPayload?.type || summary.type || "UNKNOWN";
 
-  const action = src.action || src.formAction || "-";
-  const targetOrigin = src.targetOrigin || summary.targetHost || "-";
+  const action = src.action || "-";
+  const targetOrigin = src.actionOrigin || src.targetOrigin || summary.targetHost || "-";
+  const pageOrigin = src.pageOrigin || summary.origin || "-";
   const mismatch = src.mismatch ?? src.crossOrigin ?? src.crossSite ?? null;
   const protoTamperSeen = src.protoTamperSeen ?? src.protoTampered ?? null;
+  const initiatorCrossSite = src.initiatorCrossSite ?? null;
+  const initiatorOrigin = src.initiatorOrigin || "-";
 
   const oneLine =
     ruleOneLine ||
@@ -498,43 +614,30 @@ function buildFormFlowVM({ detail, summary, parsedPayload, ruleOneLine }) {
       : "폼 제출 이벤트가 감지되었습니다");
 
   return {
-    title: summary.severity
-      ? `${sevKo(summary.severity)}: 폼 제출/피싱 의심`
-      : "폼 제출/피싱 의심",
+    title: summary.severity ? `${sevKo(summary.severity)}: 폼 제출/피싱 의심` : "폼 제출/피싱 의심",
     oneLine,
     category: EventCategory.FORM_FLOW,
     kpis: [
-      kpiNum("risk", "Risk Score", summary.scoreDelta, "scoreDelta"),
+      kpiNum("risk", "Risk Score", summary.scoreDelta),
       kpiBool("mismatch", "Mismatch", mismatch, "표시/대상 불일치"),
       kpiBool("proto", "Proto Tamper", protoTamperSeen, "후킹/변조 징후"),
       kpiText("target", "Target", targetOrigin, "전송 대상"),
     ],
     activityRows: [
       { label: "form.action", value: action },
+      { label: "pageOrigin", value: pageOrigin },
       { label: "targetOrigin", value: targetOrigin },
       { label: "mismatch", value: mismatch == null ? "-" : String(!!mismatch) },
-      {
-        label: "protoTamperSeen",
-        value: protoTamperSeen == null ? "-" : String(!!protoTamperSeen),
-      },
-      {
-        label: "initiatorUrl",
-        value: src.initiatorUrl || summary.initiatorUrl || "-",
-      },
+      { label: "protoTamperSeen", value: protoTamperSeen == null ? "-" : String(!!protoTamperSeen) },
+      { label: "initiatorUrl", value: src.initiatorUrl || summary.initiatorUrl || "-" },
+      { label: "initiatorOrigin", value: initiatorOrigin },
+      { label: "initiatorCrossSite", value: initiatorCrossSite == null ? "-" : String(!!initiatorCrossSite) },
+      { label: "chain.norm", value: src.chain?.norm || summary.chain?.norm || "-" },
     ],
     recommendations: [
-      {
-        when: true,
-        text: "폼 제출은 자격증명 탈취와 직결됩니다(action/targetOrigin/initiator를 우선 확인하세요).",
-      },
-      {
-        when: mismatch === true,
-        text: "Mismatch가 true면 피싱 가능성이 높습니다(즉시 차단/탐지 확장 검토).",
-      },
-      {
-        when: protoTamperSeen === true,
-        text: "proto tamper 동반: 후킹 기반 탈취 가능성(관련 이벤트 탐색 권장).",
-      },
+      { when: true, text: "폼 제출은 자격증명 탈취와 직결됩니다(action/targetOrigin/initiator를 우선 확인하세요)." },
+      { when: mismatch === true, text: "Mismatch가 true면 피싱 가능성이 높습니다(즉시 차단/탐지 확장 검토)." },
+      { when: protoTamperSeen === true, text: "proto tamper 동반: 후킹 기반 탈취 가능성(관련 이벤트 탐색 권장)." },
     ],
   };
 }
@@ -543,7 +646,7 @@ function buildCodeExecVM({ detail, summary, parsedPayload, ruleOneLine }) {
   const det = detail?.details || {};
   const data = det?.data || {};
   const pData = parsedPayload?.data || {};
-  const src = { ...pData, ...data };
+  const src = normalizeSrc({ ...pData, ...data });
 
   const type = det.type || parsedPayload?.type || summary.type || "UNKNOWN";
 
@@ -561,40 +664,24 @@ function buildCodeExecVM({ detail, summary, parsedPayload, ruleOneLine }) {
         : "atob 호출이 감지되었습니다(난독화 가능)");
 
   return {
-    title: summary.severity
-      ? `${sevKo(summary.severity)}: 동적 코드 실행 의심`
-      : "동적 코드 실행 의심",
+    title: summary.severity ? `${sevKo(summary.severity)}: 동적 코드 실행 의심` : "동적 코드 실행 의심",
     oneLine,
     category: EventCategory.CODE_EXEC,
     kpis: [
-      kpiNum("risk", "Risk Score", summary.scoreDelta, "scoreDelta"),
+      kpiNum("risk", "Risk Score", summary.scoreDelta),
       kpiText("api", "API", api, "eval/function/atob"),
-      kpiBool(
-        "cross_site",
-        "Cross-site Initiator",
-        initiatorCrossSite,
-        "외부 기원",
-      ),
+      kpiBool("cross_site", "Cross-site Initiator", initiatorCrossSite, "외부 기원"),
       kpiText("initiator", "Initiator", initiatorUrl, "호출 위치"),
     ],
     activityRows: [
       { label: "type", value: type },
       { label: "initiatorUrl", value: initiatorUrl },
-      {
-        label: "initiatorCrossSite",
-        value: initiatorCrossSite == null ? "-" : String(!!initiatorCrossSite),
-      },
+      { label: "initiatorCrossSite", value: initiatorCrossSite == null ? "-" : String(!!initiatorCrossSite) },
       { label: "stackHead", value: stackHead },
     ],
     recommendations: [
-      {
-        when: true,
-        text: "동적 코드 실행은 악성 스크립트/난독화의 핵심 신호입니다(initiator/stack을 우선 확인).",
-      },
-      {
-        when: initiatorCrossSite === true,
-        text: "외부 기원 스크립트가 동적 실행을 유발: 공급망/주입 가능성(차단/allowlist).",
-      },
+      { when: true, text: "동적 코드 실행은 악성 스크립트/난독화의 핵심 신호입니다(initiator/stack을 우선 확인)." },
+      { when: initiatorCrossSite === true, text: "외부 기원 스크립트가 동적 실행을 유발: 공급망/주입 가능성(차단/allowlist)." },
     ],
   };
 }
@@ -603,7 +690,7 @@ function buildXssDataVM({ detail, summary, parsedPayload, ruleOneLine }) {
   const det = detail?.details || {};
   const data = det?.data || {};
   const pData = parsedPayload?.data || {};
-  const src = { ...pData, ...data };
+  const src = normalizeSrc({ ...pData, ...data });
 
   const type = det.type || parsedPayload?.type || summary.type || "UNKNOWN";
 
@@ -618,13 +705,11 @@ function buildXssDataVM({ detail, summary, parsedPayload, ruleOneLine }) {
       : "민감 데이터 접근이 감지되었습니다");
 
   return {
-    title: summary.severity
-      ? `${sevKo(summary.severity)}: XSS/민감데이터 의심`
-      : "XSS/민감데이터 의심",
+    title: summary.severity ? `${sevKo(summary.severity)}: XSS/민감데이터 의심` : "XSS/민감데이터 의심",
     oneLine,
     category: EventCategory.XSS_DATA,
     kpis: [
-      kpiNum("risk", "Risk Score", summary.scoreDelta, "scoreDelta"),
+      kpiNum("risk", "Risk Score", summary.scoreDelta),
       kpiText("pattern", "Pattern", type, "XSS/Data"),
       kpiText("sink", "Sink/Vector", sink, "dangerous sink"),
       kpiText("target", "Target", target, "cookie/key"),
@@ -636,14 +721,8 @@ function buildXssDataVM({ detail, summary, parsedPayload, ruleOneLine }) {
       { label: "stackHead", value: src.stackHead || "-" },
     ],
     recommendations: [
-      {
-        when: true,
-        text: "XSS/민감 데이터 접근은 피해 직결입니다(initiator 차단, 관련 스크립트/DOM 흐름 확인).",
-      },
-      {
-        when: type === "SUSP_DOM_XSS",
-        text: "DOM XSS 의심 시 sink/입력 경로를 추적하고 CSP/정화 로직을 점검하세요.",
-      },
+      { when: true, text: "XSS/민감 데이터 접근은 피해 직결입니다(initiator 차단, 관련 스크립트/DOM 흐름 확인)." },
+      { when: type === "SUSP_DOM_XSS", text: "DOM XSS 의심 시 sink/입력 경로를 추적하고 CSP/정화 로직을 점검하세요." },
     ],
   };
 }
@@ -652,7 +731,7 @@ function buildProtoTamperVM({ detail, summary, parsedPayload, ruleOneLine }) {
   const det = detail?.details || {};
   const data = det?.data || {};
   const pData = parsedPayload?.data || {};
-  const src = { ...pData, ...data };
+  const src = normalizeSrc({ ...pData, ...data });
 
   const type = det.type || parsedPayload?.type || summary.type || "UNKNOWN";
 
@@ -662,44 +741,29 @@ function buildProtoTamperVM({ detail, summary, parsedPayload, ruleOneLine }) {
   const initiatorCrossSite = src.initiatorCrossSite ?? summary.mismatch ?? null;
 
   const oneLine =
-    ruleOneLine || `브라우저 API 후킹(proto tamper) 징후: ${obj}.${prop}`;
+    ruleOneLine ||
+    `브라우저 API 후킹(proto tamper) 징후: ${obj}.${prop}`;
 
   return {
-    title: summary.severity
-      ? `${sevKo(summary.severity)}: API 후킹/변조 의심`
-      : "API 후킹/변조 의심",
+    title: summary.severity ? `${sevKo(summary.severity)}: API 후킹/변조 의심` : "API 후킹/변조 의심",
     oneLine,
     category: EventCategory.PROTO_TAMPER,
     kpis: [
-      kpiNum("risk", "Risk Score", summary.scoreDelta, "scoreDelta"),
+      kpiNum("risk", "Risk Score", summary.scoreDelta),
       kpiText("prop", "Property", `${obj}.${prop}`, "tampered target"),
-      kpiBool(
-        "cross_site",
-        "Cross-site Initiator",
-        initiatorCrossSite,
-        "외부 기원",
-      ),
+      kpiBool("cross_site", "Cross-site Initiator", initiatorCrossSite, "외부 기원"),
       kpiText("initiator", "Initiator", initiatorUrl, "변조 위치"),
     ],
     activityRows: [
       { label: "object", value: obj },
       { label: "property", value: prop },
       { label: "initiatorUrl", value: initiatorUrl },
-      {
-        label: "initiatorCrossSite",
-        value: initiatorCrossSite == null ? "-" : String(!!initiatorCrossSite),
-      },
+      { label: "initiatorCrossSite", value: initiatorCrossSite == null ? "-" : String(!!initiatorCrossSite) },
       { label: "stackHead", value: src.stackHead || "-" },
     ],
     recommendations: [
-      {
-        when: true,
-        text: "proto tamper는 다른 공격(폼 탈취/네트워크 유출/리다이렉트)의 기반입니다(연관 이벤트 탐색 필수).",
-      },
-      {
-        when: initiatorCrossSite === true,
-        text: "외부 기원 후킹: 공급망/주입 가능성(차단/검증 우선).",
-      },
+      { when: true, text: "proto tamper는 다른 공격(폼 탈취/네트워크 유출/리다이렉트)의 기반입니다(연관 이벤트 탐색 필수)." },
+      { when: initiatorCrossSite === true, text: "외부 기원 후킹: 공급망/주입 가능성(차단/검증 우선)." },
     ],
   };
 }
@@ -718,13 +782,16 @@ function buildNetworkVM({ detail, summary, parsedPayload, ruleOneLine }) {
   const crossSite = data.crossSite ?? pData.crossSite ?? null;
 
   return {
-    title: summary.severity
-      ? `${sevKo(summary.severity)}: 의심 네트워크 호출`
-      : "의심 네트워크 호출",
-    oneLine: ruleOneLine || `${api} ${method} → ${targetOrigin}`.trim(),
+    title:
+      summary.severity
+        ? `${sevKo(summary.severity)}: 의심 네트워크 호출`
+        : "의심 네트워크 호출",
+    oneLine:
+      ruleOneLine ||
+      `${api} ${method} → ${targetOrigin}`.trim(),
     category: EventCategory.NETWORK,
     kpis: [
-      kpiNum("risk", "Risk Score", summary.scoreDelta, "scoreDelta"),
+      kpiNum("risk", "Risk Score", summary.scoreDelta),
       kpiText("api", "API", api, "fetch/xhr 등"),
       kpiText("method", "Method", method, "GET/POST 등"),
       kpiBool("cross_site", "Cross-site", crossSite, "외부 도메인 전송 여부"),
@@ -734,10 +801,7 @@ function buildNetworkVM({ detail, summary, parsedPayload, ruleOneLine }) {
       { label: "method", value: method },
       { label: "abs/url", value: abs },
       { label: "targetOrigin", value: targetOrigin },
-      {
-        label: "crossSite",
-        value: crossSite === null ? "-" : String(!!crossSite),
-      },
+      { label: "crossSite", value: crossSite === null ? "-" : String(!!crossSite) },
       { label: "mode", value: data.mode || pData.mode || "-" },
     ],
     recommendations: [
@@ -760,7 +824,7 @@ function buildUiHijackVM({ detail, summary, parsedPayload, ruleOneLine }) {
   const pData = parsedPayload?.data || {};
 
   // payload source merge (details 우선)
-  const src = { ...pData, ...data };
+  const src = normalizeSrc({ ...pData, ...data });
 
   const type = det.type || parsedPayload?.type || summary.type || "UNKNOWN";
 
@@ -771,15 +835,10 @@ function buildUiHijackVM({ detail, summary, parsedPayload, ruleOneLine }) {
 
   // INVISIBLE_LAYER_DETECTED 계열로 흔히 기대되는 필드들(없어도 -로 처리됨)
   const overlaySelector =
-    src.overlaySelector ||
-    src.layerSelector ||
-    src.coverSelector ||
-    src.selector ||
-    null;
+    src.overlaySelector || src.layerSelector || src.coverSelector || src.selector || null;
   const overlayOpacity = src.opacity ?? src.overlayOpacity ?? null;
   const overlayZ = src.zIndex ?? src.overlayZIndex ?? null;
-  const coveredRatio =
-    src.coveredRatio ?? src.coverageRatio ?? src.coverRatio ?? null; // 0~1 or %
+  const coveredRatio = src.coveredRatio ?? src.areaRatio ?? src.coverRatio ?? null; // 0~1 or %
   const pointerEvents = src.pointerEvents ?? null;
 
   // LINK_HREF_SWAP_DETECTED 계열로 흔히 기대되는 필드들
@@ -788,7 +847,8 @@ function buildUiHijackVM({ detail, summary, parsedPayload, ruleOneLine }) {
   const newHref = src.newHref || src.afterHref || src.nextHref || null;
   const crossOriginChanged =
     src.crossOriginChanged ?? src.crossOrigin ?? src.mismatch ?? null;
-  const reverted = src.reverted ?? src.preclickReverted ?? src.restored ?? null;
+  const reverted =
+    src.reverted ?? src.preclickReverted ?? src.restored ?? null;
 
   // “누가/어디서”는 attribution에 있고, Summary oneLine은 rule 설명을 우선
   const oneLine =
@@ -799,13 +859,13 @@ function buildUiHijackVM({ detail, summary, parsedPayload, ruleOneLine }) {
 
   // KPI는 UI_HIJACK에 맞춰 “판단에 필요한 것”만 4개
   const kpis = [
-    kpiNum("risk", "Risk Score", summary.scoreDelta, "scoreDelta"),
+    kpiNum("risk", "Risk Score", summary.scoreDelta),
     kpiText("pattern", "Pattern", type, "UI Hijack 유형"),
     kpiBool(
       "within50ms",
       "Fast Trigger",
       within50ms,
-      "클릭 직전/즉시 개입(≤50ms)",
+      "클릭 직전/즉시 개입(≤50ms)"
     ),
     // 링크스왑이면 cross-origin 변화, 아니면 overlay cover 정도
     type === "LINK_HREF_SWAP_DETECTED"
@@ -813,7 +873,7 @@ function buildUiHijackVM({ detail, summary, parsedPayload, ruleOneLine }) {
           "cross_origin",
           "Cross-origin",
           crossOriginChanged === null ? false : !!crossOriginChanged,
-          "다른 출처로 변경",
+          "다른 출처로 변경"
         )
       : kpiText(
           "coverage",
@@ -825,7 +885,7 @@ function buildUiHijackVM({ detail, summary, parsedPayload, ruleOneLine }) {
                 ? `${Math.round(coveredRatio * 100)}%`
                 : `${coveredRatio}%`
               : String(coveredRatio),
-          "화면 덮는 비율",
+          "화면 덮는 비율"
         ),
   ];
 
@@ -863,30 +923,36 @@ function buildUiHijackVM({ detail, summary, parsedPayload, ruleOneLine }) {
   const recommendations = [
     {
       when: true,
-      text: "클릭 하이재킹(UI redress) 의심: 사용자가 클릭한 대상과 실제 동작(이동/링크)이 일치하는지 확인하세요.",
+      text:
+        "클릭 하이재킹(UI redress) 의심: 사용자가 클릭한 대상과 실제 동작(이동/링크)이 일치하는지 확인하세요.",
     },
     {
       when: within50ms === true,
-      text: "클릭 직전(≤50ms) 개입 패턴: 광고/리다이렉트/피싱 유도 가능성이 커서 우선순위를 높게 두세요.",
+      text:
+        "클릭 직전(≤50ms) 개입 패턴: 광고/리다이렉트/피싱 유도 가능성이 커서 우선순위를 높게 두세요.",
     },
     {
       when: type === "LINK_HREF_SWAP_DETECTED" && crossOriginChanged === true,
-      text: "cross-origin으로 href 변경: 외부 도메인으로 유도될 가능성이 높습니다(allowlist/차단 후보).",
+      text:
+        "cross-origin으로 href 변경: 외부 도메인으로 유도될 가능성이 높습니다(allowlist/차단 후보).",
     },
     {
       when: type === "LINK_HREF_SWAP_DETECTED" && reverted === true,
-      text: "pre-click revert 패턴: 사용자가 보기 직전에만 바꿨다가 되돌리는 회피 시그널일 수 있습니다.",
+      text:
+        "pre-click revert 패턴: 사용자가 보기 직전에만 바꿨다가 되돌리는 회피 시그널일 수 있습니다.",
     },
     {
       when: type !== "LINK_HREF_SWAP_DETECTED" && coveredRatio != null,
-      text: "오버레이 덮는 비율/투명도/포인터 이벤트 설정을 근거로 실제 클릭 가로채기인지 확인하세요.",
+      text:
+        "오버레이 덮는 비율/투명도/포인터 이벤트 설정을 근거로 실제 클릭 가로채기인지 확인하세요.",
     },
   ];
 
   return {
-    title: summary.severity
-      ? `${sevKo(summary.severity)}: 클릭 하이재킹(UI) 의심`
-      : "클릭 하이재킹(UI) 의심",
+    title:
+      summary.severity
+        ? `${sevKo(summary.severity)}: 클릭 하이재킹(UI) 의심`
+        : "클릭 하이재킹(UI) 의심",
     oneLine,
     category: EventCategory.UI_HIJACK,
     kpis,
@@ -897,38 +963,28 @@ function buildUiHijackVM({ detail, summary, parsedPayload, ruleOneLine }) {
 
 function buildGenericVM({ summary, ruleOneLine }) {
   return {
-    title: summary.severity
-      ? `${sevKo(summary.severity)}: 보안 이벤트`
-      : "보안 이벤트",
+    title:
+      summary.severity ? `${sevKo(summary.severity)}: 보안 이벤트` : "보안 이벤트",
     oneLine: ruleOneLine || "이벤트 상세를 확인하세요.",
     category: EventCategory.UNKNOWN,
     kpis: [
-      kpiNum("risk", "Risk Score", summary.scoreDelta, "scoreDelta"),
+      kpiNum("risk", "Risk Score", summary.scoreDelta),
       kpiText("type", "Type", summary.type || "-", "event type"),
       kpiText("rule", "RuleId", summary.ruleId || "-", "ruleId"),
-      kpiText(
-        "target",
-        "Target",
-        summary.targetHost || "-",
-        "targetOrigin/host",
-      ),
+      kpiText("target", "Target", summary.targetHost || "-", "targetOrigin/host"),
     ],
     activityRows: [],
     recommendations: [],
   };
 }
 
-function buildEventViewModel({
-  detail,
-  summary,
-  parsedPayload,
-  ruleDescription,
-}) {
+function buildEventViewModel({ detail, summary, parsedPayload, ruleDescription }) {
   const type = summary.type || parsedPayload?.type || "UNKNOWN";
   const category = TYPE_TO_CATEGORY[type] || EventCategory.UNKNOWN;
   const ruleOneLine = ruleDescription?.oneLine || null;
 
   switch (category) {
+
     case EventCategory.NETWORK:
       return buildNetworkVM({ detail, summary, parsedPayload, ruleOneLine });
 
@@ -936,20 +992,10 @@ function buildEventViewModel({
       return buildUiHijackVM({ detail, summary, parsedPayload, ruleOneLine });
 
     case EventCategory.DOM_INJECTION:
-      return buildDomInjectionVM({
-        detail,
-        summary,
-        parsedPayload,
-        ruleOneLine,
-      });
+      return buildDomInjectionVM({ detail, summary, parsedPayload, ruleOneLine });
 
     case EventCategory.PERSISTENCE:
-      return buildPersistenceVM({
-        detail,
-        summary,
-        parsedPayload,
-        ruleOneLine,
-      });
+      return buildPersistenceVM({ detail, summary, parsedPayload, ruleOneLine });
 
     case EventCategory.FORM_FLOW:
       return buildFormFlowVM({ detail, summary, parsedPayload, ruleOneLine });
@@ -961,15 +1007,12 @@ function buildEventViewModel({
       return buildXssDataVM({ detail, summary, parsedPayload, ruleOneLine });
 
     case EventCategory.PROTO_TAMPER:
-      return buildProtoTamperVM({
-        detail,
-        summary,
-        parsedPayload,
-        ruleOneLine,
-      });
+      return buildProtoTamperVM({ detail, summary, parsedPayload, ruleOneLine });
 
     case EventCategory.MUTATION_OBSERVER:
       return buildDomMutationVM({ detail, summary, ruleOneLine });
+    case EventCategory.INJECTED_SCRIPT_SCORE:
+      return buildInjectedScriptScoreVM({ detail, summary, parsedPayload, ruleOneLine });
 
     default:
       return buildGenericVM({ summary, ruleOneLine });
@@ -985,7 +1028,8 @@ export default function AdminEventDetailPage() {
   const params = useParams();
 
   const eventId =
-    params.eventId || sp.get("eventId") || "170f1c9c0a8364b6ad7941fac4b56c2f";
+    params.eventId ||
+    sp.get("eventId");
   const from = sp.get("from") || "";
 
   const [loading, setLoading] = useState(false);
@@ -1103,12 +1147,7 @@ export default function AdminEventDetailPage() {
   // ✅ VM 생성: KPI/Activity가 여기서 결정됨(타입 바뀌어도 UI 고정)
   const vm = useMemo(() => {
     if (!detail) return null;
-    return buildEventViewModel({
-      detail,
-      summary,
-      parsedPayload,
-      ruleDescription,
-    });
+    return buildEventViewModel({ detail, summary, parsedPayload, ruleDescription });
   }, [detail, summary, parsedPayload, ruleDescription]);
 
   function onBack() {
@@ -1129,13 +1168,10 @@ export default function AdminEventDetailPage() {
       {/* Top bar */}
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="text-sm opacity-70">
-          <div className="font-mono break-all">
-            eventId: {eventId || "(none)"}
-          </div>
+          <div className="break-all">eventId: {eventId || "(none)"}</div>
           {summary.sessionId ? (
             <div className="mt-1">
-              <span className="opacity-60">sessionId:</span>{" "}
-              <span className="font-mono break-all">{summary.sessionId}</span>
+              <span className="break-all">sessionId: {summary.sessionId}</span>
             </div>
           ) : null}
         </div>
@@ -1144,8 +1180,11 @@ export default function AdminEventDetailPage() {
           <button className="btn btn-sm btn-primary" onClick={onBack}>
             ← 뒤로
           </button>
-          <Link className="btn btn-sm btn-primary" to="../events">
-            이벤트 목록
+          <Link className="btn btn-sm btn-primary" to={`/app/admin_front/admin_search?type=ruleId&query=${summary.ruleId}`}>
+            룰
+          </Link>
+          <Link className="btn btn-sm btn-primary" to={`/app/admin_front/admin_search?type=installId&query=${summary.installId}`}>
+            유저
           </Link>
         </div>
       </div>
@@ -1154,11 +1193,8 @@ export default function AdminEventDetailPage() {
         <div className="p-4 border rounded-xl">
           <div className="font-semibold mb-1">eventId가 필요해요</div>
           <div className="text-sm opacity-70">
-            예:{" "}
-            <span className="font-mono">
-              /app/admin_front/detail/{"{eventId}"}
-            </span>{" "}
-            또는 <span className="font-mono">?eventId=...</span>
+            예: <span>/app/admin_front/detail/{"{eventId}"}</span>{" "}
+            또는 <span>?eventId=...</span>
           </div>
         </div>
       ) : null}
@@ -1183,27 +1219,20 @@ export default function AdminEventDetailPage() {
                     <span className={sevBadgeClass(summary.severity)}>
                       {String(summary.severity || "UNKNOWN").toUpperCase()}
                     </span>
-                    <span className="text-sm opacity-70">
-                      {sevKo(summary.severity)}
-                    </span>
+                    <span className="text-sm opacity-70">{sevKo(summary.severity)}</span>
                   </div>
 
                   <div className="mt-2 text-lg font-bold">{vm.title}</div>
-                  <div className="mt-1 text-sm opacity-80">{vm.oneLine}</div>
 
-                  <div className="mt-2 text-xs opacity-70 font-mono">
-                    ruleId: {effectiveRuleId} / type:{" "}
-                    {summary.type || parsedPayload?.type || "-"} / category:{" "}
-                    {vm.category}
+                  <div className="mt-2 text-xs opacity-70">
+                    type: {summary.type || parsedPayload?.type || "-"}
                   </div>
                 </div>
 
                 <div className="text-right text-sm">
                   <div className="opacity-60">발생 시각</div>
-                  <div className="font-mono">{fmtTs(summary.tsMs)}</div>
-                  {summary.tsMs ? (
-                    <div className="opacity-70">{relTime(summary.tsMs)}</div>
-                  ) : null}
+                  <div>{fmtTs(summary.tsMs)}</div>
+                  {summary.tsMs ? <div className="opacity-70">{relTime(summary.tsMs)}</div> : null}
                 </div>
               </div>
 
@@ -1239,24 +1268,22 @@ export default function AdminEventDetailPage() {
             <>
               <Section title="사건 요약">
                 <div className="mt-2 text-sm space-y-2">
-                  <div>
-                    <span className="opacity-60">원인(룰 설명):</span>{" "}
-                    <span className="font-mono break-all">
-                      {ruleDescription?.oneLine || "-"}
-                    </span>
+                  <div className="grid grid-cols-[100px_1fr]">
+                    <span className="opacity-60">탐지 규칙</span>{" "}
+                    <span className="break-all">{effectiveRuleId}</span>
                   </div>
-                  <div>
-                    <span className="opacity-60">이벤트 유형(type):</span>{" "}
-                    <span className="font-mono break-all">
-                      {summary.type || parsedPayload?.type || "-"}
-                    </span>
+                  <div className="grid grid-cols-[100px_1fr]">
+                    <span className="opacity-60">원인</span>{" "}
+                    <span className="break-all">{ruleDescription?.oneLine || "-"}</span>
+                  </div>
+                  <div className="grid grid-cols-[100px_1fr]">
+                    <span className="opacity-60">이벤트 유형</span>{" "}
+                    <span className="break-all">{summary.type || parsedPayload?.type || "-"}</span>
                   </div>
                   {summary.pageHost ? (
-                    <div>
-                      <span className="opacity-60">위험 페이지 도메인:</span>{" "}
-                      <span className="font-mono break-all">
-                        {summary.pageHost}
-                      </span>
+                    <div className="grid grid-cols-[100px_1fr]">
+                      <span className="opacity-60">위험 도메인</span>{" "}
+                      <span className="break-all">{summary.pageHost}</span>
                     </div>
                   ) : null}
                 </div>
@@ -1272,9 +1299,7 @@ export default function AdminEventDetailPage() {
                       ))}
                   </ul>
                 ) : (
-                  <div className="text-sm opacity-70">
-                    권장 조치가 정의되지 않았습니다.
-                  </div>
+                  <div className="text-sm opacity-70">권장 조치가 정의되지 않았습니다.</div>
                 )}
               </Section>
             </>
@@ -1283,39 +1308,13 @@ export default function AdminEventDetailPage() {
           {/* TAB: Context */}
           {tab === "context" ? (
             <Section title="Context">
-              <KV
-                k="origin"
-                v={summary.origin || "-"}
-                mono
-                copy={summary.origin || ""}
-              />
-              <KV
-                k="page"
-                v={summary.page || "-"}
-                link={summary.page || ""}
-                copy={summary.page || ""}
-              />
-              <KV
-                k="targetHost/targetOrigin"
-                v={summary.targetHost || "-"}
-                mono
-              />
-              <KV
-                k="installId"
-                v={summary.installId || "-"}
-                mono
-                copy={summary.installId || ""}
-              />
-              <KV
-                k="sessionId"
-                v={summary.sessionId || "-"}
-                mono
-                copy={summary.sessionId || ""}
-              />
-              {summary.ua ? (
-                <KV k="User-Agent" v={clampText(summary.ua, 800)} />
-              ) : null}
-              <KV k="현재 링크" v={currentUrlRef.current || "-"} />
+              <KV k="origin" v={summary.origin || "-"} mono copy={summary.origin || ""} />
+              <KV k="page" v={summary.page || "-"} mono copy={summary.page || ""} />
+              <KV k="targetOrigin" v={summary.targetHost || "-"} mono />
+              <KV k="installId" v={summary.installId || "-"} mono copy={summary.installId || ""} />
+              <KV k="sessionId" v={summary.sessionId || "-"} mono copy={summary.sessionId || ""} />
+              {summary.ua ? <KV k="User-Agent" v={clampText(summary.ua, 800)} /> : null}
+              <KV k="현재 링크" v={currentUrlRef.current || null} copy={currentUrlRef.current || ""} />
             </Section>
           ) : null}
 
@@ -1324,19 +1323,16 @@ export default function AdminEventDetailPage() {
             <Section title="Activity">
               {vm.activityRows?.length ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                  {vm.activityRows.map((row) => (
+                  {vm.activityRows.filter((row) => shouldShowValue(row.value, { hideZero: true, hideDash: true }))
+                  .map((row) => (
                     <div key={row.label} className="p-3 rounded-xl border">
                       <div className="text-xs opacity-60">{row.label}</div>
-                      <div className="font-mono break-all">
-                        {row.value ?? "-"}
-                      </div>
+                      <div className="break-all">{fmtValue(row.value) ?? "-"}</div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="text-sm opacity-70">
-                  이 이벤트 유형에 대한 Activity 템플릿이 없습니다.
-                </div>
+                <div className="text-sm opacity-70">이 이벤트 유형에 대한 Activity 템플릿이 없습니다.</div>
               )}
             </Section>
           ) : null}
@@ -1344,12 +1340,7 @@ export default function AdminEventDetailPage() {
           {/* TAB: Attribution */}
           {tab === "attribution" ? (
             <Section title="Attribution">
-              <KV
-                k="initiatorUrl"
-                v={summary.initiatorUrl || "-"}
-                mono
-                copy={summary.initiatorUrl || ""}
-              />
+              <KV k="initiatorUrl" v={summary.initiatorUrl || "-"} mono copy={summary.initiatorUrl || ""} />
               <KV k="initiatorOrigin" v={summary.initiatorOrigin || "-"} mono />
               <KV
                 k="initiatorCrossSite"
@@ -1357,28 +1348,14 @@ export default function AdminEventDetailPage() {
                   summary.mismatch === true
                     ? "true"
                     : summary.mismatch === false
-                      ? "false"
-                      : "-"
+                    ? "false"
+                    : "-"
                 }
                 mono
               />
-              <KV
-                k="scriptNorm"
-                v={summary.chain?.norm || "-"}
-                mono
-                copy={summary.chain?.norm || ""}
-              />
-              <KV
-                k="incidentId"
-                v={summary.chain?.incidentId || "-"}
-                mono
-                copy={summary.chain?.incidentId || ""}
-              />
-              <KV
-                k="reinjectCount"
-                v={summary.chain?.reinjectCount ?? "-"}
-                mono
-              />
+              <KV k="scriptNorm" v={summary.chain?.norm || "-"} mono copy={summary.chain?.norm || ""} />
+              <KV k="incidentId" v={summary.chain?.incidentId || "-"} mono copy={summary.chain?.incidentId || ""} />
+              <KV k="reinjectCount" v={summary.chain?.reinjectCount ?? "-"} mono />
             </Section>
           ) : null}
 
@@ -1393,28 +1370,14 @@ export default function AdminEventDetailPage() {
               />
               <KV
                 k="payloadTruncated"
-                v={String(
-                  detail?.payload?.payloadTruncated ??
-                    detail?.payloadTruncated ??
-                    "-",
-                )}
+                v={String(detail?.payload?.payloadTruncated ?? detail?.payloadTruncated ?? "-")}
               />
               <div className="mt-3 space-y-3">
-                <JsonViewer
-                  title="details (parsed by server)"
-                  obj={payloadObj}
-                  raw={payloadObj ? "" : ""}
-                />
+                <JsonViewer title="details (parsed by server)" obj={payloadObj} raw={payloadObj ? "" : ""} />
                 <JsonViewer
                   title="payloadJson (raw or parsed)"
-                  obj={
-                    parsedPayload && parsedPayload.raw ? null : parsedPayload
-                  }
-                  raw={
-                    typeof parsedPayload?.raw === "string"
-                      ? parsedPayload.raw
-                      : ""
-                  }
+                  obj={parsedPayload && parsedPayload.raw ? null : parsedPayload}
+                  raw={typeof parsedPayload?.raw === "string" ? parsedPayload.raw : ""}
                 />
               </div>
             </Section>

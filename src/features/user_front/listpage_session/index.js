@@ -151,7 +151,7 @@ function EventTransactions() {
                                   {session.sessionId}
                                 </span>
                                 <div className="flex items-center gap-2 border-l border-slate-400/30 pl-3">
-                                  <span className="badge badge-sm bg-slate-400/20 border-none text-slate-600 font-bold">
+                                  <span className="badge badge-sm bg-slate-400/20 border-none text-slate-600 font-bold w-[90px] justify-center">
                                     {session.events.length}개의 위험
                                   </span>
                                   <span className="text-[11px] font-bold text-slate-500">

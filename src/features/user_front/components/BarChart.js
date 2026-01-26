@@ -7,14 +7,11 @@ import {
   Tooltip,
   Legend,
 } from "chart.js";
-import { Bar } from "react-chartjs-2";
+import { Bar, getElementAtEvent } from "react-chartjs-2";
 import { useRef } from "react";
-import TitleCard from "../../../components/Cards/TitleCard";
+import { useNavigate } from "react-router-dom";
 
-// 기본 폰트 설정
-ChartJS.defaults.font.family = "'Pretendard', sans-serif";
-ChartJS.defaults.font.size = 14;
-
+// ChartJS 구성 요소 등록
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -24,52 +21,63 @@ ChartJS.register(
   Legend,
 );
 
-function BarChart({ title, chartData, onClick }) {
-  // onClick 프롭 추가
+const severityKeywords = ["HIGH", "MEDIUM", "LOW"];
+
+function BarChart({ title, chartData }) {
   const chartRef = useRef(null);
+  const navigate = useNavigate();
+
+  const onClick = (event) => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    const element = getElementAtEvent(chart, event);
+    if (element.length > 0) {
+      const { index } = element[0];
+      const clickedLabel = chartData?.labels?.[index];
+
+      if (severityKeywords.includes(clickedLabel)) {
+        navigate("/app/detail/severity", {
+          state: { value: clickedLabel, title },
+        });
+      }
+    }
+  };
 
   const options = {
     responsive: true,
     maintainAspectRatio: false,
-    onClick: onClick || null, // 클릭 핸들러가 있을 때만 연결
+    onClick,
     plugins: {
       legend: { display: false },
     },
-    scales: {
-      y: { beginAtZero: true }, // 바 차트는 0부터 시작하는 게 보기 좋습니다.
-    },
   };
 
-  // 1. 데이터 존재 여부를 안전하게 확인 (옵셔널 체이닝 사용)
-  const hasData =
-    chartData?.datasets?.[0]?.data && chartData.datasets[0].data.length > 0;
-
-  // 2. 렌더링용 데이터 구조 (chartData가 null이어도 에러 안 나게 방어)
-  const data = {
-    labels: chartData?.labels || [],
+  const data = chartData || {
+    labels: [],
     datasets: [
       {
-        label: title || "Events",
-        data: chartData?.datasets?.[0]?.data || [],
+        label: title,
+        data: [],
         backgroundColor: "rgba(53, 162, 235, 0.5)",
-        borderRadius: 4, // 바 끝을 살짝 둥글게 하면 예쁩니다.
       },
     ],
   };
 
   return (
-    <TitleCard title={title || "Chart Title"} topMargin="mt-2">
-      <div style={{ height: "300px" }}>
-        {/* 3. 데이터가 확실히 있을 때만 차트 렌더링 */}
-        {hasData ? (
+    <div className="flex flex-col h-full p-4">
+      <h2 className="text-lg font-semibold mb-2">{title}</h2>
+
+      <div className="flex-1">
+        {data.datasets[0].data.length > 0 ? (
           <Bar ref={chartRef} options={options} data={data} />
         ) : (
-          <div className="flex items-center justify-center h-full text-gray-400 italic">
+          <div className="flex items-center justify-center h-full text-gray-400">
             데이터를 불러오는 중이거나 결과가 없습니다.
           </div>
         )}
       </div>
-    </TitleCard>
+    </div>
   );
 }
 

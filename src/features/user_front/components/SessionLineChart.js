@@ -44,8 +44,8 @@ function SessionLineChart({
     }
 
     // 그 외 중간 지점들은 시작 시간 대비 경과 초 표시
-    const diffInSeconds = Math.floor((e.ts - startTime) / 1000);
-    return `+${diffInSeconds}s`;
+    const diffInSeconds = Math.floor((e.ts - startTime) / 100);
+    return `+${diffInSeconds/10}s`;
   });
   const scores = sortedEvents.map((e) => e.scoreDelta || 0);
   // 1. 점 색상 결정 함수

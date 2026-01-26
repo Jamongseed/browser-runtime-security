@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import moment from "moment";
 import TitleCard from "../../../components/Cards/TitleCard";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 // 사용할 API 함수들을 가져옵니다.
 import {
   getEventsByRule,
@@ -88,6 +88,7 @@ const TopSideButtons = ({ applySearch, removeFilter }) => {
 function Transactions() {
   const [userTableData, setUserTableData] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
   // ---날자 관련 업데이트
@@ -175,8 +176,16 @@ function Transactions() {
   };
 
   useEffect(() => {
-    fetchEvents();
-  }, []);
+    const type = searchParams.get("type");   // domain | ruleId | installId | eventId
+    const query = searchParams.get("query");
+
+    if (type && query) {
+      fetchEvents({ type, query });
+    } else {
+      fetchEvents();
+    }
+  }, [startDay, endDay, searchParams]);
+
 
   const applySearch = (params) => fetchEvents(params);
   const removeFilter = () => fetchEvents({});
@@ -248,7 +257,7 @@ function Transactions() {
                   </td>
                   <td>
                     <div
-                      className="font-bold text-sm max-w-[180px] truncate"
+                      className="font-bold text-base max-w-[180px] truncate"
                       title={l.domain}
                     >
                       {l.domain}
@@ -262,18 +271,18 @@ function Transactions() {
                     </div>
                   </td>
                   <td>
-                    <span className="font-mono font-bold text-secondary text-sm">
+                    <span className="font-mono font-bold text-secondary text-base">
                       {l.scoreDelta > 0 ? `+${l.scoreDelta}` : l.scoreDelta}
                     </span>
                   </td>
                   <td>
-                    <code className="text-[11px] bg-base-300 px-2 py-1 rounded-md opacity-80 font-semibold">
+                    <code className="text-base bg-base-300 px-2 py-1 rounded-md opacity-80 font-semibold">
                       {l.ruleId || "N/A"}
                     </code>
                   </td>
                   <td>
                     <div
-                      className="text-xs opacity-60 max-w-[200px] truncate"
+                      className="text-base opacity-60 max-w-[200px] truncate"
                       title={l.page}
                     >
                       {l.page || "/"}

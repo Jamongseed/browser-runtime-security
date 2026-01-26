@@ -31,6 +31,11 @@ function SessionDetail() {
     }
   };
 
+  // 테이블 순서 정리
+  const sortedEvents = React.useMemo(() => {
+    return [...events].sort((a, b) => a.ts - b.ts); // ts 오름차순
+  }, [events]);
+
   return (
     <div className="flex flex-col gap-6">
       {/* 1. 상단: 해당 세션의 시간별 추이 차트 */}
@@ -58,7 +63,7 @@ function SessionDetail() {
               </tr>
             </thead>
             <tbody>
-              {events.map((l, k) => (
+              {sortedEvents.map((l, k) => (
                 <tr
                   key={k}
                   id={`event-row-${k}`}

@@ -171,6 +171,22 @@ export const getAggRule = async ({ startDay, endDay }) => {
   }
 };
 
+export const getEventsAll = async ({ startDay, endDay, limit = 200, nextToken }) => {
+  try {
+    const response = await brsQueryApi.events({
+      startDay,
+      endDay,
+      limit,
+      nextToken,
+    });
+
+    return { data: response, error: null };
+  } catch (error) {
+    console.error(`getEventsAll 조회 실패:`, error);
+    return { data: null, error: error?.message || "Unknown error" };
+  }
+};
+
 export const getEvents = async ({
   installId,
   startDay,
