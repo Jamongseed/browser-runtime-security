@@ -7,27 +7,54 @@ import { getStartDay, setStartDay, getEndDay, setEndDay } from "../../../app/aut
 import { getEventsAll } from "../../aws/AwsSearch";
 
 const SEV_OPTIONS = [
-  { label: "전체", value: "ALL" },
-  { label: "HIGH", value: "HIGH" },
-  { label: "MEDIUM", value: "MEDIUM" },
-  { label: "LOW", value: "LOW" },
+  { label: "ALL", value: "ALL", cls: "bg-base-200 text-base-content" },
+  { label: "HIGH", value: "HIGH", cls: "bg-error/15 text-error" },
+  { label: "MEDIUM", value: "MEDIUM", cls: "bg-warning/15 text-warning" },
+  { label: "LOW", value: "LOW", cls: "bg-success/15 text-success" },
 ];
 
-function SeverityFilter({ value, onChange }) {
+function SeverityFilter({ selected, onChange }) {
+  const isOn = (v) => selected.includes(v);
+
+  const toggle = (v) => {
+    if (v === "ALL") {
+      onChange(["ALL"]);
+      return;
+    }
+
+    const next = new Set(selected);
+    next.delete("ALL");
+
+    next.has(v) ? next.delete(v) : next.add(v);
+    onChange(next.size ? [...next] : ["ALL"]);
+  };
+
   return (
     <div className="flex items-center gap-2">
-      <span className="text-xs opacity-60 font-semibold">Severity</span>
-      <select
-        className="select select-bordered select-sm h-[38px] min-h-[38px] w-32"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        {SEV_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
+      <span className="text-xs font-semibold opacity-50">Severity</span>
+
+      <div className="flex gap-1 p-1 rounded-xl bg-base-200/60">
+        {SEV_OPTIONS.map((opt) => {
+          const active = isOn(opt.value);
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              aria-pressed={active}
+              onClick={() => toggle(opt.value)}
+              className={[
+                "px-3 h-[30px] text-xs font-bold rounded-lg transition-all",
+                "hover:opacity-90",
+                active
+                  ? `${opt.cls} shadow-sm`
+                  : "text-base-content/50 hover:bg-base-300/60",
+              ].join(" ")}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -53,7 +80,9 @@ export default function RecentEventsWithSeverityFilter() {
 
   const [startDayState, setStartDayState] = useState(getStartDay());
   const [endDayState, setEndDayState] = useState(getEndDay());
-  const [severity, setSeverity] = useState("ALL");
+
+  // ✅ 멀티 선택 상태: 기본은 ALL
+  const [severitySelected, setSeveritySelected] = useState(["ALL"]);
 
   const updateDashboardPeriod = (newRange) => {
     const newStartDay = moment(newRange.startDate).format("YYYY-MM-DD");
@@ -73,15 +102,11 @@ export default function RecentEventsWithSeverityFilter() {
       const res = await getEventsAll({
         startDay: startDayState,
         endDay: endDayState,
-        // 서버 MAX_LIMIT=200에 맞춰주는 게 안전
         limit: 200,
       });
 
       const items = Array.isArray(res?.data?.items) ? res.data.items : [];
       setUserTableData(items);
-      console.log("REQ", { startDayState, endDayState });
-      console.log("RES", res?.data);
-
 
       const nt = res?.data?.nextToken ?? null;
       setNextToken(nt);
@@ -132,13 +157,14 @@ export default function RecentEventsWithSeverityFilter() {
   }, [startDayState, endDayState]);
 
   const filtered = useMemo(() => {
-    // 서버가 최신 우선으로 주지만, 안정적으로 한 번 더 정렬
     const sorted = [...userTableData].sort((a, b) => Number(b.ts) - Number(a.ts));
-    return severity === "ALL"
-      ? sorted
-      : sorted.filter((x) => String(x.severity || "").toUpperCase() === severity);
-    // ✅ slice(0, 50) 제거: 더 보기로 계속 늘릴 수 있게
-  }, [userTableData, severity]);
+
+    // ✅ ALL 이거나(혹은 비어있으면) 전체 표시
+    if (!severitySelected?.length || severitySelected.includes("ALL")) return sorted;
+
+    const set = new Set(severitySelected.map((x) => String(x).toUpperCase()));
+    return sorted.filter((x) => set.has(String(x.severity || "").toUpperCase()));
+  }, [userTableData, severitySelected]);
 
   const gotoDetail = (eventId) => navigate(`/app/admin_front/detail/${eventId}`);
 
@@ -150,11 +176,12 @@ export default function RecentEventsWithSeverityFilter() {
         <div className="flex items-center gap-2">
           <DashboardTopBar updateDashboardPeriod={updateDashboardPeriod} />
           <div className="divider divider-horizontal mx-0 h-8"></div>
-          <SeverityFilter value={severity} onChange={setSeverity} />
+
+          <SeverityFilter selected={severitySelected} onChange={setSeveritySelected} />
+
           <button
             className="btn btn-sm btn-outline h-[38px] min-h-[38px]"
             onClick={() => {
-              // 새로고침 시도: 리셋해서 첫 페이지부터 다시
               setUserTableData([]);
               setNextToken(null);
               setHasMore(false);
@@ -178,8 +205,8 @@ export default function RecentEventsWithSeverityFilter() {
             <tr className="text-base-content/70">
               <th className="py-4">시간</th>
               <th>도메인</th>
-              <th>위험도</th>
-              <th>위험 점수</th>
+              <th className="text-center">위험도</th>
+              <th className="text-center">위험 점수</th>
               <th>탐지규칙 ID</th>
               <th>사이트</th>
               <th className="text-center">자세히보기</th>
@@ -214,17 +241,13 @@ export default function RecentEventsWithSeverityFilter() {
                     </div>
                   </td>
 
-                  <td>
-                    <div
-                      className={`badge badge-md border-none font-bold ${sevBadgeClass(
-                        l.severity
-                      )}`}
-                    >
+                  <td className="text-center">
+                    <div className={`badge badge-md border-none font-bold ${sevBadgeClass(l.severity)}`}>
                       {String(l.severity || "UNKNOWN").toUpperCase()}
                     </div>
                   </td>
 
-                  <td>
+                  <td className="text-center">
                     <span className="font-mono font-bold text-secondary text-base">
                       {Number(l.scoreDelta) > 0 ? `+${l.scoreDelta}` : l.scoreDelta}
                     </span>
@@ -243,10 +266,7 @@ export default function RecentEventsWithSeverityFilter() {
                   </td>
 
                   <td className="text-center">
-                    <button
-                      className="btn btn-sm btn-ghost btn-outline"
-                      onClick={() => gotoDetail(l.eventId)}
-                    >
+                    <button className="btn btn-sm btn-ghost btn-outline" onClick={() => gotoDetail(l.eventId)}>
                       자세히
                     </button>
                   </td>
@@ -262,13 +282,8 @@ export default function RecentEventsWithSeverityFilter() {
           </tbody>
         </table>
 
-        {/* ✅ 더 보기 */}
         <div className="flex justify-center py-4">
-          <button
-            className="btn btn-sm btn-outline"
-            disabled={!hasMore || loadingMore || loading}
-            onClick={fetchMore}
-          >
+          <button className="btn btn-sm btn-outline" disabled={!hasMore || loadingMore || loading} onClick={fetchMore}>
             {loadingMore ? "불러오는 중..." : hasMore ? "더 보기" : "더 이상 없음"}
           </button>
         </div>

@@ -66,7 +66,7 @@ function Dashboard() {
     getAggDomain({ startDay, endDay }).then((res) => {
       setDomainData(res);
     });
-  }, []); // 처음 한 번만 실행
+  }, [startDay, endDay]);
 
   const [ruleData, setRuleData] = useState([]);
 
@@ -77,12 +77,14 @@ function Dashboard() {
       //console.log("getRule 로그");
       //console.log(res);
     });
-  }, []); // 처음 한 번만 실행
+  }, [startDay, endDay]);
 
   return (
     <>
       {/** ---------------------- Select Period Content ------------------------- */}
-      <DashboardTopBar updateDashboardPeriod={updateDashboardPeriod} />
+      <div className="mb-6">
+        <DashboardTopBar updateDashboardPeriod={updateDashboardPeriod} />
+      </div>
 
       {/** ---------------------- Different stats content 1 ------------------------- */}
 

@@ -249,6 +249,7 @@ function JsonViewer({ title, obj, raw }) {
 // 1) Category enum (고정)
 const EventCategory = {
   SYSTEM: "system",
+  XHR_MIRRORING_SUSPECT: "xhr_mirroring",
   INJECTED_SCRIPT_SCORE: "scoring",
   DOM_INJECTION: "dom_injection",
   PERSISTENCE: "persistence",
@@ -266,6 +267,9 @@ const EventCategory = {
 const TYPE_TO_CATEGORY = {
   // system
   SENSOR_READY: EventCategory.SYSTEM,
+
+  // xhr
+  XHR_MIRRORING_SUSPECT: EventCategory.XHR_MIRRORING_SUSPECT,
 
   // score
   INJECTED_SCRIPT_SCORE: EventCategory.INJECTED_SCRIPT_SCORE,
@@ -288,7 +292,6 @@ const TYPE_TO_CATEGORY = {
 
   // network
   SUSP_NETWORK_CALL: EventCategory.NETWORK,
-  XHR_MIRRORING_SUSPECT: EventCategory.NETWORK,
 
   // code exec / obfuscation
   SUSP_ATOB_CALL: EventCategory.CODE_EXEC,
@@ -329,6 +332,118 @@ function formatKpiValue(k) {
 }
 
 // VM builders
+function buildXhrMirroringSuspectVM({ detail, summary, parsedPayload, ruleOneLine }) {
+  const det = detail?.details || parsedPayload || {};
+  const d = det?.data || {};
+  const net = d.network || {};
+  const proto = d.proto || {};
+  const an = d.analysis || {};
+  const ev = d.evidence || d?.evidence || {};
+  const chain = d.chain || {};
+
+  const api = net.api || null;                 // fetch/xhr
+  const method = net.method || null;           // GET/POST
+  const crossSite = net.crossSite ?? null;     // true/false
+  const url = net.abs || net.url || null;
+  const targetOrigin = net.targetOrigin || null;
+
+  const protoTarget = proto.target || null;    // XMLHttpRequest.prototype.send
+  const protoRuleId = proto.ruleId || null;
+  const protoSeverity = proto.severity || null;
+  const dtMs = d.dtMs ?? null;
+  const windowMs = d.windowMs ?? null;
+
+  const suspicionScore = an.suspicionScore ?? null;
+  const suspicionBand = an.suspicionBand || null;
+
+  const stackHead = ev.stackHead || null;
+
+  const incidentId = chain.incidentId || null;
+  const scriptNorm = chain.norm || null;
+  const scriptId = chain.scriptId || null;
+  const reinjectCount = chain.reinjectCount ?? null;
+  const startedAt = chain.startedAt ?? null;
+
+  // 상단 KPI (필요한 것만)
+  const kpis = [
+    kpiNum("risk", "Risk Score", summary.scoreDelta ?? null, "scoreDelta"),
+    kpiText("api", "API", api, "fetch/xhr 등"),
+    kpiText("method", "Method", method, "GET/POST 등"),
+    kpiBool("crossSite", "Cross-site", crossSite, "외부 도메인 전송 여부"),
+  ].filter((k) => shouldShowValue(k.value, { hideZero: true, hideDash: true }));
+
+  // Activity: 사건에서 “바로 판단에 필요한 값”
+  const activityRows = [
+    { label: "network.url", value: url },
+    { label: "network.targetOrigin", value: targetOrigin },
+    { label: "network.crossSite", value: crossSite },
+    { label: "network.method", value: method },
+    { label: "network.api", value: api },
+    { label: "windowMs", value: windowMs },
+    { label: "dtMs", value: dtMs },
+    { label: "analysis.suspicionScore", value: suspicionScore },
+    { label: "analysis.suspicionBand", value: suspicionBand },
+  ].filter((r) => shouldShowValue(r.value, { hideZero: true, hideDash: true }));
+
+  // Attribution: “누가 후킹했나 / 어떤 체인인가”
+  const attributionRows = [
+    { label: "proto.target", value: protoTarget },
+    { label: "proto.ruleId", value: protoRuleId },
+    { label: "proto.severity", value: protoSeverity },
+    { label: "evidence.stackHead", value: stackHead },
+    { label: "chain.norm", value: scriptNorm },
+    { label: "chain.scriptId", value: scriptId },
+    { label: "chain.incidentId", value: incidentId },
+    { label: "chain.reinjectCount", value: reinjectCount },
+  ].filter((r) => shouldShowValue(r.value, { hideZero: true, hideDash: true }));
+
+  // 추천 조치 (항상 2~3줄 + 조건부)
+  const recommendations = [
+    {
+      when: true,
+      text: "XHR/Fetch 미러링 의심 이벤트입니다. 후킹(proto)과 네트워크 호출(network)을 함께 보고 실제 유출 경로인지 판단하세요.",
+    },
+    {
+      when: true,
+      text: "stackHead/initiator(로더) 기준으로 주입 주체를 추적하고, 동일 incidentId로 연관 이벤트를 묶어 타임라인으로 확인하세요.",
+    },
+    {
+      when: !!protoTarget,
+      text: `후킹 대상 확인: ${protoTarget} (${protoRuleId || "-"}) — 브라우저 통신 API를 가로채는 패턴일 수 있습니다.`,
+    },
+    {
+      when: crossSite === true,
+      text: `Cross-site 전송 감지: ${targetOrigin || "-"} — 외부 도메인으로 데이터가 전송될 가능성이 있어 우선순위를 높게 두세요.`,
+    },
+    {
+      when: String(method || "").toUpperCase() === "POST",
+      text: "POST 요청은 데이터 전송 가능성이 큽니다. body/헤더에 민감 정보가 포함되는지 확인하세요(가능하면 샘플링/마스킹 저장).",
+    },
+    {
+      when: reinjectCount != null && reinjectCount > 0,
+      text: `재주입 징후(reinjectCount=${reinjectCount}): 지속성/반복 주입 패턴 가능. chain.norm 기준으로 동일 로더를 탐색하세요.`,
+    },
+    {
+      when: suspicionScore != null,
+      text: `의심 점수: ${suspicionScore} (${suspicionBand || "-"}) — 점수 상승 요인(후킹+외부전송+체인)을 우선 확인하세요.`,
+    },
+  ].filter((r) => r.when);
+
+  return {
+    category: "network", // 또는 "mirroring" 같은 별도 category를 만들어도 됨
+    title: `고위험: 의심 네트워크 호출`,
+    oneLine:
+      ruleOneLine ||
+      "XHR 요청/응답이 복제되어 외부로 전송될 수 있는 정황이 감지되었습니다(정보 유출 위험).",
+    kpis,
+    activityRows,
+    attributionRows,
+    // Evidence 탭에서 원본 JSON을 보여주고 싶으면 아래처럼 넘겨두면 좋아
+    evidenceObj: det,
+    recommendations,
+  };
+}
+
 function buildInjectedScriptScoreVM({ detail, summary, parsedPayload, ruleOneLine }) {
   const det = detail?.details || {};
   const data = det?.data || parsedPayload?.data || {};
@@ -351,7 +466,7 @@ function buildInjectedScriptScoreVM({ detail, summary, parsedPayload, ruleOneLin
     title: `악성 스크립트 주입 점수(${modelId})`,
     oneLine:
       ruleOneLine ||
-      `총점 ${score}점 (hits ${hits.length}개, combo ${comboHits.length}개 +${comboBonus}) — 스크립트 주입/후킹/유출 조합 가능`,
+      `총점 ${score}점 (hits ${hits.length}개, chain ${comboHits.length}개 +${comboBonus}) — 스크립트 주입/후킹/유출 조합 가능`,
     category: "scoring",
 
     // ✅ KPI는 “왜 점수가 큰지” 중심
@@ -359,7 +474,7 @@ function buildInjectedScriptScoreVM({ detail, summary, parsedPayload, ruleOneLin
       kpiNum("score", "Total Score", score),
       kpiText("model", "Model", `${modelId} (${modelUpdatedAt})`, "scoring model"),
       kpiNum("hits", "Signals", hits.length, "hit count"),
-      kpiText("combo", "Combo", comboHits.length ? `+${comboBonus} (${comboHits.length})` : "-", "combo bonus"),
+      kpiText("chain", "Chain", comboHits.length ? `+${comboBonus} (${comboHits.length})` : "-", "combo bonus"),
     ].filter(k => shouldShowValue(k.value, { hideZero: true, hideDash: true })),
 
     // ✅ Activity는 “근거 목록”을 보여줘야 함
@@ -1014,7 +1129,10 @@ function buildEventViewModel({ detail, summary, parsedPayload, ruleDescription }
     
     case EventCategory.INJECTED_SCRIPT_SCORE:
       return buildInjectedScriptScoreVM({ detail, summary, parsedPayload, ruleOneLine });
-
+    
+    case EventCategory.XHR_MIRRORING_SUSPECT:
+      return buildXhrMirroringSuspectVM({ detail, summary, parsedPayload, ruleOneLine });
+    
     default:
       return buildGenericVM({ summary, ruleOneLine });
   }

@@ -34,9 +34,11 @@ function LeftSidebar() {
         <li className="mb-2 font-semibold text-xl">
           <Link to="/app/dashboard">
             <img
-              
+              src="/notification_icon.png"
+              alt="BRS Logo"
+              className="w-10 h-10 object-contain bg-transparent"
             />
-            Browser Runtime Security or BRS Dashboard
+            BRS Dashboard
           </Link>
         </li>
 

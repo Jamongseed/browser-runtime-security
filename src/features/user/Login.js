@@ -68,7 +68,7 @@ function Login() {
 
           <div className="py-24 px-10">
             <h2 className="text-2xl font-semibold mb-2 text-center">
-              Admin Login
+              관리자 로그인
             </h2>
 
             <form onSubmit={submitForm}>
