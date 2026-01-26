@@ -120,7 +120,7 @@ function Login() {
               >
                 Login
               </button>
-
+{/*}
               <div className="text-center mt-4">
                 Don&apos;t have an account yet?{" "}
                 <Link to="/register">
@@ -128,12 +128,7 @@ function Login() {
                     Register
                   </span>
                 </Link>
-              </div>
-
-              {/* (선택) 발표용 힌트 고정 표시 */}
-              <div className="text-center mt-3 text-xs opacity-60">
-                Demo Admin: <span className="font-mono">admin / admin</span>
-              </div>
+              </div>*/}
             </form>
           </div>
         </div>

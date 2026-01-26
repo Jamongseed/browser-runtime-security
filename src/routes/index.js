@@ -1,6 +1,7 @@
 import { lazy } from "react";
 
 const Login = lazy(() => import("../pages/Login"));
+const Dashboard = lazy(() => import("../features/dashboard"));
 
 const UserDashboard = lazy(() => import("../features/user_front"));
 const UserSessionList = lazy(() => import("../features/user_front/listpage_session"),);
@@ -17,6 +18,10 @@ const routes = [
   {
     path: "/login",
     component: Login,
+  },
+  {
+    path: "/dashboard",
+    component: Dashboard,
   },
   {
     path: "/user_front/dashboard",
@@ -62,22 +67,6 @@ const routes = [
     path: "/admin_front/:eventId",
     component: AdminEventDetailPage,
   },
-
-  // 기존 유지
-  //{ path: "/welcome", component: Welcome },
-  //{ path: "/leads", component: Leads },
-  //{ path: "/settings-team", component: Team },
-  //{ path: "/calendar", component: Calendar },
-  //{ path: "/transactions", component: Transactions },
-  //{ path: "/settings-profile", component: ProfileSettings },
-  //{ path: "/settings-billing", component: Bills },
-  //{ path: "/getting-started", component: GettingStarted },
-  //{ path: "/features", component: DocFeatures },
-  //{ path: "/components", component: DocComponents },
-  //{ path: "/integration", component: Integration },
-  //{ path: "/charts", component: Charts },
-  //{ path: "/404", component: Page404 },
-  //{ path: "/blank", component: Blank },
 ];
 
 export default routes;

@@ -242,6 +242,7 @@ function JsonViewer({ title, obj, raw }) {
 // 1) Category enum (고정)
 const EventCategory = {
   SYSTEM: "system",
+  INJECTED_SCRIPT_SCORE: "scoring",
   DOM_INJECTION: "dom_injection",
   PERSISTENCE: "persistence",
   FORM_FLOW: "form_flow",
@@ -258,6 +259,9 @@ const EventCategory = {
 const TYPE_TO_CATEGORY = {
   // system
   SENSOR_READY: EventCategory.SYSTEM,
+
+  // score
+  INJECTED_SCRIPT_SCORE: EventCategory.INJECTED_SCRIPT_SCORE,
 
   // DOM/script/iframe
   DYN_SCRIPT_INSERT: EventCategory.DOM_INJECTION,
@@ -318,6 +322,100 @@ function formatKpiValue(k) {
 }
 
 // VM builders
+function buildInjectedScriptScoreVM({ detail, summary, parsedPayload, ruleOneLine }) {
+  const det = detail?.details || {};
+  const data = det?.data || parsedPayload?.data || {};
+
+  const score = data.score ?? summary.scoreDelta ?? null;
+  const modelId = data.modelId || "-";
+  const modelUpdatedAt = data.modelUpdatedAt || "-";
+
+  const hits = Array.isArray(data.hits) ? data.hits : [];
+  const comboHits = Array.isArray(data.comboHits) ? data.comboHits : [];
+  const comboBonus = data.comboBonus ?? 0;
+
+  // top hit 3개 (가중치 큰 순)
+  const topHits = [...hits].sort((a,b)=>(b.score||0)-(a.score||0)).slice(0,3);
+
+  const chain = data.chain || {};
+  const chainNorm = chain.norm || null;
+
+  return {
+    title: `악성 스크립트 주입 점수(${modelId})`,
+    oneLine:
+      ruleOneLine ||
+      `총점 ${score}점 (hits ${hits.length}개, combo ${comboHits.length}개 +${comboBonus}) — 스크립트 주입/후킹/유출 조합 가능`,
+    category: "scoring",
+
+    // ✅ KPI는 “왜 점수가 큰지” 중심
+    kpis: [
+      kpiNum("score", "Total Score", score),
+      kpiText("model", "Model", `${modelId} (${modelUpdatedAt})`, "scoring model"),
+      kpiNum("hits", "Signals", hits.length, "hit count"),
+      kpiText("combo", "Combo", comboHits.length ? `+${comboBonus} (${comboHits.length})` : "-", "combo bonus"),
+    ].filter(k => shouldShowValue(k.value, { hideZero: true, hideDash: true })),
+
+    // ✅ Activity는 “근거 목록”을 보여줘야 함
+    activityRows: [
+      { label: "url", value: data.url || det.page || summary.page || null },
+      { label: "norm", value: data.norm || null },
+      { label: "sha256", value: data.sha256 || null },
+      { label: "length", value: data.length ?? null },
+      { label: "truncated", value: data.truncated ?? null },
+      { label: "comboBonus", value: comboBonus || null },
+      { label: "chain.norm", value: chainNorm },
+      { label: "chain.incidentId", value: chain.incidentId || null },
+      { label: "chain.scriptId", value: chain.scriptId || null },
+      { label: "chain.reinjectCount", value: chain.reinjectCount ?? null },
+    ].filter(r => shouldShowValue(r.value, { hideZero: true, hideDash: true })),
+
+    // ✅ Evidence 탭에서 hits/combos를 표 형태로 보여주기 위해 vm에 “tables” 같은 확장 필드를 넣는 게 베스트
+    tables: [
+      {
+        key: "top_hits",
+        title: "Top Signals",
+        columns: ["id", "axis", "signal", "score", "reason"],
+        rows: topHits.map(h => [h.id, h.axis, h.signal, h.score, h.reason]),
+      },
+      {
+        key: "all_hits",
+        title: `All Signals (${hits.length})`,
+        columns: ["id", "axis", "category", "signal", "score"],
+        rows: hits
+          .sort((a,b)=>(b.score||0)-(a.score||0))
+          .map(h => [h.id, h.axis, (h.category||"").replace("\n"," "), h.signal, h.score]),
+      },
+      {
+        key: "combos",
+        title: `Combo Hits (+${comboBonus})`,
+        columns: ["comboId", "title", "bonus", "requires"],
+        rows: comboHits.map(c => [c.comboId, c.title, c.bonus, (c.requires||[]).join(", ")]),
+      },
+    ],
+
+    // ✅ 추천조치는 “가장 위험한 조합”을 바로 때려줘야 함
+    recommendations: [
+      { when: true, text: "이 이벤트는 ‘행위’가 아니라 ‘스코어링 결과’입니다. Signals/Combo를 근거로 즉시 조사 우선순위를 올리세요." },
+      { when: true, text: `sha256(${data.sha256 || "-"}) 기준으로 동일 스크립트 재발 여부(다른 session/install) 검색을 권장합니다.` },
+
+      // 강한 조합(예: network hook → exfil)
+      { when: comboHits.some(c => (c.requires||[]).includes("A_XHR_OPEN_SEND_OVERRIDE") && (c.requires||[]).includes("A_FETCH_XHR_ABS_URL")),
+        text: "Network hook → exfil 조합 감지: XHR/fetch 후킹으로 모든 요청을 가로채 외부로 전송 가능. 차단/격리 우선." },
+
+      // overlay/clickjacking 시그널이 포함되면
+      { when: hits.some(h => h.id === "B_FULLSCREEN_OVERLAY"),
+        text: "Fullscreen overlay 시그널 포함: 클릭 하이재킹(UI redress) 가능. UI_HIJACK 이벤트와 같은 incidentId로 연관 분석." },
+
+      // injection/loader 시그널 포함 시
+      { when: hits.some(h => String(h.id||"").includes("SCRIPT") || String(h.id||"").includes("IFRAME")),
+        text: "주입/로더 시그널 포함: 동적 <script>/<iframe> 삽입이 의심됩니다. initiator(삽입 주체)와 로드된 origin allowlist를 확인하세요." },
+
+      // chain.norm이 있으면 체인 추적
+      { when: !!chainNorm, text: `loader chain 추적: chain.norm(${chainNorm})를 기준으로 로더→페이로드 흐름을 타임라인으로 확인하세요.` },
+    ].filter(r => r.when),
+  };
+}
+
 function buildDomMutationVM({ detail, summary, ruleOneLine }) {
   const ms = summary.mutationSummary || {};
   const chain = summary.chain || {};
@@ -906,6 +1004,9 @@ function buildEventViewModel({ detail, summary, parsedPayload, ruleDescription }
 
     case EventCategory.MUTATION_OBSERVER:
       return buildDomMutationVM({ detail, summary, ruleOneLine });
+
+    case EventCategory.INJECTED_SCRIPT_SCORE:
+      return buildInjectedScriptScoreVM({ detail, summary, parsedPayload, ruleOneLine });
 
     default:
       return buildGenericVM({ summary, ruleOneLine });

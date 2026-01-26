@@ -184,7 +184,7 @@ function KV({ k, v, copy, mono, link, hideZero = true, hideDash = true }) {
             {String(v)}
           </a>
         ) : (
-          <div className={`break-all`}>{fmtValue(v)}</div>
+          <div className={`break-all`}>{String(v)}</div>
         )}
       </div>
       {copy ? (
@@ -1011,6 +1011,7 @@ function buildEventViewModel({ detail, summary, parsedPayload, ruleDescription }
 
     case EventCategory.MUTATION_OBSERVER:
       return buildDomMutationVM({ detail, summary, ruleOneLine });
+    
     case EventCategory.INJECTED_SCRIPT_SCORE:
       return buildInjectedScriptScoreVM({ detail, summary, parsedPayload, ruleOneLine });
 
