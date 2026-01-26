@@ -1,7 +1,6 @@
 import { lazy } from "react";
 
 const Login = lazy(() => import("../pages/Login"));
-const Dashboard = lazy(() => import("../features/dashboard"));
 
 const UserDashboard = lazy(() => import("../features/user_front"));
 const UserSessionList = lazy(() => import("../features/user_front/listpage_session"),);
@@ -18,10 +17,6 @@ const routes = [
   {
     path: "/login",
     component: Login,
-  },
-  {
-    path: "/dashboard",
-    component: Dashboard,
   },
   {
     path: "/user_front/dashboard",
