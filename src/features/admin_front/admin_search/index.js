@@ -226,8 +226,8 @@ function Transactions() {
             <tr className="text-base-content/70">
               <th className="py-4">시간</th>
               <th>도메인</th>
-              <th>위험도</th>
-              <th>위험 점수</th>
+              <th className="text-center">위험도</th>
+              <th className="text-center">위험 점수</th>
               <th>탐지규칙 ID</th>
               <th>사이트</th>
               <th className="text-center">자세히보기</th>
@@ -263,14 +263,14 @@ function Transactions() {
                       {l.domain}
                     </div>
                   </td>
-                  <td>
+                  <td className="text-center">
                     <div
                       className={`badge badge-md border-none font-bold ${l.severity === "HIGH" ? "bg-error/20 text-error" : l.severity === "MEDIUM" ? "bg-warning/20 text-warning" : "bg-success/20 text-success"}`}
                     >
                       {l.severity || "UNKNOWN"}
                     </div>
                   </td>
-                  <td>
+                  <td className="text-center">
                     <span className="font-mono font-bold text-secondary text-base">
                       {l.scoreDelta > 0 ? `+${l.scoreDelta}` : l.scoreDelta}
                     </span>
