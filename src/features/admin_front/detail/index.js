@@ -177,7 +177,7 @@ function KV({ k, v, copy, mono, link, hideZero = true, hideDash = true }) {
 
   return (
     <div className="flex items-start justify-between gap-3 py-2 border-b border-base-200">
-      <div className="text-xs opacity-60 min-w-[140px]">{k}</div>
+      <div className="text-ms opacity-60 min-w-[140px]">{k}</div>
       <div className="flex-1 text-left">
         {link ? (
           <a className="link link-primary break-all" href={link} target="_blank" rel="noreferrer">
@@ -249,7 +249,7 @@ function JsonViewer({ title, obj, raw }) {
 // 1) Category enum (고정)
 const EventCategory = {
   SYSTEM: "system",
-  XHR_MIRRORING_SUSPECT: "xhr_mirroring",
+  MIRRORING: "xhr_mirroring",
   INJECTED_SCRIPT_SCORE: "scoring",
   DOM_INJECTION: "dom_injection",
   PERSISTENCE: "persistence",
@@ -268,8 +268,8 @@ const TYPE_TO_CATEGORY = {
   // system
   SENSOR_READY: EventCategory.SYSTEM,
 
-  // xhr
-  XHR_MIRRORING_SUSPECT: EventCategory.XHR_MIRRORING_SUSPECT,
+  // mirroring
+  XHR_MIRRORING_SUSPECT: EventCategory.MIRRORING,
 
   // score
   INJECTED_SCRIPT_SCORE: EventCategory.INJECTED_SCRIPT_SCORE,
@@ -430,15 +430,14 @@ function buildXhrMirroringSuspectVM({ detail, summary, parsedPayload, ruleOneLin
   ].filter((r) => r.when);
 
   return {
-    category: "network", // 또는 "mirroring" 같은 별도 category를 만들어도 됨
-    title: `고위험: 의심 네트워크 호출`,
+    category: "mirroring",
+    title: `의심 네트워크 호출`,
     oneLine:
       ruleOneLine ||
       "XHR 요청/응답이 복제되어 외부로 전송될 수 있는 정황이 감지되었습니다(정보 유출 위험).",
     kpis,
     activityRows,
     attributionRows,
-    // Evidence 탭에서 원본 JSON을 보여주고 싶으면 아래처럼 넘겨두면 좋아
     evidenceObj: det,
     recommendations,
   };
@@ -472,7 +471,7 @@ function buildInjectedScriptScoreVM({ detail, summary, parsedPayload, ruleOneLin
     // ✅ KPI는 “왜 점수가 큰지” 중심
     kpis: [
       kpiNum("score", "Total Score", score),
-      kpiText("model", "Model", `${modelId} (${modelUpdatedAt})`, "scoring model"),
+      kpiText("model", "Model", `${modelId} (${modelUpdatedAt})`),
       kpiNum("hits", "Signals", hits.length, "hit count"),
       kpiText("chain", "Chain", comboHits.length ? `+${comboBonus} (${comboHits.length})` : "-", "combo bonus"),
     ].filter(k => shouldShowValue(k.value, { hideZero: true, hideDash: true })),
@@ -628,7 +627,7 @@ function buildDomInjectionVM({ detail, summary, parsedPayload, ruleOneLine }) {
       kpiText("pattern", "Pattern", type, "삽입 유형"),
       kpiBool("cross_site", "Cross-site", crossSite, "대상 URL이 cross-site"),
       kpiBool("initiator_cross_site", "Initiator Cross-site", initiatorCrossSite, "외부 출처 트리거"),
-      kpiText("target", "Target", targetOrigin, "전송/대상 도메인"),
+      kpiText("target", "Target", targetOrigin, "전송/대상"),
     ],
     activityRows: [
       { label: "url/src", value: url },
@@ -679,7 +678,7 @@ function buildPersistenceVM({ detail, summary, parsedPayload, ruleOneLine }) {
       kpiText("pattern", "Pattern", type, "persistence 유형"),
       kpiBool("initiator_cross_site", "Initiator Cross-site", initiatorCrossSite, "외부 출처 트리거"),
       kpiText("sw_script", "SW Script", scriptUrl, "scriptURL/abs"),
-      kpiText("sw_scope", "Scope", scope, "SW scope"),
+      kpiText("sw_scope", "Scope", scope),
       kpiNum("registrations", "SW Reg", hasRegistrations, "registrationsCount"),
       kpiNum("reinject", "Reinject", reinjectCount, "reinjectCount"),
     ],
@@ -1084,9 +1083,9 @@ function buildGenericVM({ summary, ruleOneLine }) {
     category: EventCategory.UNKNOWN,
     kpis: [
       kpiNum("risk", "Risk Score", summary.scoreDelta),
-      kpiText("type", "Type", summary.type || "-", "event type"),
-      kpiText("rule", "RuleId", summary.ruleId || "-", "ruleId"),
-      kpiText("target", "Target", summary.targetHost || "-", "targetOrigin/host"),
+      kpiText("type", "Type", summary.type || "-"),
+      kpiText("rule", "RuleId", summary.ruleId || "-"),
+      kpiText("target", "Target", summary.targetHost || "-"),
     ],
     activityRows: [],
     recommendations: [],
@@ -1130,7 +1129,7 @@ function buildEventViewModel({ detail, summary, parsedPayload, ruleDescription }
     case EventCategory.INJECTED_SCRIPT_SCORE:
       return buildInjectedScriptScoreVM({ detail, summary, parsedPayload, ruleOneLine });
     
-    case EventCategory.XHR_MIRRORING_SUSPECT:
+    case EventCategory.MIRRORING:
       return buildXhrMirroringSuspectVM({ detail, summary, parsedPayload, ruleOneLine });
     
     default:
@@ -1275,11 +1274,11 @@ export default function AdminEventDetailPage() {
   }
 
   const tabs = [
-    { key: "summary", label: "Summary" },
-    { key: "context", label: "Context" },
-    { key: "activity", label: "Activity" },
-    { key: "attribution", label: "Attribution" },
-    { key: "evidence", label: "Evidence" },
+    { key: "summary", label: "요약" },
+    { key: "context", label: "환경 정보" },
+    { key: "activity", label: "행위 상세" },
+    { key: "attribution", label: "원인·출처" },
+    { key: "evidence", label: "증거" },
   ];
 
   return (
@@ -1385,8 +1384,8 @@ export default function AdminEventDetailPage() {
           {/* TAB: Summary */}
           {tab === "summary" ? (
             <>
-              <Section title="사건 요약">
-                <div className="mt-2 text-sm space-y-2">
+              <Section title="요약">
+                <div className="mt-2 text-ms space-y-2">
                   <div className="grid grid-cols-[100px_1fr]">
                     <span className="opacity-60">탐지 규칙</span>{" "}
                     <span className="break-all">{effectiveRuleId}</span>
@@ -1410,7 +1409,7 @@ export default function AdminEventDetailPage() {
 
               <Section title="추천 조치 (SOC)">
                 {vm.recommendations?.length ? (
-                  <ul className="list-disc pl-5 text-sm space-y-1">
+                  <ul className="list-disc pl-5 text-ms space-y-1">
                     {vm.recommendations
                       .filter((r) => r.when !== false)
                       .map((r, idx) => (
@@ -1426,7 +1425,7 @@ export default function AdminEventDetailPage() {
 
           {/* TAB: Context */}
           {tab === "context" ? (
-            <Section title="Context">
+            <Section title="환경 정보">
               <KV k="origin" v={summary.origin || "-"} mono copy={summary.origin || ""} />
               <KV k="page" v={summary.page || "-"} mono copy={summary.page || ""} />
               <KV k="targetOrigin" v={summary.targetHost || "-"} mono />
@@ -1439,9 +1438,9 @@ export default function AdminEventDetailPage() {
 
           {/* TAB: Activity (✅ VM 기반으로 자동 분기) */}
           {tab === "activity" ? (
-            <Section title="Activity">
+            <Section title="행위 상세">
               {vm.activityRows?.length ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-ms">
                   {vm.activityRows.filter((row) => shouldShowValue(row.value, { hideZero: true, hideDash: true }))
                   .map((row) => (
                     <div key={row.label} className="p-3 rounded-xl border">
@@ -1458,7 +1457,7 @@ export default function AdminEventDetailPage() {
 
           {/* TAB: Attribution */}
           {tab === "attribution" ? (
-            <Section title="Attribution">
+            <Section title="원인·출처">
               <KV k="initiatorUrl" v={summary.initiatorUrl || "-"} mono copy={summary.initiatorUrl || ""} />
               <KV k="initiatorOrigin" v={summary.initiatorOrigin || "-"} mono />
               <KV
@@ -1480,7 +1479,7 @@ export default function AdminEventDetailPage() {
 
           {/* TAB: Evidence */}
           {tab === "evidence" ? (
-            <Section title="Evidence">
+            <Section title="증거">
               <KV
                 k="payloadHash"
                 v={detail?.payload?.payloadHash || detail?.payloadHash || "-"}
