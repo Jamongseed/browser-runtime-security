@@ -18,6 +18,15 @@ function injectedScoreSeverity(score) {
   return s >= 80 ? "HIGH" : "LOW";
 }
 
+// 표시용 점수 구간(LOW/MEDIUM/HIGH) - severity와 분리
+function injectedScoreBand(score) {
+  const s = Number(score);
+  if (!Number.isFinite(s)) return "LOW";
+  if (s >= 80) return "HIGH";
+  if (s >= 50) return "MEDIUM";
+  return "LOW";
+}
+
 // scoring model (script dump -> score)
 const SCORING_MODEL_PATH = "rulesets/scoring-model-v1.json";
 let scoringModelCache = null;
@@ -211,7 +220,9 @@ async function postJsonWithRetry(url, bodyObj) {
         const t = await res.text().catch(() => "");
         throw new Error(`HTTP ${res.status} ${res.statusText} ${t}`.trim());
       }
-      return;
+      // dumps ingest는 JSON을 주니까 읽어서 리턴
+      const j = await res.json().catch(() => null);
+      return j;
     } catch (e) {
       lastErr = e;
       const delay = RETRY_BASE_DELAY_MS * Math.pow(2, i);
@@ -378,6 +389,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             data: {
               modelId: model.modelId || "scoring-model-v1",
               modelUpdatedAt: model.modelUpdatedAt || model.generatedAt || "",
+              band: injectedScoreBand(score),
               url,
               norm,
               sha256,
@@ -392,6 +404,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             evidence: {
               modelId: model.modelId || "scoring-model-v1",
               modelUpdatedAt: model.modelUpdatedAt || model.generatedAt || "",
+              band: injectedScoreBand(score),
               score,
               hits,
               comboBonus: comboBonus || 0,
@@ -441,7 +454,53 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           },
         };
 
-        await postJsonWithRetry(SYSTEM_CONFIG.DUMPS_ENDPOINT, dumpEvent);
+        const dumpResp = await postJsonWithRetry(SYSTEM_CONFIG.DUMPS_ENDPOINT, dumpEvent);
+        // AI 결과가 응답에 있으면(중간점수 구간) 로컬에도 verdict 이벤트 발행
+        if (dumpResp && dumpResp.aiVerdict) {
+         const bonus = (dumpResp.aiVerdict === "MALICIOUS") ? 40 : 0;
+         const baseScoreNum = Number(scriptScore?.score);
+         const finalScore = Number.isFinite(baseScoreNum) ? (baseScoreNum + bonus) : null;
+          const aiSeverity =
+           (Number.isFinite(finalScore) && finalScore >= 80) ? "HIGH"
+           : (Number.isFinite(finalScore) && finalScore < 50) ? "LOW"
+           : (dumpResp.aiVerdict === "MALICIOUS") ? "HIGH" : "LOW";
+
+          const aiEvent = {
+            type: "INJECTED_SCRIPT_AI_VERDICT",
+            ruleId: "INJECTED_SCRIPT_AI_VERDICT",
+            ts: Date.now(),
+            sessionId: payload.sessionId || null,
+            tabId,
+            installId,
+            reportId: scoreReportId ? `AI#${scoreReportId}` : `AI#${sha256}`,
+            page: payload.page || sender?.tab?.url || "",
+            origin: payload.origin || "",
+            targetOrigin: payload.targetOrigin || "",
+            severity: aiSeverity,
+            scoreDelta: bonus,
+            data: {
+              sha256, norm,
+              baseReportId: scoreReportId || null,
+              score: scriptScore?.score ?? null,
+              bonus,
+              finalScore,
+              status: dumpResp.status || null,
+              aiVerdict: dumpResp.aiVerdict,
+              aiConfidence: dumpResp.aiConfidence ?? null,
+            },
+            evidence: {
+              sha256, norm,
+              baseReportId: scoreReportId || null,
+              score: scriptScore?.score ?? null,
+              bonus,
+              finalScore,
+              aiVerdict: dumpResp.aiVerdict,
+              aiConfidence: dumpResp.aiConfidence ?? null,
+            }
+          };
+
+          await Promise.allSettled(dispatcher.sinks.map(s => s.send(aiEvent, { sender })));
+        }
         sendResponse({ ok: true, scriptScore });
       } catch (e) {
           console.error("[BRS] dump transmit failed:", {
