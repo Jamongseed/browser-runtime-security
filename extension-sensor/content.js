@@ -54,8 +54,8 @@ const STORAGE_KEYS = {
             dataPoc: String(d.dataPoc || ""),
           };
 
-          chrome.runtime.sendMessage({ action: "BRS_SAVE_DUMP", payload }, () => {});
-        } catch (_) {}
+          chrome.runtime.sendMessage({ action: "BRS_SAVE_DUMP", payload }, () => { });
+        } catch (_) { }
         return;
       }
 
@@ -278,14 +278,14 @@ const STORAGE_KEYS = {
       const baseMeta = { ruleId, scoreDelta };
 
       const matched = ruleEngine ? ruleEngine.match({ type, data: eventData, ctx: {} }) : null;
-     const meta = matched ? ruleEngine.apply(matched, baseMeta) : baseMeta;
+      const meta = matched ? ruleEngine.apply(matched, baseMeta) : baseMeta;
 
-     // scoreDelta는 "센서 계산값"을 우선한다 (ruleset이 0으로 덮어쓰는 것 방지)
-     if (type === "INJECTED_SCRIPT_SCORE") {
-       const s = Number(eventData && (eventData.score ?? eventData.data?.score));
-       if (Number.isFinite(s)) meta.scoreDelta = s;
-       else meta.scoreDelta = baseMeta.scoreDelta;
-     }
+      // scoreDelta는 "센서 계산값"을 우선한다 (ruleset이 0으로 덮어쓰는 것 방지)
+      if (type === "INJECTED_SCRIPT_SCORE") {
+        const s = Number(eventData && (eventData.score ?? eventData.data?.score));
+        if (Number.isFinite(s)) meta.scoreDelta = s;
+        else meta.scoreDelta = baseMeta.scoreDelta;
+      }
 
       // (추가) XHR PROTO_TAMPER meta 저장(룰 적용된 severity 반영)
       if (type === "PROTO_TAMPER" && isXhrProtoTamper(eventData)) {
@@ -437,8 +437,8 @@ const STORAGE_KEYS = {
       }
     };
 
-    try { window.__BRS_SESSION_ID__ = reporter.sessionId; } catch (_) {}
-    
+    try { window.__BRS_SESSION_ID__ = reporter.sessionId; } catch (_) { }
+
     // page_hook 브릿지 + hook 주입
     startPageHookBridge(ruleEngine, reporter);
     //startHooks();
@@ -537,80 +537,152 @@ const STORAGE_KEYS = {
 
   // Shadow DOM 렌더링 함수
   function renderShadowToast(data, displayMs = 10000, tabId = null) {
-    const existingHost = document.getElementById('brs-toast-host');
-    if (existingHost) existingHost.remove();
+    let host = document.getElementById('brs-toast-host');
+    let root;
 
-    const host = document.createElement('div');
-    host.id = 'brs-toast-host';
-    Object.assign(host.style, {
-      position: 'fixed',
-      top: '0',
-      right: '0',
-      zIndex: '2147483647'
-    });
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'brs-toast-host';
+      // 바구니 설정: 우측 상단에 고정하고 아래로 쌓이도록 flex 설정
+      Object.assign(host.style, {
+        position: 'fixed',
+        top: '24px',
+        right: '24px',
+        zIndex: '2147483647',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '12px',
+        pointerEvents: 'none'
+      });
+      root = host.attachShadow({ mode: 'open' });
+      document.body.appendChild(host);
 
-    const root = host.attachShadow({ mode: 'open' });
-
-    const style = document.createElement('style');
-    style.textContent = `
-      .toast-box {
-        position: fixed; top: 20px; right: 20px;
-        background: ${data.severity === 'HIGH' ? '#ff4d4f' : '#2f3542'};
-        color: white; padding: 16px; border-radius: 8px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-        font-family: sans-serif; cursor: pointer;
-        animation: slideIn 0.3s ease-out;
-        min-width: 250px; line-height: 1.5;
+      const style = document.createElement('style');
+      style.textContent = `
+      .toast-card {
+        pointer-events: auto;
+        position: relative;
+        width: fit-content;
+        min-width: 320px;
+        max-width: 400px;
+        background: #ffffff;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+        border-radius: 8px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        overflow: hidden;
+        animation: slideIn 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        border-left: 5px solid #ccc;
+        display: flex; flex-direction: column;
+        cursor: pointer;
+        transition: transform 0.1s, background-color 0.2s;
       }
+      
+      .toast-card:hover {
+        background-color: #f8f9fa;
+        transform: translateY(-2px);
+        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.2);
+      }
+      
+      .toast-card:active {
+        transform: translateY(0);
+      }
+
+      .toast-card.HIGH { border-left-color: #ff4d4f; }
+      .toast-card.MEDIUM { border-left-color: #faad14; }
+      .toast-card.LOW { border-left-color: #1890ff; }
+
+      .toast-card.leaving {
+        opacity: 0;
+        transform: translateX(20px);
+        margin-top: -80px; 
+        pointer-events: none;
+      }
+
       @keyframes slideIn {
-        from { transform: translateX(100%); opacity: 0; }
+        from { transform: translateX(120%); opacity: 0; }
         to { transform: translateX(0); opacity: 1; }
       }
+      @keyframes fadeOut {
+        from { opacity: 1; transform: translateX(0); }
+        to { opacity: 0; transform: translateX(20px); }
+      }
+      
+      .header {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 14px 16px 8px;
+      }
+      .title-area { display: flex; align-items: center; gap: 8px; }
+      .title-text { font-size: 14px; font-weight: 700; color: #333; }
+      
+      .badge {
+        font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; color: white; background: #999;
+      }
+      .toast-card.HIGH .badge { background: #ff4d4f; }
+      .toast-card.MEDIUM .badge { background: #faad14; }
+      .toast-card.LOW .badge { background: #1890ff; }
+
       .close-btn {
-        position: absolute;
-        top: 5px;
-        right: 10px;
-        font-size: 18px;
-        font-weight: bold;
-        color: rgba(255, 255, 255, 0.6);
-        cursor: pointer;
-        transition: color 0.2s;
-        line-height: 1;
+        background: none; border: none; font-size: 20px; color: #bbb;
+        cursor: pointer; padding: 0; line-height: 1; transition: color 0.2s;
+        margin-left: 8px;
       }
-      .close-btn:hover {
-        color: white;
-      }
-      .toast-box {
-        position: relative;
+      .close-btn:hover { color: #333; }
 
+      .body {
+        padding: 4px 16px 16px; 
+        font-size: 13.5px; color: #555;
+        line-height: 1.5; word-break: keep-all; 
+      }
+      
+      .error-msg {
+        display: block; margin-top: 8px;
+        font-size: 12px; color: #ff4d4f; font-weight: 500;
       }
     `;
+      root.appendChild(style);
+    } else {
+      root = host.shadowRoot;
+    }
 
+    const severity = (data.severity || 'LOW').toUpperCase();
     const toast = document.createElement('div');
-    toast.className = 'toast-box';
+    toast.className = `toast-card ${severity}`;
     toast.innerHTML = `
-      <span class="close-btn" id="brs-close-btn">&times;</span>
-      <strong>⚠️ 보안 위협 탐지</strong><br>${data.message}
+      <div class="header">
+        <div class="title-area">
+          <span class="title-text">보안 위협 탐지</span>
+          <span class="badge">${severity}</span>
+        </div>
+        <button class="close-btn">&times;</button>
+      </div>
+      <div class="body">
+        ${data.message}
+      </div>
     `;
 
-    let timeoutId;
+    const removeToast = async () => {
+      toast.classList.add('leaving');
+
+      if (tabId) {
+        try { await chrome.storage.local.remove(`pending_toast_${tabId}`); } catch (_) { }
+      }
+
+      setTimeout(() => {
+        toast.remove();
+        if (root.querySelectorAll('.toast-card').length === 0) {
+          host.remove();
+        }
+      }, 300);
+    };
+
+    let timeoutId = setTimeout(removeToast, displayMs);
 
     const closeBtn = toast.querySelector('.close-btn');
     closeBtn.onclick = async (e) => {
       e.stopPropagation();
-
       if (timeoutId) clearTimeout(timeoutId);
 
-
-      if (tabId) {
-        try {
-          await chrome.storage.local.remove(`pending_toast_${tabId}`);
-        } catch (err) {
-          console.debug("[BRS] Cleanup failed on manual close");
-        }
-      }
-
-      host.remove();
+      await removeToast();
     };
 
     toast.onclick = async () => {
@@ -622,31 +694,24 @@ const STORAGE_KEYS = {
         });
 
         if (response && response.ok) {
-          host.remove();
+          await removeToast();
         } else {
-          const label = toast.querySelector('.toast-label');
-          if (label) label.textContent = "오류: 대시보드를 열 수 없습니다.";
+          const body = toast.querySelector('.body');
+          if (body && !body.querySelector('.error-msg')) {
+            const errSpan = document.createElement('span');
+            errSpan.className = 'error-msg';
+            errSpan.textContent = "오류: 대시보드를 열 수 없습니다.";
+            body.appendChild(errSpan);
+          }
           console.error("[BRS] Dashboard open failed:", response?.error);
         }
       } catch (err) {
         console.error("[BRS] Communication error:", err);
-        host.remove();
+        await removeToast();
       }
     };
 
-    root.appendChild(style);
     root.appendChild(toast);
-    document.body.appendChild(host);
-
-    // 10초 후 자동 소멸
-    timeoutId = setTimeout(async () => {
-      if (host.parentNode) host.remove();
-      if (tabId) {
-        try {
-          await chrome.storage.local.remove(`pending_toast_${tabId}`);
-        } catch (_) { }
-      }
-    }, displayMs);
   }
 
   init();

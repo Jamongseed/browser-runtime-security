@@ -1,21 +1,23 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BRS 설정 (Settings)</title>
   <link rel="stylesheet" href="brs-options-panel.css">
 </head>
+
 <body>
 
   <div class="layout-container">
-    
+
     <aside class="sidebar">
       <div class="brand">
         <div class="logo-icon">🛡️</div>
         <h1>BRS Security</h1>
       </div>
-      
+
       <nav class="menu">
         <ul>
           <li class="menu-item active" data-target="tab-general">
@@ -25,7 +27,7 @@
             <span class="icon">✅</span> 허용 목록 (Whitelist)
           </li>
           <li class="menu-item" data-target="tab-data">
-            <span class="icon">⚠️</span> 데이터 관리
+            <span class="icon">⚠️</span> 데이터 및 시스템 관리
           </li>
         </ul>
       </nav>
@@ -94,33 +96,32 @@
           <p>신뢰할 수 있는 도메인을 등록하면 탐지 및 경고 대상에서 제외됩니다.</p>
         </div>
         <div class="whitelist-editor-container">
-        <div class="editor-desc">
-            <div class="example-box"> 
-                <p class="sub-text main-instruction">신뢰할 수 있는 도메인을 한 줄에 하나씩 입력하세요.</p>
-                <p class="sub-text"><strong>단일 도메인:</strong> <code>google.com</code></p>
-                <p class="sub-text"><strong>서브도메인 포함:</strong> <code>*.google.com</code></p>
+          <div class="editor-desc">
+            <div class="example-box">
+              <p class="sub-text main-instruction">신뢰할 수 있는 도메인을 한 줄에 하나씩 입력하세요.</p>
+              <p class="sub-text"><strong>단일 도메인:</strong> <code>google.com</code></p>
+              <p class="sub-text"><strong>서브도메인 포함:</strong> <code>*.google.com</code></p>
             </div>
-        </div>
+          </div>
 
-        <label for="whitelistArea" class="sr-only"></label>
-        <textarea id="whitelistArea" class="styled-textarea" rows="15" 
-                placeholder="example.com&#10;*.google.com" 
-                spellcheck="false" disabled></textarea>
-        
-        <div class="editor-controls">
+          <label for="whitelistArea" class="sr-only"></label>
+          <textarea id="whitelistArea" class="styled-textarea" rows="15" placeholder="example.com&#10;*.google.com"
+            spellcheck="false" disabled></textarea>
+
+          <div class="editor-controls">
             <button id="btnEdit" class="btn btn-secondary">편집</button>
             <div id="editActions" style="display: none;">
-            <button id="btnCancel" class="btn btn-outline">취소</button>
-            <button id="btnSave" class="btn btn-primary">저장</button>
+              <button id="btnCancel" class="btn btn-outline">취소</button>
+              <button id="btnSave" class="btn btn-primary">저장</button>
             </div>
-        </div>
+          </div>
         </div>
 
       </section>
 
       <section id="tab-data" class="tab-content">
         <div class="section-header">
-          <h2>데이터 및 초기화</h2>
+          <h2>데이터 관리</h2>
           <p>저장된 로그를 관리하거나 설정을 초기 상태로 되돌립니다.</p>
         </div>
 
@@ -140,6 +141,24 @@
             <button id="resetSettingsBtn" class="btn btn-slate">초기화</button>
           </div>
         </div>
+
+        <hr class="section-divider">
+        <div style="margin-top: 56px;"></div>
+
+        <div class="section-header">
+          <h2>시스템 정보 및 업데이트</h2>
+          <p>현재 프로그램의 버전 상태를 관리합니다.</p>
+        </div>
+
+        <div class="management-box">
+          <div class="management-row">
+            <div>
+              <strong>확장 프로그램 업데이트</strong>
+              <p>현재 버전: <b>v1.0.0</b> <span id="updateStatus" class="update-info-text"></span></p>
+            </div>
+            <button id="checkUpdateBtn" class="btn btn-primary">업데이트</button>
+          </div>
+        </div>
       </section>
 
     </main>
@@ -147,4 +166,5 @@
 
   <script type="module" src="brs-options-panel.js"></script>
 </body>
+
 </html>

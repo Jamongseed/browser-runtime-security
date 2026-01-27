@@ -1,5 +1,21 @@
 import { STORAGE_KEYS } from './config.js';
+import { getThreatMessage } from './utils/threatMessages.js';
 
+// 시간 표시 함수
+function getRelativeTime(timestamp) {
+  const now = Date.now();
+  const diff = now - timestamp;
+
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (seconds < 60) return "방금 전";
+  if (minutes < 60) return `${minutes}분 전`;
+  if (hours < 24) return `${hours}시간 전`;
+  return `${days}일 전`;
+}
 
 // reportId 파라미터 추가
 function openDashboard(installId, reportId) {
@@ -131,6 +147,18 @@ document.addEventListener('DOMContentLoaded', () => {
       return log.tabId === currentTabId && isTargetSeverity;
     });
 
+    const count = sessionLogs.length;
+    const summaryArea = document.getElementById('status-summary');
+
+    if (summaryArea) {
+      if (count > 0) {
+        summaryArea.textContent = `현재 탭에서 총 ${count}건의 위협이 발견되었습니다.`;
+        summaryArea.style.display = 'block';
+      } else {
+        summaryArea.style.display = 'none';
+      }
+    }
+
     if (sessionLogs.length === 0) {
       renderEmpty(logArea, "현재 탭에서 탐지된<br>주요 위협(Medium 이상)이 없습니다.");
       return;
@@ -138,14 +166,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const logsToDisplay = sessionLogs
       .sort((a, b) => b.ts - a.ts)
-      .slice(0, 20);
+      .slice(0, 7);
 
     if (logArea) {
       logArea.innerHTML = '';
-      logsToDisplay.forEach(log => {
+
+      for (const log of logsToDisplay) {
         const siteInfo = log?.browserUrl || log?.targetOrigin || "Internal/Page";
 
-        const timeStr = new Date(log.ts).toLocaleTimeString();
+        const timeStr = getRelativeTime(log.ts);
+
+        const logTitle = await getThreatMessage(log.ruleId, "title");
 
         const itemDiv = document.createElement('div');
         itemDiv.className = `log-item ${log.severity}`;
@@ -158,7 +189,7 @@ document.addEventListener('DOMContentLoaded', () => {
         headerDiv.className = 'log-header';
 
         const typeSpan = document.createElement('span');
-        typeSpan.textContent = log.type;
+        typeSpan.textContent = logTitle;
 
         const timeSpan = document.createElement('span');
         timeSpan.className = 'log-time';
@@ -170,7 +201,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const originDiv = document.createElement('div');
         originDiv.style.fontSize = '11px';
         originDiv.style.marginTop = '4px';
-        originDiv.textContent = `SITE: ${siteInfo}`;
+        originDiv.textContent = `URL: ${siteInfo}`;
 
         const footerDiv = document.createElement('div');
         footerDiv.style.marginTop = '5px';
@@ -189,7 +220,7 @@ document.addEventListener('DOMContentLoaded', () => {
         itemDiv.appendChild(originDiv);
         itemDiv.appendChild(footerDiv);
         logArea.appendChild(itemDiv);
-      });
+      };
     }
   });
 });
