@@ -19,6 +19,10 @@ const routes = [
     component: Login,
   },
   {
+    path: "/user_front",
+    component: UserDashboard,
+  },
+  {
     path: "/user_front/dashboard",
     component: UserDashboard,
   },

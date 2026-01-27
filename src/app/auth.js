@@ -118,5 +118,5 @@ export function logout() {
   localStorage.removeItem("role");
 
   // ✅ 로그아웃 후 user 페이지로
-  window.location.replace("/app/user_front");
+  window.location.replace("/app/login");
 }
