@@ -221,6 +221,19 @@ document.addEventListener('DOMContentLoaded', () => {
         itemDiv.appendChild(footerDiv);
         logArea.appendChild(itemDiv);
       };
+
+      if (sessionLogs.length > 7) {
+        const moreLink = document.createElement('div');
+        moreLink.className = 'more-logs-link'; 
+
+        moreLink.textContent = `+ ${sessionLogs.length - 7}개의 위협 더 보기`;
+
+        moreLink.addEventListener('click', () => {
+          openDashboard(installId);
+        });
+
+        logArea.appendChild(moreLink);
+      }
     }
   });
 });
