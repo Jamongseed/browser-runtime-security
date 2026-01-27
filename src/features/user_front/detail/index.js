@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import TitleCard from "../../../components/Cards/TitleCard";
 import { getEventDetail, getRuleDescription } from "../../aws/AwsSearch";
+import { setInstallId } from "../../../app/auth";
 
 /** -----------------------------
  * Utils
@@ -1021,10 +1022,16 @@ export default function AdminEventDetailPage() {
   const [sp] = useSearchParams();
   const params = useParams();
 
-  const eventId =
-    params.eventId ||
-    sp.get("eventId");
+  const eventId = params.eventId || sp.get("eventId");
   const from = sp.get("from") || "";
+  const installId = sp.get("installId");
+  useEffect(() => {
+    // 2. installId가 존재할 때만 실행
+    if (installId) {
+      // 3. 현재 확정된 ID를 다시 저장소에 업데이트 (동기화)
+      setInstallId(installId);
+    }
+  }, [installId]); // URL이 바뀌거나 계산된 installId가 바뀔 때 실행
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
@@ -1137,7 +1144,12 @@ export default function AdminEventDetailPage() {
   // ✅ VM 생성: KPI/Activity가 여기서 결정됨(타입 바뀌어도 UI 고정)
   const vm = useMemo(() => {
     if (!detail) return null;
-    return buildEventViewModel({ detail, summary, parsedPayload, ruleDescription });
+    return buildEventViewModel({
+      detail,
+      summary,
+      parsedPayload,
+      ruleDescription,
+    });
   }, [detail, summary, parsedPayload, ruleDescription]);
 
   function onBack() {
@@ -1169,8 +1181,8 @@ export default function AdminEventDetailPage() {
         <div className="p-4 border rounded-xl">
           <div className="font-semibold mb-1">eventId가 필요해요</div>
           <div className="text-sm opacity-70">
-            예: <span>/app/admin_front/detail/{"{eventId}"}</span>{" "}
-            또는 <span>?eventId=...</span>
+            예: <span>/app/admin_front/detail/{"{eventId}"}</span> 또는{" "}
+            <span>?eventId=...</span>
           </div>
         </div>
       ) : null}
@@ -1185,88 +1197,104 @@ export default function AdminEventDetailPage() {
       ) : null}
 
       {!loading && !err && detail && vm ? (
-  <div className="space-y-4">
-    {/* Header + KPI */}
-    <div className="card bg-base-100 border">
-      <div className="card-body gap-3">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className={sevBadgeClass(summary.severity)}>
-                {String(summary.severity || "UNKNOWN").toUpperCase()}
-              </span>
-              <span className="text-sm opacity-70">{sevKo(summary.severity)}</span>
-            </div>
+        <div className="space-y-4">
+          {/* Header + KPI */}
+          <div className="card bg-base-100 border">
+            <div className="card-body gap-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className={sevBadgeClass(summary.severity)}>
+                      {String(summary.severity || "UNKNOWN").toUpperCase()}
+                    </span>
+                    <span className="text-sm opacity-70">
+                      {sevKo(summary.severity)}
+                    </span>
+                  </div>
 
-            <div className="mt-2 text-lg font-bold">{vm.title}</div>
+                  <div className="mt-2 text-lg font-bold">{vm.title}</div>
 
-            <div className="mt-2 text-xs opacity-70">
-              type: {summary.type || parsedPayload?.type || "-"}
+                  <div className="mt-2 text-xs opacity-70">
+                    type: {summary.type || parsedPayload?.type || "-"}
+                  </div>
+                </div>
+
+                <div className="text-right text-sm">
+                  <div className="opacity-60">발생 시각</div>
+                  <div>{fmtTs(summary.tsMs)}</div>
+                  {summary.tsMs ? (
+                    <div className="opacity-70">{relTime(summary.tsMs)}</div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                {vm.kpis.slice(0, 4).map((k) => (
+                  <KpiCard
+                    key={k.key}
+                    label={k.label}
+                    value={formatKpiValue(k)}
+                    hint={k.hint}
+                  />
+                ))}
+              </div>
             </div>
           </div>
 
-          <div className="text-right text-sm">
-            <div className="opacity-60">발생 시각</div>
-            <div>{fmtTs(summary.tsMs)}</div>
-            {summary.tsMs ? (
-              <div className="opacity-70">{relTime(summary.tsMs)}</div>
-            ) : null}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
+            <Section title="이벤트">
+              <div className="mt-2 text-sm divide-y divide-base-200">
+                <div className="grid grid-cols-[100px_1fr] items-start py-3">
+                  <span className="opacity-60">탐지 규칙</span>
+                  <span className="break-all">{effectiveRuleId}</span>
+                </div>
+
+                <div className="grid grid-cols-[100px_1fr] items-start py-3">
+                  <span className="opacity-60">원인</span>
+                  <span className="break-all">
+                    {ruleDescription?.oneLine || "-"}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-[100px_1fr] items-start py-3">
+                  <span className="opacity-60">이벤트 유형</span>
+                  <span className="break-all">
+                    {summary.type || parsedPayload?.type || "-"}
+                  </span>
+                </div>
+
+                {summary.pageHost ? (
+                  <div className="grid grid-cols-[100px_1fr] items-start py-3">
+                    <span className="opacity-60">위험 도메인</span>
+                    <span className="break-all">{summary.pageHost}</span>
+                  </div>
+                ) : null}
+              </div>
+            </Section>
+
+            <Section title="사용자/환경">
+              <KV k="대상 페이지" v={summary.targetHost || "-"} mono />
+              <KV
+                k="유저 Id"
+                v={summary.installId || "-"}
+                mono
+                copy={summary.installId || ""}
+              />
+              <KV
+                k="세션 Id"
+                v={summary.sessionId || "-"}
+                mono
+                copy={summary.sessionId || ""}
+              />
+              <KV
+                k="현재 링크"
+                v={currentUrlRef.current || null}
+                copy={currentUrlRef.current || ""}
+              />
+            </Section>
           </div>
         </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          {vm.kpis.slice(0, 4).map((k) => (
-            <KpiCard
-              key={k.key}
-              label={k.label}
-              value={formatKpiValue(k)}
-              hint={k.hint}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
-      <Section title="이벤트">
-        <div className="mt-2 text-sm divide-y divide-base-200">
-          <div className="grid grid-cols-[100px_1fr] items-start py-3">
-            <span className="opacity-60">탐지 규칙</span>
-            <span className="break-all">{effectiveRuleId}</span>
-          </div>
-
-          <div className="grid grid-cols-[100px_1fr] items-start py-3">
-            <span className="opacity-60">원인</span>
-            <span className="break-all">{ruleDescription?.oneLine || "-"}</span>
-          </div>
-
-          <div className="grid grid-cols-[100px_1fr] items-start py-3">
-            <span className="opacity-60">이벤트 유형</span>
-            <span className="break-all">
-              {summary.type || parsedPayload?.type || "-"}
-            </span>
-          </div>
-
-          {summary.pageHost ? (
-            <div className="grid grid-cols-[100px_1fr] items-start py-3">
-              <span className="opacity-60">위험 도메인</span>
-              <span className="break-all">{summary.pageHost}</span>
-            </div>
-          ) : null}
-        </div>
-      </Section>
-
-      <Section title="사용자/환경">
-        <KV k="대상 페이지" v={summary.targetHost || "-"} mono />
-        <KV k="유저 Id" v={summary.installId || "-"} mono copy={summary.installId || ""} />
-        <KV k="세션 Id" v={summary.sessionId || "-"} mono copy={summary.sessionId || ""} />
-        <KV k="현재 링크" v={currentUrlRef.current || null} copy={currentUrlRef.current || ""} />
-      </Section>
-    </div>
-  </div>
-) : null}       
-
-        
+      ) : null}
     </TitleCard>
   );
 }
