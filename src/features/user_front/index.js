@@ -36,9 +36,28 @@ function Dashboard() {
 
   // useParams에서 가져오는 변수명을 urlId로 잠시 별칭을 주어 이름 충돌을 피합니다.
   const { installId: urlId } = useParams();
+  const [installId, setInstallIdState] = useState(() => {
+    // 1. URL값이 없으면 저장소(getInstallId)에서 꺼내와서 'installId' 결정
+    const id = urlId || getInstallId();
+    return id;
+  });
 
-  // 1. URL값이 없으면 저장소(getInstallId)에서 꺼내와서 'installId' 결정
-  const installId = urlId || getInstallId();
+  useEffect(() => {
+    // 2. 만약 installId가 아예 없다면 팝업창을 띄움
+    if (!installId) {
+      const userInput = prompt("서비스 이용을 위해 Install ID를 입력해주세요.");
+
+      if (userInput && userInput.trim() !== "") {
+        setInstallId(userInput); // auth.js의 저장 함수 호출
+        setInstallIdState(userInput); // 현재 상태 업데이트
+      } else {
+        // 사용자가 입력을 취소하거나 빈 값을 넣었을 때 처리 (예: 이전 페이지로 보내기)
+        alert("ID가 없으면 데이터를 불러올 수 없습니다.");
+        navigate("/"); // 필요시 홈으로 이동
+      }
+    }
+  }, [installId]);
+
   //console.log("대시보드에서 사용할 최종 ID:", installId);
 
   useEffect(() => {
@@ -46,7 +65,6 @@ function Dashboard() {
     if (installId) {
       // 3. 현재 확정된 ID를 다시 저장소에 업데이트 (동기화)
       setInstallId(installId);
-
       //console.log("저장소에 적용된 ID:", getInstallId());
     }
   }, [urlId, installId]); // URL이 바뀌거나 계산된 installId가 바뀔 때 실행
