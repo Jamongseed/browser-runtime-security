@@ -243,6 +243,7 @@ function JsonViewer({ title, obj, raw }) {
 // 1) Category enum (고정)
 const EventCategory = {
   SYSTEM: "system",
+  MIRRORING: "xhr_mirroring",
   INJECTED_SCRIPT_SCORE: "scoring",
   DOM_INJECTION: "dom_injection",
   PERSISTENCE: "persistence",
@@ -260,6 +261,9 @@ const EventCategory = {
 const TYPE_TO_CATEGORY = {
   // system
   SENSOR_READY: EventCategory.SYSTEM,
+
+  // mirroring
+  XHR_MIRRORING_SUSPECT: EventCategory.MIRRORING,
 
   // score
   INJECTED_SCRIPT_SCORE: EventCategory.INJECTED_SCRIPT_SCORE,
@@ -282,7 +286,6 @@ const TYPE_TO_CATEGORY = {
 
   // network
   SUSP_NETWORK_CALL: EventCategory.NETWORK,
-  XHR_MIRRORING_SUSPECT: EventCategory.NETWORK,
 
   // code exec / obfuscation
   SUSP_ATOB_CALL: EventCategory.CODE_EXEC,
@@ -323,6 +326,117 @@ function formatKpiValue(k) {
 }
 
 // VM builders
+function buildXhrMirroringSuspectVM({ detail, summary, parsedPayload, ruleOneLine }) {
+  const det = detail?.details || parsedPayload || {};
+  const d = det?.data || {};
+  const net = d.network || {};
+  const proto = d.proto || {};
+  const an = d.analysis || {};
+  const ev = d.evidence || d?.evidence || {};
+  const chain = d.chain || {};
+
+  const api = net.api || null;                 // fetch/xhr
+  const method = net.method || null;           // GET/POST
+  const crossSite = net.crossSite ?? null;     // true/false
+  const url = net.abs || net.url || null;
+  const targetOrigin = net.targetOrigin || null;
+
+  const protoTarget = proto.target || null;    // XMLHttpRequest.prototype.send
+  const protoRuleId = proto.ruleId || null;
+  const protoSeverity = proto.severity || null;
+  const dtMs = d.dtMs ?? null;
+  const windowMs = d.windowMs ?? null;
+
+  const suspicionScore = an.suspicionScore ?? null;
+  const suspicionBand = an.suspicionBand || null;
+
+  const stackHead = ev.stackHead || null;
+
+  const incidentId = chain.incidentId || null;
+  const scriptNorm = chain.norm || null;
+  const scriptId = chain.scriptId || null;
+  const reinjectCount = chain.reinjectCount ?? null;
+  const startedAt = chain.startedAt ?? null;
+
+  // 상단 KPI (필요한 것만)
+  const kpis = [
+    kpiNum("risk", "Risk Score", summary.scoreDelta ?? null, "scoreDelta"),
+    kpiText("api", "API", api, "fetch/xhr 등"),
+    kpiText("method", "Method", method, "GET/POST 등"),
+    kpiBool("crossSite", "Cross-site", crossSite, "외부 도메인 전송 여부"),
+  ].filter((k) => shouldShowValue(k.value, { hideZero: true, hideDash: true }));
+
+  // Activity: 사건에서 “바로 판단에 필요한 값”
+  const activityRows = [
+    { label: "network.url", value: url },
+    { label: "network.targetOrigin", value: targetOrigin },
+    { label: "network.crossSite", value: crossSite },
+    { label: "network.method", value: method },
+    { label: "network.api", value: api },
+    { label: "windowMs", value: windowMs },
+    { label: "dtMs", value: dtMs },
+    { label: "analysis.suspicionScore", value: suspicionScore },
+    { label: "analysis.suspicionBand", value: suspicionBand },
+  ].filter((r) => shouldShowValue(r.value, { hideZero: true, hideDash: true }));
+
+  // Attribution: “누가 후킹했나 / 어떤 체인인가”
+  const attributionRows = [
+    { label: "proto.target", value: protoTarget },
+    { label: "proto.ruleId", value: protoRuleId },
+    { label: "proto.severity", value: protoSeverity },
+    { label: "evidence.stackHead", value: stackHead },
+    { label: "chain.norm", value: scriptNorm },
+    { label: "chain.scriptId", value: scriptId },
+    { label: "chain.incidentId", value: incidentId },
+    { label: "chain.reinjectCount", value: reinjectCount },
+  ].filter((r) => shouldShowValue(r.value, { hideZero: true, hideDash: true }));
+
+  // 추천 조치 (항상 2~3줄 + 조건부)
+  const recommendations = [
+    {
+      when: true,
+      text: "XHR/Fetch 미러링 의심 이벤트입니다. 후킹(proto)과 네트워크 호출(network)을 함께 보고 실제 유출 경로인지 판단하세요.",
+    },
+    {
+      when: true,
+      text: "stackHead/initiator(로더) 기준으로 주입 주체를 추적하고, 동일 incidentId로 연관 이벤트를 묶어 타임라인으로 확인하세요.",
+    },
+    {
+      when: !!protoTarget,
+      text: `후킹 대상 확인: ${protoTarget} (${protoRuleId || "-"}) — 브라우저 통신 API를 가로채는 패턴일 수 있습니다.`,
+    },
+    {
+      when: crossSite === true,
+      text: `Cross-site 전송 감지: ${targetOrigin || "-"} — 외부 도메인으로 데이터가 전송될 가능성이 있어 우선순위를 높게 두세요.`,
+    },
+    {
+      when: String(method || "").toUpperCase() === "POST",
+      text: "POST 요청은 데이터 전송 가능성이 큽니다. body/헤더에 민감 정보가 포함되는지 확인하세요(가능하면 샘플링/마스킹 저장).",
+    },
+    {
+      when: reinjectCount != null && reinjectCount > 0,
+      text: `재주입 징후(reinjectCount=${reinjectCount}): 지속성/반복 주입 패턴 가능. chain.norm 기준으로 동일 로더를 탐색하세요.`,
+    },
+    {
+      when: suspicionScore != null,
+      text: `의심 점수: ${suspicionScore} (${suspicionBand || "-"}) — 점수 상승 요인(후킹+외부전송+체인)을 우선 확인하세요.`,
+    },
+  ].filter((r) => r.when);
+
+  return {
+    category: "mirroring",
+    title: `의심 네트워크 호출`,
+    oneLine:
+      ruleOneLine ||
+      "XHR 요청/응답이 복제되어 외부로 전송될 수 있는 정황이 감지되었습니다(정보 유출 위험).",
+    kpis,
+    activityRows,
+    attributionRows,
+    evidenceObj: det,
+    recommendations,
+  };
+}
+
 function buildInjectedScriptScoreVM({ detail, summary, parsedPayload, ruleOneLine }) {
   const det = detail?.details || {};
   const data = det?.data || parsedPayload?.data || {};
@@ -721,22 +835,59 @@ function buildXssDataVM({ detail, summary, parsedPayload, ruleOneLine }) {
   };
 }
 
+function parseProtoTarget(target) {
+  const t = String(target || "");
+  const match = t.match(/^([A-Za-z0-9_$.]+)\.prototype\.([A-Za-z0-9_$]+)$/);
+  if (match) {
+    const objRaw = match[1];
+    const prop = match[2] || "-";
+
+    const obj = objRaw === "XHR" ? "XMLHttpRequest"
+      : objRaw === "Form" ? "HTMLFormElement"
+      : objRaw;
+
+    const family =
+      obj === "XMLHttpRequest" ? "xhr"
+      : obj === "HTMLFormElement" ? "form"
+      : "other";
+
+    return { family, prop, obj: `${obj}.prototype` };
+  }
+  // Backward compatibility for legacy strings
+  if (t.startsWith("XHR.prototype.")) {
+    return { family: "xhr", prop: t.split("XHR.prototype.")[1] || "-", obj: "XMLHttpRequest.prototype" };
+  }
+  if (t.startsWith("XMLHttpRequest.prototype.")) {
+    return { family: "xhr", prop: t.split("XMLHttpRequest.prototype.")[1] || "-", obj: "XMLHttpRequest.prototype" };
+  }
+  if (t.startsWith("HTMLFormElement.prototype.")) {
+    return { family: "form", prop: t.split("HTMLFormElement.prototype.")[1] || "-", obj: "HTMLFormElement.prototype" };
+  }
+
+  return { family: "other", prop: "-", obj: "-" };
+}
 function buildProtoTamperVM({ detail, summary, parsedPayload, ruleOneLine }) {
   const det = detail?.details || {};
   const data = det?.data || {};
   const pData = parsedPayload?.data || {};
   const src = normalizeSrc({ ...pData, ...data });
 
+  const target = src.target || src.where || "-";
+  const parsed = parseProtoTarget(target);
+
   const type = det.type || parsedPayload?.type || summary.type || "UNKNOWN";
 
-  const prop = src.prop || src.property || src.targetProp || "-";
-  const obj = src.obj || src.object || "-";
+  const prop = src.prop || src.property || src.targetProp || (parsed.prop !== "-" ? parsed.prop : "-");
+  const obj = src.obj || src.object || (parsed.obj !== "-" ? parsed.obj : "-");
   const initiatorUrl = src.initiatorUrl || summary.initiatorUrl || "-";
   const initiatorCrossSite = src.initiatorCrossSite ?? summary.mismatch ?? null;
 
   const oneLine =
     ruleOneLine ||
     `브라우저 API 후킹(proto tamper) 징후: ${obj}.${prop}`;
+
+  if (parsed.family === "xhr") return buildProtoTamperXhrVM({ detail, summary, parsedPayload, ruleOneLine, src, parsed });
+  if (parsed.family === "form") return buildProtoTamperFormVM({ detail, summary, parsedPayload, ruleOneLine, src, parsed });
 
   return {
     title: summary.severity ? `${sevKo(summary.severity)}: API 후킹/변조 의심` : "API 후킹/변조 의심",
@@ -758,6 +909,80 @@ function buildProtoTamperVM({ detail, summary, parsedPayload, ruleOneLine }) {
     recommendations: [
       { when: true, text: "proto tamper는 다른 공격(폼 탈취/네트워크 유출/리다이렉트)의 기반입니다(연관 이벤트 탐색 필수)." },
       { when: initiatorCrossSite === true, text: "외부 기원 후킹: 공급망/주입 가능성(차단/검증 우선)." },
+    ],
+  };
+}
+
+function extractEndpointFromCode(code) {
+  if (!code || typeof code !== "string") return null;
+
+  // fetch("https://...")
+  const fetchMatch = code.match(/fetch\s*\(\s*["'`](https?:\/\/[^"'`]+)["'`]/i);
+  if (fetchMatch) return fetchMatch[1];
+
+  // xhr.open("POST", "https://...")
+  const xhrMatch = code.match(/\.open\s*\([^,]+,\s*["'`](https?:\/\/[^"'`]+)["'`]/i);
+  if (xhrMatch) return xhrMatch[1];
+
+  return null;
+}
+
+function buildProtoTamperXhrVM({ summary, ruleOneLine, src, parsed }) {
+  const an = src.analysis || {};
+  const ev = src.evidence || {};
+  const targetFull =
+    (parsed.obj && parsed.prop && parsed.obj !== "-" && parsed.prop !== "-")
+      ? `${parsed.obj}.${parsed.prop}`
+      : (src.target || "-");
+  const initiator = an?.head?.file || an?.head?.url || an?.head || ev?.scriptUrl || "-";
+  const endpoint = ev?.url || ev?.dest || ev?.endpoint || an?.endpoint || extractEndpointFromCode(an?.head) ||extractEndpointFromCode(initiator) || "-";
+
+  return {
+    title: summary.severity ? `${sevKo(summary.severity)}: XHR 프로토타입 변조 의심` : "XHR 프로토타입 변조 의심",
+    oneLine: ruleOneLine || `XHR ${parsed.prop} 후킹 의심`,
+    category: EventCategory.PROTO_TAMPER,
+    kpis: [
+      kpiNum("risk", "Risk Score", summary.scoreDelta),
+      kpiText("target", "Target", targetFull, "XHR 핵심 네트워크 메서드"),
+      kpiText("endpoint", "Endpoint", endpoint, "External data exfiltration"),
+      kpiBool("isNative", "Is Native", src.isNative, "native 여부"),
+    ],
+    activityRows: [
+      { label: "data.target", value: src.target || "-" },
+      { label: "analysis.suspicionScore", value: an.suspicionScore ?? "-" },
+      { label: "analysis.head", value: an.head ?? "-" },
+      { label: "analysis.initiator", value: initiator }, // KPI와 동일 값
+      { label: "data.isNative", value: src.isNative ?? "-" }, // 여기로 이동
+      { label: "evidence.desc", value: ev.desc ? JSON.stringify(ev.desc) : "-" },
+    ],
+    recommendations: [
+      { when: true, text: "XHR 핵심 메서드 후킹은 유출/미러링과 결합될 가능성이 높습니다(허용 SDK allowlist, initiator/스택 확인)." }, // PoC-E 논지 :contentReference[oaicite:20]{index=20}
+      { when: true, text: "가능하면 동일 세션의 외부 스크립트 로드(DYN_SCRIPT_INSERT)와 함께 체인으로 보세요." }, // PoC-E 체인 :contentReference[oaicite:21]{index=21}
+    ],
+  };
+}
+
+function buildProtoTamperFormVM({ summary, ruleOneLine, src, parsed }) {
+  return {
+    title: summary.severity ? `${sevKo(summary.severity)}: 폼 제출 프로토타입 변조 의심` : "폼 제출 프로토타입 변조 의심",
+    oneLine: ruleOneLine || `Form ${parsed.prop} 후킹 의심`,
+    category: EventCategory.PROTO_TAMPER,
+    kpis: [
+      kpiNum("risk", "Risk Score", summary.scoreDelta),
+      kpiText("subtype", "Subtype", "form", "PROTO_TAMPER/Form"),
+      kpiText("target", "Target", parsed.prop, "submit/requestSubmit"),
+      kpiBool("isNative", "Is Native", src.isNative, "native 여부"),
+    ],
+    activityRows: [
+      { label: "data.target", value: src.target || "-" }, // PoC-F :contentReference[oaicite:24]{index=24}
+      { label: "valueHead", value: src.valueHead || "-" },
+      { label: "prevFp", value: src.prevFp || "-" },
+      { label: "nextFp", value: src.nextFp || "-" },
+      { label: "desc", value: src.desc ? JSON.stringify(src.desc) : "-" },
+    ],
+    recommendations: [
+      { when: true, text: "폼 제출 API 후킹은 자격증명 유출 체인의 시작점일 수 있습니다(이후 FORM_SUBMIT / SUSP_NETWORK_CALL 연계 확인)." }, // PoC-F :contentReference[oaicite:25]{index=25}
+      { when: true, text: "주의: 일부 프레임워크/보안 에이전트가 submit 주변을 건드릴 수 있으니 allowlist 정책을 같이 두는 게 안전합니다." }, // PoC-F 오탐 :contentReference[oaicite:26]{index=26}
     ],
   };
 }
@@ -1008,7 +1233,10 @@ function buildEventViewModel({ detail, summary, parsedPayload, ruleDescription }
 
     case EventCategory.INJECTED_SCRIPT_SCORE:
       return buildInjectedScriptScoreVM({ detail, summary, parsedPayload, ruleOneLine });
-
+    
+    case EventCategory.MIRRORING:
+      return buildXhrMirroringSuspectVM({ detail, summary, parsedPayload, ruleOneLine });
+    
     default:
       return buildGenericVM({ summary, ruleOneLine });
   }

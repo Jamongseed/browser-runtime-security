@@ -841,22 +841,59 @@ function buildXssDataVM({ detail, summary, parsedPayload, ruleOneLine }) {
   };
 }
 
+function parseProtoTarget(target) {
+  const t = String(target || "");
+  const match = t.match(/^([A-Za-z0-9_$.]+)\.prototype\.([A-Za-z0-9_$]+)$/);
+  if (match) {
+    const objRaw = match[1];
+    const prop = match[2] || "-";
+
+    const obj = objRaw === "XHR" ? "XMLHttpRequest"
+      : objRaw === "Form" ? "HTMLFormElement"
+      : objRaw;
+
+    const family =
+      obj === "XMLHttpRequest" ? "xhr"
+      : obj === "HTMLFormElement" ? "form"
+      : "other";
+
+    return { family, prop, obj: `${obj}.prototype` };
+  }
+  // Backward compatibility for legacy strings
+  if (t.startsWith("XHR.prototype.")) {
+    return { family: "xhr", prop: t.split("XHR.prototype.")[1] || "-", obj: "XMLHttpRequest.prototype" };
+  }
+  if (t.startsWith("XMLHttpRequest.prototype.")) {
+    return { family: "xhr", prop: t.split("XMLHttpRequest.prototype.")[1] || "-", obj: "XMLHttpRequest.prototype" };
+  }
+  if (t.startsWith("HTMLFormElement.prototype.")) {
+    return { family: "form", prop: t.split("HTMLFormElement.prototype.")[1] || "-", obj: "HTMLFormElement.prototype" };
+  }
+
+  return { family: "other", prop: "-", obj: "-" };
+}
 function buildProtoTamperVM({ detail, summary, parsedPayload, ruleOneLine }) {
   const det = detail?.details || {};
   const data = det?.data || {};
   const pData = parsedPayload?.data || {};
   const src = normalizeSrc({ ...pData, ...data });
 
+  const target = src.target || src.where || "-";
+  const parsed = parseProtoTarget(target);
+
   const type = det.type || parsedPayload?.type || summary.type || "UNKNOWN";
 
-  const prop = src.prop || src.property || src.targetProp || "-";
-  const obj = src.obj || src.object || "-";
+  const prop = src.prop || src.property || src.targetProp || (parsed.prop !== "-" ? parsed.prop : "-");
+  const obj = src.obj || src.object || (parsed.obj !== "-" ? parsed.obj : "-");
   const initiatorUrl = src.initiatorUrl || summary.initiatorUrl || "-";
   const initiatorCrossSite = src.initiatorCrossSite ?? summary.mismatch ?? null;
 
   const oneLine =
     ruleOneLine ||
     `브라우저 API 후킹(proto tamper) 징후: ${obj}.${prop}`;
+
+  if (parsed.family === "xhr") return buildProtoTamperXhrVM({ detail, summary, parsedPayload, ruleOneLine, src, parsed });
+  if (parsed.family === "form") return buildProtoTamperFormVM({ detail, summary, parsedPayload, ruleOneLine, src, parsed });
 
   return {
     title: summary.severity ? `${sevKo(summary.severity)}: API 후킹/변조 의심` : "API 후킹/변조 의심",
@@ -880,6 +917,97 @@ function buildProtoTamperVM({ detail, summary, parsedPayload, ruleOneLine }) {
       { when: initiatorCrossSite === true, text: "외부 기원 후킹: 공급망/주입 가능성(차단/검증 우선)." },
     ],
   };
+}
+
+function extractEndpointFromCode(code) {
+  if (!code || typeof code !== "string") return null;
+
+  // fetch("https://...")
+  const fetchMatch = code.match(/fetch\s*\(\s*["'`](https?:\/\/[^"'`]+)["'`]/i);
+  if (fetchMatch) return fetchMatch[1];
+
+  // xhr.open("POST", "https://...")
+  const xhrMatch = code.match(/\.open\s*\([^,]+,\s*["'`](https?:\/\/[^"'`]+)["'`]/i);
+  if (xhrMatch) return xhrMatch[1];
+
+  return null;
+}
+
+function buildProtoTamperXhrVM({ summary, ruleOneLine, src, parsed }) {
+  const an = src.analysis || {};
+  const ev = src.evidence || {};
+  const targetFull =
+    (parsed.obj && parsed.prop && parsed.obj !== "-" && parsed.prop !== "-")
+      ? `${parsed.obj}.${parsed.prop}`
+      : (src.target || "-");
+  const initiator = an?.head?.file || an?.head?.url || an?.head || ev?.scriptUrl || "-";
+  const endpoint = ev?.url || ev?.dest || ev?.endpoint || an?.endpoint || extractEndpointFromCode(an?.head) ||extractEndpointFromCode(initiator) || "-";
+
+  return {
+    title: summary.severity ? `${sevKo(summary.severity)}: XHR 프로토타입 변조 의심` : "XHR 프로토타입 변조 의심",
+    oneLine: ruleOneLine || `XHR ${parsed.prop} 후킹 의심`,
+    category: EventCategory.PROTO_TAMPER,
+    kpis: [
+      kpiNum("risk", "Risk Score", summary.scoreDelta),
+      kpiText("target", "Target", targetFull, "XHR 핵심 네트워크 메서드"),
+      kpiText("endpoint", "Endpoint", endpoint, "External data exfiltration"),
+      kpiBool("isNative", "Is Native", src.isNative, "native 여부"),
+    ],
+    activityRows: [
+      { label: "data.target", value: src.target || "-" },
+      { label: "analysis.suspicionScore", value: an.suspicionScore ?? "-" },
+      { label: "analysis.head", value: an.head ?? "-" },
+      { label: "analysis.initiator", value: initiator }, // KPI와 동일 값
+      { label: "data.isNative", value: src.isNative ?? "-" }, // 여기로 이동
+      { label: "evidence.desc", value: ev.desc ? JSON.stringify(ev.desc) : "-" },
+    ],
+    recommendations: [
+      { when: true, text: "XHR 핵심 메서드 후킹은 유출/미러링과 결합될 가능성이 높습니다(허용 SDK allowlist, initiator/스택 확인)." }, // PoC-E 논지 :contentReference[oaicite:20]{index=20}
+      { when: true, text: "가능하면 동일 세션의 외부 스크립트 로드(DYN_SCRIPT_INSERT)와 함께 체인으로 보세요." }, // PoC-E 체인 :contentReference[oaicite:21]{index=21}
+    ],
+  };
+}
+
+function buildProtoTamperFormVM({ summary, ruleOneLine, src, parsed }) {
+  return {
+    title: summary.severity ? `${sevKo(summary.severity)}: 폼 제출 프로토타입 변조 의심` : "폼 제출 프로토타입 변조 의심",
+    oneLine: ruleOneLine || `Form ${parsed.prop} 후킹 의심`,
+    category: EventCategory.PROTO_TAMPER,
+    kpis: [
+      kpiNum("risk", "Risk Score", summary.scoreDelta),
+      kpiText("subtype", "Subtype", "form", "PROTO_TAMPER/Form"),
+      kpiText("target", "Target", parsed.prop, "submit/requestSubmit"),
+      kpiBool("isNative", "Is Native", src.isNative, "native 여부"),
+    ],
+    activityRows: [
+      { label: "data.target", value: src.target || "-" }, // PoC-F :contentReference[oaicite:24]{index=24}
+      { label: "valueHead", value: src.valueHead || "-" },
+      { label: "prevFp", value: src.prevFp || "-" },
+      { label: "nextFp", value: src.nextFp || "-" },
+      { label: "desc", value: src.desc ? JSON.stringify(src.desc) : "-" },
+    ],
+    recommendations: [
+      { when: true, text: "폼 제출 API 후킹은 자격증명 유출 체인의 시작점일 수 있습니다(이후 FORM_SUBMIT / SUSP_NETWORK_CALL 연계 확인)." }, // PoC-F :contentReference[oaicite:25]{index=25}
+      { when: true, text: "주의: 일부 프레임워크/보안 에이전트가 submit 주변을 건드릴 수 있으니 allowlist 정책을 같이 두는 게 안전합니다." }, // PoC-F 오탐 :contentReference[oaicite:26]{index=26}
+    ],
+  };
+}
+
+
+
+function extractFirstUrl(text) {
+  if (!text) return null;
+  const m = String(text).match(/https?:\/\/[^\s"')]+/i);
+  return m ? m[0] : null;
+}
+
+function findEndpoint(findings = []) {
+  const f = findings.find((x) => String(x.kind || "").toLowerCase().includes("endpoint"));
+  if (!f) return { endpointUrl: null, endpointEvidence: null };
+
+  const evidenceText = f.evidence ? String(f.evidence) : "";
+  const endpointUrl = extractFirstUrl(evidenceText);
+  return { endpointUrl, endpointEvidence: evidenceText || null };
 }
 
 function buildNetworkVM({ detail, summary, parsedPayload, ruleOneLine }) {
@@ -943,9 +1071,14 @@ function buildUiHijackVM({ detail, summary, parsedPayload, ruleOneLine }) {
   const type = det.type || parsedPayload?.type || summary.type || "UNKNOWN";
 
   // 공통 타이밍/트리거
-  const dtMs = src.dtMs ?? src.deltaMs ?? src.withinMs ?? null; // 룰마다 다를 수 있어 방어
+  const dtMsRaw = src.deltaMsFromDown ?? src.dtMs ?? src.deltaMs ?? src.withinMs ?? null;
+  const dtMs = typeof dtMsRaw === "number" ? dtMsRaw : toNum(dtMsRaw);
+
   const within50ms =
     src.within50ms ?? (typeof dtMs === "number" ? dtMs <= 50 : null);
+
+  const within200ms =
+    src.within200ms ?? (typeof dtMs === "number" ? dtMs <= 200 : null);
 
   // INVISIBLE_LAYER_DETECTED 계열로 흔히 기대되는 필드들(없어도 -로 처리됨)
   const overlaySelector =
@@ -957,8 +1090,8 @@ function buildUiHijackVM({ detail, summary, parsedPayload, ruleOneLine }) {
 
   // LINK_HREF_SWAP_DETECTED 계열로 흔히 기대되는 필드들
   const originalHref =
-    src.originalHref || src.beforeHref || src.prevHref || null;
-  const newHref = src.newHref || src.afterHref || src.nextHref || null;
+    src.oldHrefAbs || src.oldHrefRaw || src.originalHref || src.beforeHref || src.prevHref || null;
+  const newHref = src.newHrefAbs  || src.newHrefRaw || src.newHref || src.afterHref || src.nextHref || null;
   const crossOriginChanged =
     src.crossOriginChanged ?? src.crossOrigin ?? src.mismatch ?? null;
   const reverted =
@@ -1044,6 +1177,11 @@ function buildUiHijackVM({ detail, summary, parsedPayload, ruleOneLine }) {
       when: within50ms === true,
       text:
         "클릭 직전(≤50ms) 개입 패턴: 광고/리다이렉트/피싱 유도 가능성이 커서 우선순위를 높게 두세요.",
+    },
+    {
+      when: type === "LINK_HREF_SWAP_DETECTED" && within200ms === true && within50ms !== true,
+      text:
+        "짧은 시간(≤200ms) 내 변경: 사용자 클릭 흐름에 맞춘 개입 가능성이 있습니다(타임라인 확인).",
     },
     {
       when: type === "LINK_HREF_SWAP_DETECTED" && crossOriginChanged === true,
@@ -1386,20 +1524,16 @@ export default function AdminEventDetailPage() {
             <>
               <Section title="요약">
                 <div className="mt-2 text-ms space-y-2">
-                  <div className="grid grid-cols-[100px_1fr]">
+                  <div className="grid grid-cols-[120px_1fr]">
                     <span className="opacity-60">탐지 규칙</span>{" "}
                     <span className="break-all">{effectiveRuleId}</span>
                   </div>
-                  <div className="grid grid-cols-[100px_1fr]">
-                    <span className="opacity-60">원인</span>{" "}
+                  <div className="grid grid-cols-[120px_1fr]">
+                    <span className="opacity-60">탐지 설명</span>{" "}
                     <span className="break-all">{ruleDescription?.oneLine || "-"}</span>
                   </div>
-                  <div className="grid grid-cols-[100px_1fr]">
-                    <span className="opacity-60">이벤트 유형</span>{" "}
-                    <span className="break-all">{summary.type || parsedPayload?.type || "-"}</span>
-                  </div>
                   {summary.pageHost ? (
-                    <div className="grid grid-cols-[100px_1fr]">
+                    <div className="grid grid-cols-[120px_1fr]">
                       <span className="opacity-60">위험 도메인</span>{" "}
                       <span className="break-all">{summary.pageHost}</span>
                     </div>

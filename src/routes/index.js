@@ -1,4 +1,5 @@
 import { lazy } from "react";
+import { UserEventDetailRouter, AdminEventDetailRouter } from "./eventdetailrouter";
 
 const Login = lazy(() => import("../pages/Login"));
 
@@ -11,8 +12,6 @@ const UserDetail = lazy(() => import("../features/user_front/detail"));
 const AdminDashboard = lazy(() => import("../features/admin_front"));
 const AdminSearch = lazy(() => import("../features/admin_front/admin_search"));
 const AdminList = lazy(() => import("../features/admin_front/admin_list"));
-const AdminEventDetailPage = lazy(() => import("../features/admin_front/detail"),);
-
 const routes = [
   {
     path: "/login",
@@ -44,7 +43,7 @@ const routes = [
   },
   {
     path: "/user_front/detail/:eventId",
-    component: UserDetail,
+    component: UserEventDetailRouter,
   },
   {
     path: "/admin_front",
@@ -60,11 +59,7 @@ const routes = [
   },
   {
     path: "/admin_front/detail/:eventId",
-    component: AdminEventDetailPage,
-  },
-  {
-    path: "/admin_front/:eventId",
-    component: AdminEventDetailPage,
+    component: AdminEventDetailRouter,
   },
 ];
 
