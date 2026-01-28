@@ -1,94 +1,181 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <meta charset="UTF-8">
   <style>
-    body { width: 350px; padding: 15px; font-family: 'Segoe UI', sans-serif; margin: 0; background-color: #f9f9f9; }
-    
+    body {
+      width: 350px;
+      padding: 15px;
+      font-family: 'Segoe UI', sans-serif;
+      margin: 0;
+      background-color: #f9f9f9;
+    }
+
     /* 헤더 레이아웃 수정: 양쪽 정렬 */
-    header { 
-      display: flex; 
-      justify-content: space-between; 
-      align-items: center; 
-      margin-bottom: 15px; 
-      border-bottom: 2px solid #eee; 
-      padding-bottom: 10px; 
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+      border-bottom: 2px solid #eee;
+      padding-bottom: 10px;
       position: relative;
       z-index: 1000;
     }
-    
-    .title-group { display: flex; align-items: center; }
-        h2 { margin: 0; color: #333; font-size: 18px; }
-    .badge { background-color: #d32f2f; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px; margin-left: 10px; }
-    #log-area { 
-      max-height: 400px; 
-      overflow-y: auto; 
+
+    .title-group {
+      display: flex;
+      align-items: center;
+    }
+
+    h2 {
+      margin: 0;
+      color: #333;
+      font-size: 18px;
+    }
+
+    .badge {
+      background-color: #d32f2f;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      margin-left: 10px;
+    }
+
+    #log-area {
+      max-height: 400px;
+      overflow-y: auto;
       position: relative;
       z-index: 1;
     }
-    
+
     /* 로그 클릭시 효과 추가 */
-    .log-item { 
-      background: white; 
-      padding: 10px; 
-      border-radius: 8px; 
-      margin-bottom: 10px; 
-      box-shadow: 0 2px 5px rgba( 0,0,0,0.05); 
-      border-left: 5px solid #ccc; 
+    .log-item {
+      background: white;
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 10px;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+      border-left: 5px solid #ccc;
       font-size: 13px;
-      
+
       cursor: pointer;
       transition: transform 0.1s, box-shadow 0.1s, background-color 0.2s;
     }
 
     .log-item:hover {
       transform: translateY(-2px);
-      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
       background-color: #fafafa;
     }
 
     .log-item:active {
       transform: translateY(0);
-      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
     }
-    .log-item.HIGH { border-left-color: #ff4444; }
-    .log-item.MEDIUM { border-left-color: #ffbb33; }
-    .log-item.LOW { border-left-color: #00C851; }
-    .log-header { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 5px; color: #555; }
-    .log-time { color: #999; font-size: 11px; }
-    .log-data { background-color: #f1f1f1; padding: 5px; border-radius: 4px; font-family: monospace; white-space: pre-wrap; word-break: break-all; font-size: 11px; color: #333; }
-    .empty-state { text-align: center; color: #999; padding: 20px 0; }
-    
+
+    .log-item.HIGH {
+      border-left-color: #ff4444;
+    }
+
+    .log-item.MEDIUM {
+      border-left-color: #ffbb33;
+    }
+
+    .log-item.LOW {
+      border-left-color: #00C851;
+    }
+
+    .log-header {
+      display: flex;
+      justify-content: space-between;
+      font-weight: bold;
+      margin-bottom: 5px;
+      color: #555;
+    }
+
+    .log-time {
+      color: #999;
+      font-size: 11px;
+    }
+
+    .log-data {
+      background-color: #f1f1f1;
+      padding: 5px;
+      border-radius: 4px;
+      font-family: monospace;
+      white-space: pre-wrap;
+      word-break: break-all;
+      font-size: 11px;
+      color: #333;
+    }
+
+    .empty-state {
+      text-align: center;
+      color: #999;
+      padding: 20px 0;
+    }
+
     /* 버튼 그룹 스타일 */
-    .btn-group { display: flex; align-items: center; gap: 6px; }
+    .btn-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
 
     .dashboard-btn {
-      display: flex; align-items: center; justify-content: center; gap: 4px;
-      padding: 5px 12px; /* 여백을 조금 줄여서 컴팩트하게 */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      padding: 5px 12px;
+      /* 여백을 조금 줄여서 컴팩트하게 */
       background-color: #fff;
-      border: 1px solid #ddd; /* 테두리 색상 연하게 */
+      border: 1px solid #ddd;
+      /* 테두리 색상 연하게 */
       border-radius: 15px;
       font-family: 'Segoe UI', sans-serif;
-      font-size: 12px; /* 글자 크기 살짝 줄임 */
+      font-size: 12px;
+      /* 글자 크기 살짝 줄임 */
       font-weight: 600;
       color: #555;
       cursor: pointer;
       transition: all 0.2s;
       white-space: nowrap;
     }
-    .dashboard-btn:hover { background-color: #f5f5f5; border-color: #aaa; color: #333; }
-    .dashboard-btn:active { transform: translateY(1px); }
+
+    .dashboard-btn:hover {
+      background-color: #f5f5f5;
+      border-color: #aaa;
+      color: #333;
+    }
+
+    .dashboard-btn:active {
+      transform: translateY(1px);
+    }
 
     /* [수정] 설정 버튼 (원형 아이콘) */
     .icon-btn {
-      background: none; border: 1px solid transparent; 
-      font-size: 1.1rem; cursor: pointer; padding: 4px;
-      width: 28px; height: 28px; /* 크기 약간 줄임 */
-      border-radius: 50%; 
-      display: flex; align-items: center; justify-content: center;
+      background: none;
+      border: 1px solid transparent;
+      font-size: 1.1rem;
+      cursor: pointer;
+      padding: 4px;
+      width: 28px;
+      height: 28px;
+      /* 크기 약간 줄임 */
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       transition: background-color 0.2s;
     }
-    .icon-btn:hover { background-color: #e0e0e0; }
+
+    .icon-btn:hover {
+      background-color: #e0e0e0;
+    }
 
     /* 토글 스위치 디자인 */
     .toggle-wrapper {
@@ -104,33 +191,40 @@
     .toggle-wrapper::after {
       content: attr(data-tooltip);
       position: absolute;
-      top: 140%;        /* 스위치보다 확실히 아래에 위치 */
-      left: 50%;       /* 중앙 정렬의 시작 */
-      transform: translateX(-50%); /* 정확히 자신의 너비 절반만큼 왼쪽으로 이동 */
-      
+      top: 140%;
+      /* 스위치보다 확실히 아래에 위치 */
+      left: 50%;
+      /* 중앙 정렬의 시작 */
+      transform: translateX(-50%);
+      /* 정확히 자신의 너비 절반만큼 왼쪽으로 이동 */
+
       /* 기존 스타일 유지 */
       background-color: #333;
       color: #fff;
       padding: 6px 10px;
       border-radius: 6px;
       font-size: 11px;
-      white-space: nowrap; /* 글자가 줄바꿈되지 않게 함 */
+      white-space: nowrap;
+      /* 글자가 줄바꿈되지 않게 함 */
       opacity: 0;
       visibility: hidden;
       transition: all 0.2s ease-in-out;
-      z-index: 9999;    /* 최상단으로 올림 */
+      z-index: 9999;
+      /* 최상단으로 올림 */
     }
 
     /* 말풍선 아래 뾰족한 삼각형(꼬리) */
     .toggle-wrapper::before {
       content: "";
       position: absolute;
-      top: 115%;       /* 툴팁 몸통 바로 위에 붙도록 설정 */
+      top: 115%;
+      /* 툴팁 몸통 바로 위에 붙도록 설정 */
       left: 50%;
       transform: translateX(-50%);
       border: 6px solid transparent;
-      border-bottom-color: #333; /* 아래쪽으로 화살표가 생기도록 수정 */
-      
+      border-bottom-color: #333;
+      /* 아래쪽으로 화살표가 생기도록 수정 */
+
       /* 기존 스타일 유지 */
       opacity: 0;
       visibility: hidden;
@@ -157,12 +251,19 @@
       height: 18px;
     }
 
-    .switch input { opacity: 0; width: 0; height: 0; }
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
 
     .slider {
       position: absolute;
       cursor: pointer;
-      top: 0; left: 0; right: 0; bottom: 0;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
       background-color: #ccc;
       transition: .4s;
       border-radius: 34px;
@@ -180,13 +281,67 @@
       border-radius: 50%;
     }
 
-    input:checked + .slider { background-color: #00C851; }
-    input:checked + .slider:before { transform: translateX(16px); }
+    input:checked+.slider {
+      background-color: #00C851;
+    }
 
-    .status-text { font-size: 11px; font-weight: bold; color: #999; width: 24px; text-align: center; }
-    .status-text.on { color: #00C851; }
+    input:checked+.slider:before {
+      transform: translateX(16px);
+    }
+
+    .status-text {
+      font-size: 11px;
+      font-weight: bold;
+      color: #999;
+      width: 24px;
+      text-align: center;
+    }
+
+    .status-text.on {
+      color: #00C851;
+    }
+
+    #status-summary {
+      display: none;
+      align-items: center;
+      justify-content: center;
+
+      padding: 12px 16px;
+      margin: 0 0 10px 0;
+      /* 주변과의 간격을 줄임 */
+      border-radius: 0;
+      /* 모서리 곡률 제거 (취향에 따라 4px 정도만) */
+      font-size: 13px;
+      font-weight: 700;
+
+      box-shadow: none;
+      /* 그림자 완전 제거 */
+
+      font-size: 14px;
+      /* 가독성을 위해 13px에서 14px로 살짝 조정 */
+      font-weight: 600;
+      /* 너무 두껍지 않은 세미 볼드 */
+      color: #333;
+      /* 완전 검정보다는 짙은 회색 */
+    }
+
+    .more-logs-link {
+      text-align: center;
+      font-size: 12px;
+      padding: 12px;
+      margin-top: 5px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: background-color 0.2s, color 0.2s;
+      border-radius: 8px;
+    }
+
+    .more-logs-link:hover {
+      color: #0056b3;
+    }
   </style>
 </head>
+
 <body>
   <header>
     <div class="title-group">
@@ -200,12 +355,14 @@
       </div>
       <!-- <span class="badge">Active</span> -->
     </div>
-    
+
     <div class="btn-group">
       <button id="go-dashboard" class="dashboard-btn" title="상세 정보 보기 (Dashboard)">상세 정보 보기</button>
       <button id="go-settings" class="icon-btn" title="보안 설정 (Options)">⚙️</button>
     </div>
   </header>
+
+  <div id="status-summary"></div>
 
   <div id="log-area">
     <div class="empty-state">로그를 불러오는 중...</div>
@@ -213,4 +370,5 @@
 
   <script type="module" src="popup.js"></script>
 </body>
+
 </html>

@@ -1,35 +1,12 @@
-import { SYSTEM_CONFIG, STORAGE_KEYS, DEFAULT_SETTINGS, SINK_CONFIG, THREAT_MESSAGES } from '../config.js';
+import { STORAGE_KEYS, DEFAULT_SETTINGS, SINK_CONFIG } from '../config.js';
+import { getThreatMessage } from '../utils/threatMessages.js';
 
 const SEVERITY_RANK = { 'LOW': 1, 'MEDIUM': 2, 'HIGH': 3 };
 const tabStateCache = new Map();
 
-// OS별 알림 옵션 빌드
-function buildNotificationOptions(threat, os) {
-  const message = THREAT_MESSAGES[threat.ruleId] || THREAT_MESSAGES["DEFAULT"];
-  const displayUrl = threat.browserUrl || threat.page || "";
-
-  // 공통 옵션
-  const options = {
-    type: 'basic',
-    iconUrl: 'icon/notification_icon.png',
-    title: `보안 위협 알림 (${threat.severity})`,
-    message: message,
-    contextMessage: displayUrl.substring(0, 40) + "...",
-    priority: 2,
-    requireInteraction: true
-  };
-  return options;
-}
-
-chrome.notifications.onClicked.addListener(async (notificationId) => {
-  const targetUrl = `${SYSTEM_CONFIG.DASHBOARD_URL}?reportId=${notificationId}`;
-  try {
-    await chrome.tabs.create({ url: targetUrl });
-    chrome.notifications.clear(notificationId, () => {
-      if (chrome.runtime.lastError) console.debug("[BRS] Notification clear failed");
-    });
-  } catch (err) {
-    console.error("[BRS] Notification click handler error:", err);
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabStateCache.has(tabId)) {
+    tabStateCache.delete(tabId);
   }
 });
 
@@ -38,11 +15,11 @@ export function createNotificationSink() {
     name: "NotificationSink",
 
     shouldHandle(threat) {
-      return !!threat.severity;
+      return !!threat.severity && !!threat.tabId && threat.reportId;
     },
 
     async send(threat) {
-      const { tabId, severity } = threat;
+      const { tabId, severity, reportId } = threat;
       const currentSeverity = (severity || "LOW").toUpperCase();
       const tabKey = `last_noti_tab_${tabId}`;
       const now = Date.now();
@@ -77,30 +54,11 @@ export function createNotificationSink() {
 
         await chrome.storage.local.set({ [tabKey]: newState });
 
+        const rawMessage = await getThreatMessage(threat.ruleId, "oneLine");
+
+        const htmlMessage = rawMessage.replace(/\. /g, '.<br/>');
         return new Promise((resolve, reject) => {
-          chrome.runtime.getPlatformInfo((info) => {
-            if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
-
-            const os = info.os;
-            const reportId = threat.reportId || `noti_${Date.now()}`;
-            const messageText = THREAT_MESSAGES[threat.ruleId] || THREAT_MESSAGES["DEFAULT"];
-
-            if (os === 'linux') {
-              this._sendLinuxToast(threat, messageText, reportId, resolve);
-            } else {
-              // 윈도우, 맥
-              const options = buildNotificationOptions(threat, os);
-
-              chrome.notifications.create(reportId, options, (id) => {
-                if (chrome.runtime.lastError) {
-                  reject(new Error(chrome.runtime.lastError.message));
-                } else {
-                  setTimeout(() => chrome.notifications.clear(id, () => { }), SINK_CONFIG.NOTIFICATION_DURATION);
-                  resolve({ status: "created", id });
-                }
-              });
-            }
-          });
+          this._sendToast(threat, htmlMessage, reportId, resolve);
         });
       } catch (err) {
         console.error(`[BRS] ${this.name} failed:`, err);
@@ -108,9 +66,9 @@ export function createNotificationSink() {
       }
     },
 
-    _sendLinuxToast(threat, messageText, reportId, resolve) {
+    _sendToast(threat, messageText, reportId, resolve) {
       if (!threat.tabId) {
-        return resolve({ status: "linux_skipped_no_tab" });
+        return resolve({ status: "skipped_no_tab" });
       }
 
       const now = Date.now();
@@ -129,9 +87,9 @@ export function createNotificationSink() {
         data: pendingData
       }, (response) => {
         if (chrome.runtime.lastError) {
-          console.debug("[BRS] Linux toast message fail:", chrome.runtime.lastError.message);
+          console.debug("[BRS] Toast message fail:", chrome.runtime.lastError.message);
         }
-        resolve({ status: "linux_toast_initiated" });
+        resolve({ status: "toast_initiated" });
       });
     }
   };
