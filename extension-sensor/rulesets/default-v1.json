@@ -520,7 +520,7 @@
         "ruleId": "DYN_SCRIPT_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT",
         "messageKey": "DYN_SCRIPT_INSERT_INITIATED_BY_CROSS_SITE_SCRIPT",
         "scoreDelta": 40,
-        "severity": "HIGH"
+        "severity": "MEDIUM"
       }
     },
     {
@@ -650,7 +650,7 @@
         "ruleId": "HIDDEN_IFRAME_INSERT",
         "messageKey": "HIDDEN_IFRAME_INSERT",
         "scoreDelta": 35,
-        "severity": "HIGH"
+        "severity": "MEDIUM"
       }
     },
     {
@@ -761,7 +761,7 @@
         "ruleId": "DOM_XSS_INJECTION",
         "messageKey": "DOM_XSS_INJECTION",
         "scoreDelta": 40,
-        "severity": "HIGH"
+        "severity": "MEDIUM"
       }
     },
     {
@@ -772,7 +772,7 @@
         "ruleId": "COOKIE_THEFT",
         "messageKey": "COOKIE_THEFT",
         "scoreDelta": 50,
-        "severity": "HIGH"
+        "severity": "MEDIUM"
       }
     },
     {
@@ -839,7 +839,7 @@
         "ruleId": "FORM_SUBMIT_PROTOTYPE_TAMPER",
         "messageKey": "FORM_SUBMIT_PROTOTYPE_TAMPER",
         "scoreDelta": 40,
-        "severity": "HIGH"
+        "severity": "MEDIUM"
       }
     },
     {
@@ -850,7 +850,7 @@
         "ruleId": "FORM_REQUESTSUBMIT_PROTOTYPE_TAMPER",
         "messageKey": "FORM_REQUESTSUBMIT_PROTOTYPE_TAMPER",
         "scoreDelta": 35,
-        "severity": "HIGH"
+        "severity": "MEDIUM"
       }
     },
     {
@@ -1018,7 +1018,7 @@
         "ruleId": "MUTATION_OBSERVER_REGISTER_CROSS_SITE_INITIATOR",
         "messageKey": "MUTATION_OBSERVER_REGISTER_CROSS_SITE_INITIATOR",
         "scoreDelta": 40,
-        "severity": "HIGH"
+        "severity": "MEDIUM"
       }
     },
     {
