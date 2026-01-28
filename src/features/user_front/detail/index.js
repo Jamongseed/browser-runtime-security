@@ -165,20 +165,18 @@ function KpiCard({ label, value, hint }) {
   );
 }
 
-function KV({ k, v, copy, mono, link, hideZero = true, hideDash = true }) {
-  // ✅ 0 / "-" / null 이면 행 자체 숨김
-  if (!shouldShowValue(v, { hideZero, hideDash })) return null;
-
+function KV({ k, v, copy, link }) {
+  if (v == null || v === "-" || v === "") return null;
   return (
     <div className="flex items-start justify-between gap-3 py-2 border-b border-base-200">
-      <div className="text-xs opacity-60 min-w-[140px]">{k}</div>
+      <div className="text-ms opacity-60 min-w-[140px]">{k}</div>
       <div className="flex-1 text-left">
         {link ? (
           <a className="link link-primary break-all" href={link} target="_blank" rel="noreferrer">
             {String(v)}
           </a>
         ) : (
-          <div className={`break-all`}>{String(v)}</div>
+          <div className="break-all">{String(v)}</div>
         )}
       </div>
       {copy ? (
@@ -425,7 +423,7 @@ function buildXhrMirroringSuspectVM({ detail, summary, parsedPayload, ruleOneLin
 
   return {
     category: "mirroring",
-    title: `의심 네트워크 호출`,
+    title: summary.severity ? `${sevKo(summary.severity)}: 의심 네트워크 호출`: "의심 네트워크 호출",
     oneLine:
       ruleOneLine ||
       "XHR 요청/응답이 복제되어 외부로 전송될 수 있는 정황이 감지되었습니다(정보 유출 위험).",
@@ -456,7 +454,7 @@ function buildInjectedScriptScoreVM({ detail, summary, parsedPayload, ruleOneLin
   const chainNorm = chain.norm || null;
 
   return {
-    title: `악성 스크립트 주입 점수(${modelId})`,
+    title: summary.severity ? `${sevKo(summary.severity)}: 악성 스크립트 주입 점수(${modelId})`: "악성 스크립트 주입 점수(${modelId})",
     oneLine:
       ruleOneLine ||
       `총점 ${score}점 (hits ${hits.length}개, combo ${comboHits.length}개 +${comboBonus}) — 스크립트 주입/후킹/유출 조합 가능`,
@@ -1385,15 +1383,42 @@ export default function AdminEventDetailPage() {
     else navigate(-1);
   }
 
+  const [hasAiEvent, setHasAiEvent] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+
+    getEventDetail({ eventId: `AI_${eventId}` })
+      .then((res) => {
+        if (!alive) return;
+
+        const d = res?.data;
+
+        const hasAi =
+          !!d?.data?.aiVerdict ||
+          !!d?.evidence?.aiVerdict ||
+          !!d?.details?.data?.aiVerdict ||
+          !!d?.details?.evidence?.aiVerdict;
+
+        setHasAiEvent(hasAi);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setHasAiEvent(false);
+      });
+
+    return () => { alive = false; };
+  }, [eventId]);
+
   return (
     <TitleCard title="이벤트 상세" topMargin="mt-2">
       {/* Top bar */}
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="text-sm opacity-70">
-          <div className="break-all"></div>
+          <div className="break-all">eventId: {eventId || "(none)"}</div>
           {summary.sessionId ? (
             <div className="mt-1">
-              <span className="break-all"></span>
+              <span className="break-all">sessionId: {summary.sessionId}</span>
             </div>
           ) : null}
         </div>
@@ -1402,6 +1427,10 @@ export default function AdminEventDetailPage() {
           <button className="btn btn-sm btn-primary" onClick={onBack}>
             ← 뒤로
           </button>
+          {hasAiEvent && (
+          <Link className="btn btn-sm btn-primary" to={`/app/user_front/detail/AI_${eventId}`}>
+            AI 이벤트
+          </Link>)}
         </div>
       </div>
 
@@ -1469,35 +1498,11 @@ export default function AdminEventDetailPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
-            <Section title="이벤트">
-              <div className="mt-2 text-sm divide-y divide-base-200">
-                <div className="grid grid-cols-[100px_1fr] items-start py-3">
-                  <span className="opacity-60">탐지 규칙</span>
-                  <span className="break-all">{effectiveRuleId}</span>
-                </div>
-
-                <div className="grid grid-cols-[100px_1fr] items-start py-3">
-                  <span className="opacity-60">원인</span>
-                  <span className="break-all">
-                    {ruleDescription?.oneLine || "-"}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-[100px_1fr] items-start py-3">
-                  <span className="opacity-60">이벤트 유형</span>
-                  <span className="break-all">
-                    {summary.type || parsedPayload?.type || "-"}
-                  </span>
-                </div>
-
-                {summary.pageHost ? (
-                  <div className="grid grid-cols-[100px_1fr] items-start py-3">
-                    <span className="opacity-60">위험 도메인</span>
-                    <span className="break-all">{summary.pageHost}</span>
-                  </div>
-                ) : null}
-              </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Section title="요약">
+              <KV k="탐지 규칙" v={effectiveRuleId} />
+              <KV k="탐지 설명" v={ruleDescription?.oneLine || "-"} />
+              <KV k="위험 페이지" v={summary.page} />
             </Section>
 
             <Section title="사용자/환경">

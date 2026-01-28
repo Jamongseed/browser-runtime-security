@@ -138,6 +138,14 @@ function badgeForVerdict(v) {
   return "badge";
 }
 
+function sevKo(sev) {
+  const s = String(sev || "").toUpperCase();
+  if (s === "HIGH") return "고위험";
+  if (s === "MEDIUM") return "주의";
+  if (s === "LOW") return "정보";
+  return "알 수 없음";
+}
+
 function pickAiBlock(detail, parsedPayload) {
   const det = detail?.details || {};
   const payload = parsedPayload || {};
@@ -442,11 +450,11 @@ export default function AdminAiEventDetailPage() {
           <button className="btn btn-sm btn-primary" onClick={onBack}>
             ← 뒤로
           </button>
-          <Link className="btn btn-sm btn-primary" to={`/app/admin_front/admin_search?type=ruleId&query=${ruleIdState || ""}`}>
-            룰
+          <Link className="btn btn-sm btn-primary" to={`/app/user_front/detail/${ai.baseReportId || ""}`}>
+            기존 이벤트
           </Link>
-          <Link className="btn btn-sm btn-primary" to={`/app/admin_front/admin_search?type=installId&query=${ai.installId || ""}`}>
-            유저
+          <Link className="btn btn-sm btn-primary" to={`/app/user_front/listpage_session/detail/${ai.sessionId || ""}`}>
+            세션
           </Link>
         </div>
       </div>
@@ -476,10 +484,10 @@ export default function AdminAiEventDetailPage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <span className={badgeForVerdict(ai.verdict)}>{String(ai.severity || "UNKNOWN").toUpperCase()}</span>
-                    <span className="text-sm opacity-70">{ai.primaryThreat || "-"}</span>
+                    <span className="text-sm opacity-70">{sevKo(ai.severity) || "-"}</span>
                   </div>
 
-                  <div className="mt-2 text-lg font-bold">{ai.reasonShort || "AI 기반 위협 판정 이벤트"}</div>
+                  <div className="mt-2 text-lg font-bold">{"AI 분석 기반 데이터 유출 탐지"}</div>
 
                   <div className="mt-2 text-xs opacity-70 break-all">
                     type: {ai.type}
@@ -500,189 +508,57 @@ export default function AdminAiEventDetailPage() {
                 <KpiCard label="Risk Score" value={riskScoreText} hint="finalScore" />
                 <KpiCard label="Primary Threat" value={ai.primaryThreat || "-"} hint="행위 기반 요약" />
               </div>
-
-              {/* Tabs */}
-              <div className="mt-2 flex items-center gap-2 flex-wrap">
-                {tabs.map((t) => (
-                  <button
-                    key={t.key}
-                    className={`btn btn-sm ${tab === t.key ? "btn-neutral" : "btn-ghost"}`}
-                    onClick={() => setTab(t.key)}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
             </div>
           </div>
+<div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+  {/* LEFT COLUMN */}
+  <div className="space-y-6">
+    <Section title="요약">
+      <KV k="탐지 규칙" v={ai.type} />
+      <KV k="탐지 설명" v={ai.reasonShort || "-"} />
+      <KV k="위험 페이지" v={ai.page} />
+    </Section>
 
-        {/* Overview */}
-          {tab === "overview" && (
-            <>
-              <Section title="요약">
-                <div className="mt-2 text-ms space-y-2">
-                  <div className="grid grid-cols-[120px_1fr]">
-                    <span className="opacity-60">탐지 규칙</span>{" "}
-                    <span className="break-all">{ai.type}</span>
-                  </div>
-                  <div className="grid grid-cols-[120px_1fr]">
-                    <span className="opacity-60">탐지 설명</span>{" "}
-                    <span className="break-all">{ai.reasonShort || "-"}</span>
-                  </div>
-                  {ai.page ? (
-                    <div className="grid grid-cols-[120px_1fr]">
-                      <span className="opacity-60">위험 페이지</span>{" "}
-                      <span className="break-all">{ai.page}</span>
-                    </div> 
-                  ) : null}
-                </div>
-              </Section>
+    <Section title="판단 근거">
+      <KV k="AI 설명" v={ai.reasonLong || ai.reasonShort || "-"} />
+    </Section>
 
-              <Section title="추천 조치 (SOC)">
-                <div className="space-y-1">
-                  {recommendedActions.map((a) => (
-                    <KV
-                        key={a.id}
-                        k={a.title}
-                        v={a.detail}
-                    />
-                  ))}
-                </div>
-              </Section>
-            </>
-          )}
+    <Section title="외부 통신">
+      <KV
+        k="외부 전송 URL"
+        v={ai.endpoint || "-"}
+      />
+      <KV
+        k="도메인"
+        v={ai.endpoint ? hostFromUrl(ai.endpoint) : "-"}
+        copy={ai.endpoint ? hostFromUrl(ai.endpoint) : ""}
+      />
+    </Section>
+  </div>
 
-          {/* Analysis */}
-          {tab === "analysis" && (
-            <>
-              <Section title="판단 근거">
-                <KV k="AI 설명" v={ai.reasonLong || ai.reasonShort || "-"} />
+  {/* RIGHT COLUMN */}
+  <div className="space-y-6">
+    <Section title="사용자/환경">
+      <KV k="기존 이벤트 ID" v={ai.baseReportId || "-"} copy={ai.baseReportId || ""} />
+      <KV k="이벤트 ID" v={ai.reportId || "-"} copy={ai.reportId || ""} />
+      <KV
+        k="세션 ID"
+        v={ai.sessionId || "-"}
+        copy={ai.sessionId || ""}
+      />
+      <KV
+        k="유저 ID"
+        v={ai.installId || "-"}
+        copy={ai.installId || ""}
+      />
+    </Section>
 
-                <div className="mt-3 text-ms opacity-80">
-                  <div className="font-semibold mb-2">핵심 신호</div>
-
-                  {ai.findings?.length ? (
-                    <ul className="list-disc pl-5 space-y-1">
-                      {ai.findings.slice(0, 8).map((f, idx) => (
-                        <li key={idx} className="break-all">
-                          <span className="font-semibold">
-                            {f.kind || "Finding"}:
-                          </span>{" "}
-                          {f.label || "-"}
-                          {f.evidence && (
-                            <span className="opacity-70">
-                              {" "}
-                              — {f.evidence}
-                            </span>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div className="opacity-70">
-                      findings 데이터가 없습니다.
-                    </div>
-                  )}
-                </div>
-              </Section>
-            
-            {/*  <Section title="행위 분석">
-                {ai.findings?.length ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {ai.findings.map((f, idx) => (
-                      <div
-                        key={idx}
-                        className="p-3 rounded-xl border bg-base-100"
-                      >
-                        <div className="text-xs opacity-60">
-                          {f.kind || "Finding"}
-                        </div>
-                        <div className="mt-1 font-semibold break-all">
-                          {f.label || "-"}
-                        </div>
-                        <div className="mt-2 text-sm break-all opacity-80">
-                          {f.evidence || "-"}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-sm opacity-70">
-                    findings 데이터가 없습니다.
-                  </div>
-                )}
-              </Section>*/}
-
-              <Section title="외부 통신">
-                <KV
-                  k="외부 전송 URL"
-                  v={ai.endpoint || "-"}
-                  copy={ai.endpoint || ""}
-                />
-                <KV
-                  k="도메인"
-                  v={ai.endpoint ? hostFromUrl(ai.endpoint) : "-"}
-                  copy={ai.endpoint ? hostFromUrl(ai.endpoint) : ""}
-                />
-              </Section>
-            </>
-          )}
-        {/* IOC */}
-          {tab === "ioc" && (
-            <>
-              <Section title="지표(IOC)">
-                <KV k="sha256" v={ai.sha256 || "-"} copy={ai.sha256 || ""} />
-                <KV k="norm" v={ai.norm || "-"} copy={ai.norm || ""} />
-                <KV
-                  k="reportId"
-                  v={ai.reportId || "-"}
-                  copy={ai.reportId || ""}
-                />
-                <KV
-                  k="baseReportId"
-                  v={ai.baseReportId || "-"}
-                  copy={ai.baseReportId || ""}
-                />
-                <KV
-                  k="sessionId"
-                  v={ai.sessionId || "-"}
-                  copy={ai.sessionId || ""}
-                />
-                <KV
-                  k="installId"
-                  v={ai.installId || "-"}
-                  copy={ai.installId || ""}
-                />
-              </Section>
-
-              <Section title="분석 메타">
-                <KV k="model" v={ai.model || "-"} />
-                <KV
-                  k="latencyMs"
-                  v={ai.latencyMs != null ? String(ai.latencyMs) : "-"}
-                />
-                <KV k="promptVersion" v={ai.promptVersion || "-"} />
-              </Section>
-            </>
-          )}
-
-          {/* Evidence */}
-          {tab === "evidence" && (
-            <Section title="증거">
-              <JsonViewer title="details" obj={payloadObj} />
-              <div className="mt-3" />
-              <JsonViewer
-                title="payloadJson"
-                obj={parsedPayload && parsedPayload.raw ? null : parsedPayload}
-                raw={
-                  typeof parsedPayload?.raw === "string"
-                    ? parsedPayload.raw
-                    : ""
-                }
-              />
-            </Section>
-          )}
-        </div>  
+    <Section title="분석 메타">
+      <KV k="AI 모델" v={ai.model || "-"} />
+    </Section>
+  </div>
+</div>
+        </div>
       ) : null}
     </TitleCard>
   );

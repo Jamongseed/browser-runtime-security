@@ -431,7 +431,9 @@ function buildXhrMirroringSuspectVM({ detail, summary, parsedPayload, ruleOneLin
 
   return {
     category: "mirroring",
-    title: `의심 네트워크 호출`,
+    title: summary.severity
+        ? `${sevKo(summary.severity)}: 의심 네트워크 호출`
+        : "의심 네트워크 호출",
     oneLine:
       ruleOneLine ||
       "XHR 요청/응답이 복제되어 외부로 전송될 수 있는 정황이 감지되었습니다(정보 유출 위험).",
@@ -462,7 +464,9 @@ function buildInjectedScriptScoreVM({ detail, summary, parsedPayload, ruleOneLin
   const chainNorm = chain.norm || null;
 
   return {
-    title: `악성 스크립트 주입 점수(${modelId})`,
+    title: summary.severity
+        ? `${sevKo(summary.severity)}: 악성 스크립트 주입 점수(${modelId})`
+        : "악성 스크립트 주입 점수(${modelId})",
     oneLine:
       ruleOneLine ||
       `총점 ${score}점 (hits ${hits.length}개, chain ${comboHits.length}개 +${comboBonus}) — 스크립트 주입/후킹/유출 조합 가능`,

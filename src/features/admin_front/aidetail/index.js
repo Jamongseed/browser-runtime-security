@@ -138,6 +138,14 @@ function badgeForVerdict(v) {
   return "badge";
 }
 
+function sevKo(sev) {
+  const s = String(sev || "").toUpperCase();
+  if (s === "HIGH") return "고위험";
+  if (s === "MEDIUM") return "주의";
+  if (s === "LOW") return "정보";
+  return "알 수 없음";
+}
+
 function pickAiBlock(detail, parsedPayload) {
   const det = detail?.details || {};
   const payload = parsedPayload || {};
@@ -476,10 +484,10 @@ export default function AdminAiEventDetailPage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <span className={badgeForVerdict(ai.verdict)}>{String(ai.severity || "UNKNOWN").toUpperCase()}</span>
-                    <span className="text-sm opacity-70">{ai.primaryThreat || "-"}</span>
+                    <span className="text-sm opacity-70">{sevKo(ai.severity) || "-"}</span>
                   </div>
 
-                  <div className="mt-2 text-lg font-bold">{ai.reasonShort || "AI 기반 위협 판정 이벤트"}</div>
+                  <div className="mt-2 text-lg font-bold">{"AI 분석 기반 데이터 유출 탐지" || "AI 기반 위협 판정 이벤트"}</div>
 
                   <div className="mt-2 text-xs opacity-70 break-all">
                     type: {ai.type}
