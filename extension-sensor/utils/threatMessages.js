@@ -44,10 +44,10 @@ async function ensureMessagesLoaded() {
 
 export async function getThreatMessage(ruleId, type = "title", data = null) {
   if (ruleId === "INJECTED_SCRIPT_SCORE" && type === "oneLine" && data) {
-    const { hits = [], comboHits = [] } = data;
-    const totalCount = hits.length + comboHits.length;
+    const { hits = [] } = data;
+    const totalCount = hits.length;
 
-    const primary = comboHits[0] || hits[0];
+    const primary = hits[0];
 
     if (primary) {
       const match = (primary.category || "").match(/\(([^)]+)\)/);
