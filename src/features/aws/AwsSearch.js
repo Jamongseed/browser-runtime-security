@@ -193,6 +193,16 @@ export const getEventsAll = async ({
       nextToken,
     });
 
+    // 1. response 내부의 items를 가져와서 업데이트 진행
+    if (response && response.items) {
+      // 비동기로 업데이트된 데이터를 받음
+      const updatedItems = await updateScoresWithAi(response.items);
+
+      // 2. ✅ response 객체의 items 항목만 직접 덮어쓰기
+      response.items = updatedItems;
+    }
+
+    // 3. 리턴값은 원래 요구하신 대로 response만 담아서 반환
     return { data: response, error: null };
   } catch (error) {
     console.error(`getEventsAll 조회 실패:`, error);
@@ -209,9 +219,10 @@ export const getEvents = async ({ installId, startDay, endDay }) => {
     });
 
     const items = response?.items || [];
+    const updateItems = await updateScoresWithAi(items);
 
     return {
-      data: items,
+      data: updateItems,
       error: null,
     };
   } catch (error) {
