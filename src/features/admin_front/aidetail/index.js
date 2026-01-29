@@ -566,7 +566,7 @@ export default function AdminAiEventDetailPage() {
               <Section title="판단 근거">
                 <KV k="AI 설명" v={ai.reasonLong || ai.reasonShort || "-"} />
 
-                <div className="mt-3 text-ms opacity-80">
+                {/*<div className="mt-3 text-ms opacity-80">
                   <div className="font-semibold mb-2">핵심 신호</div>
 
                   {ai.findings?.length ? (
@@ -591,10 +591,10 @@ export default function AdminAiEventDetailPage() {
                       findings 데이터가 없습니다.
                     </div>
                   )}
-                </div>
+                </div>*/}
               </Section>
             
-            {/*  <Section title="행위 분석">
+            <Section title="행위 분석">
                 {ai.findings?.length ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {ai.findings.map((f, idx) => (
@@ -619,9 +619,9 @@ export default function AdminAiEventDetailPage() {
                     findings 데이터가 없습니다.
                   </div>
                 )}
-              </Section>*/}
+              </Section>
 
-              <Section title="외부 통신">
+              {(ai.endpoint != null && ai.endpoint != "-")&&(<Section title="외부 통신">
                 <KV
                   k="외부 전송 URL"
                   v={ai.endpoint || "-"}
@@ -632,7 +632,7 @@ export default function AdminAiEventDetailPage() {
                   v={ai.endpoint ? hostFromUrl(ai.endpoint) : "-"}
                   copy={ai.endpoint ? hostFromUrl(ai.endpoint) : ""}
                 />
-              </Section>
+              </Section>)}
             </>
           )}
         {/* IOC */}

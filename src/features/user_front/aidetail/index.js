@@ -523,34 +523,23 @@ export default function AdminAiEventDetailPage() {
       <KV k="AI 설명" v={ai.reasonLong || ai.reasonShort || "-"} />
     </Section>
 
-    <Section title="외부 통신">
+
+    {(ai.endpoint != null && ai.endpoint != "-") && (<Section title="외부 통신">
       <KV
         k="외부 전송 URL"
-        v={ai.endpoint || "-"}
+        v={ai.endpoint}
       />
-      <KV
-        k="도메인"
-        v={ai.endpoint ? hostFromUrl(ai.endpoint) : "-"}
-        copy={ai.endpoint ? hostFromUrl(ai.endpoint) : ""}
-      />
-    </Section>
+    </Section>)}
   </div>
 
   {/* RIGHT COLUMN */}
   <div className="space-y-6">
     <Section title="사용자/환경">
-      <KV k="기존 이벤트 ID" v={ai.baseReportId || "-"} copy={ai.baseReportId || ""} />
-      <KV k="이벤트 ID" v={ai.reportId || "-"} copy={ai.reportId || ""} />
-      <KV
-        k="세션 ID"
-        v={ai.sessionId || "-"}
-        copy={ai.sessionId || ""}
-      />
-      <KV
-        k="유저 ID"
-        v={ai.installId || "-"}
-        copy={ai.installId || ""}
-      />
+      <KV k="기존 이벤트 ID"   v={ai.baseReportId || "-"}         copy={ai.baseReportId || ""} />
+      <KV k="이벤트 ID"        v={ai.reportId || "-"}            copy={ai.reportId || ""} />
+      <KV k="세션 ID"         v={ai.sessionId || "-"}            copy={ai.sessionId || ""} />
+      <KV k="유저 ID"         v={ai.installId || "-"}            copy={ai.installId || ""} />
+      <KV k="현재 링크"       v={currentUrlRef.current || null}   copy={currentUrlRef.current || ""} />
     </Section>
 
     <Section title="분석 메타">

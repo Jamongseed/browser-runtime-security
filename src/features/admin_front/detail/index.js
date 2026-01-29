@@ -251,6 +251,7 @@ const EventCategory = {
   SYSTEM: "system",
   MIRRORING: "xhr_mirroring",
   INJECTED_SCRIPT_SCORE: "scoring",
+  INJECTED_SCRIPT_RESCORE: "rescoring",
   DOM_INJECTION: "dom_injection",
   PERSISTENCE: "persistence",
   FORM_FLOW: "form_flow",
@@ -273,6 +274,7 @@ const TYPE_TO_CATEGORY = {
 
   // score
   INJECTED_SCRIPT_SCORE: EventCategory.INJECTED_SCRIPT_SCORE,
+  INJECTED_SCRIPT_RESCORE: EventCategory.INJECTED_SCRIPT_RESCORE,
 
   // DOM/script/iframe
   DYN_SCRIPT_INSERT: EventCategory.DOM_INJECTION,
@@ -538,6 +540,103 @@ function buildInjectedScriptScoreVM({ detail, summary, parsedPayload, ruleOneLin
       // chain.norm이 있으면 체인 추적
       { when: !!chainNorm, text: `loader chain 추적: chain.norm(${chainNorm})를 기준으로 로더→페이로드 흐름을 타임라인으로 확인하세요.` },
     ].filter(r => r.when),
+  };
+}
+
+function buildInjectedScriptRescoreVM({ detail, summary, parsedPayload, ruleOneLine }) {
+  const det = detail?.details || {};
+  // rescore 이벤트는 보통 evidence 쪽에 “old/new/hits”가 들어오는 형태가 많음
+  // (너가 준 rescore.txt도 evidence에 있음)
+  const ev = detail?.evidence || parsedPayload || {};
+  const data = ev?.evidence || ev || {};
+
+  const sha256 = data.sha256 || "-";
+  const norm = data.norm || "-";
+  const oldScore = data.oldScore ?? null;
+  const newScore = data.newScore ?? null;
+  const delta = (oldScore != null && newScore != null) ? (newScore - oldScore) : null;
+
+  const addedHits = Array.isArray(data.addedHits) ? data.addedHits : [];
+  const tool = data.deobMeta?.tool || "-";
+  const latencyMs = data.deobMeta?.latencyMs ?? null;
+  const obfSignals = Array.isArray(data.deobMeta?.obfSignals) ? data.deobMeta.obfSignals : [];
+  const webcrackKey = data.s3?.webcrackKey || null;
+
+  const oneLine =
+    ruleOneLine ||
+    data.summary?.oneLine ||
+    (delta != null
+      ? `재스코어링으로 ${oldScore}→${newScore} (Δ${delta >= 0 ? "+" : ""}${delta}, addedHits ${addedHits.length}개)`
+      : "재스코어링 결과가 도착했습니다.");
+
+  const topAdded = [...addedHits].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 3);
+
+  return {
+    category: EventCategory.SCORING,
+    title: `재스코어링 결과(${tool})`,
+    oneLine,
+
+    kpis: [
+      kpiNum("newScore", "New Score", newScore),
+      kpiText(
+        "delta",
+        "Delta",
+        (delta == null ? "-" : `${oldScore} → ${newScore} (${delta >= 0 ? "+" : ""}${delta})`)
+      ),
+      kpiNum("added", "Added Signals", addedHits.length),
+      kpiText("tool", "Tool", tool, latencyMs != null ? `latency ${latencyMs}ms` : ""),
+    ].filter(k => shouldShowValue(k.value, { hideZero: true, hideDash: true })),
+
+    activityRows: [
+      { label: "sha256", value: sha256 },
+      { label: "norm", value: norm },
+      { label: "oldScore", value: oldScore },
+      { label: "newScore", value: newScore },
+      { label: "delta", value: delta },
+      { label: "deobMeta.tool", value: tool },
+      { label: "deobMeta.latencyMs", value: latencyMs },
+      { label: "deobMeta.obfSignals", value: obfSignals.length ? obfSignals.join(", ") : "-" },
+      { label: "s3.webcrackKey", value: webcrackKey },
+    ].filter(r => shouldShowValue(r.value, { hideZero: true, hideDash: true })),
+
+    // Evidence 탭에서 표로 바로 보이게
+    tables: [
+      {
+        key: "top_added",
+        title: "Top Added Signals",
+        columns: ["id", "axis", "signal", "score", "reason"],
+        rows: topAdded.map(h => [h.id, h.axis, h.signal, h.score, h.reason]),
+      },
+      {
+        key: "added_all",
+        title: `Added Signals (${addedHits.length})`,
+        columns: ["id", "axis", "category", "signal", "score"],
+        rows: [...addedHits]
+          .sort((a, b) => (b.score || 0) - (a.score || 0))
+          .map(h => [h.id, h.axis, h.category, h.signal, h.score]),
+      },
+    ],
+
+    recommendations: [
+      {
+        when: true,
+        text: "재스코어링 결과: newScore 및 addedHits를 기준으로 대응 우선순위를 재조정하세요(기존 triage 결과와 비교).",
+      },
+      {
+        when: obfSignals.length > 0,
+        text: `난독화 신호 감지(${obfSignals.join(", ")}): eval/Function/디코딩 헬퍼(atob/fromCharCode) 기반 여부를 우선 확인하세요.`,
+      },
+      {
+        when: webcrackKey,
+        text: `디옵 산출물(webcrack) 확인: ${webcrackKey} — 원본/디옵 코드 diff로 addedHits의 근거를 검증하세요.`,
+      },
+      {
+        when: addedHits.some(h => String(h.id || "").includes("FETCH") || String(h.id || "").includes("XHR")),
+        text: "외부 전송 신호(fetch/XHR) 추가됨: 실제 전송 대상(origin)과 payload(민감정보 포함 여부)를 점검하세요.",
+      },
+    ].filter(r => r.when),
+
+    evidenceObj: det,
   };
 }
 
@@ -997,23 +1096,6 @@ function buildProtoTamperFormVM({ summary, ruleOneLine, src, parsed }) {
   };
 }
 
-
-
-function extractFirstUrl(text) {
-  if (!text) return null;
-  const m = String(text).match(/https?:\/\/[^\s"')]+/i);
-  return m ? m[0] : null;
-}
-
-function findEndpoint(findings = []) {
-  const f = findings.find((x) => String(x.kind || "").toLowerCase().includes("endpoint"));
-  if (!f) return { endpointUrl: null, endpointEvidence: null };
-
-  const evidenceText = f.evidence ? String(f.evidence) : "";
-  const endpointUrl = extractFirstUrl(evidenceText);
-  return { endpointUrl, endpointEvidence: evidenceText || null };
-}
-
 function buildNetworkVM({ detail, summary, parsedPayload, ruleOneLine }) {
   // 네트워크 이벤트는 details.data 또는 payloadJson.data에 핵심이 들어갈 수 있음
   const d = detail;
@@ -1270,6 +1352,9 @@ function buildEventViewModel({ detail, summary, parsedPayload, ruleDescription }
     
     case EventCategory.INJECTED_SCRIPT_SCORE:
       return buildInjectedScriptScoreVM({ detail, summary, parsedPayload, ruleOneLine });
+
+    case EventCategory.INJECTED_SCRIPT_RESCORE:
+      return buildInjectedScriptRescoreVM({ detail, summary, parsedPayload, ruleOneLine });
     
     case EventCategory.MIRRORING:
       return buildXhrMirroringSuspectVM({ detail, summary, parsedPayload, ruleOneLine });
