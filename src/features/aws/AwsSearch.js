@@ -241,9 +241,10 @@ export const getEventsByRule = async ({
     });
 
     const items = response?.items || [];
+    const updateItems = await updateScoresWithAi(items);
 
     return {
-      data: items,
+      data: updateItems,
       error: null,
     };
   } catch (error) {
@@ -276,10 +277,11 @@ export const getEventsByDomain = async ({
 
     // 2. response.items가 없을 경우를 대비해 빈 배열로 처리
     const items = response?.items || [];
+    const updateItems = await updateScoresWithAi(items);
 
     // 3. 리턴 객체 내부 구분자는 쉼표(,)여야 합니다.
     return {
-      data: items, // 세미콜론(;) 제거
+      data: updateItems, // 세미콜론(;) 제거
       error: null, // 세미콜론(;) 제거
     };
   } catch (error) {
@@ -309,7 +311,8 @@ export const getUserSessionEvents = async ({
       userDataResponse = response;
     }
 
-    const rawData = userDataResponse?.items || [];
+    const rawData = await updateScoresWithAi(userDataResponse?.items) || [];
+
     if (rawData.length === 0) return { groupedList: [] };
 
     // 1. 원본 데이터 최신순 정렬
@@ -372,8 +375,12 @@ export const getUserDomainEvents = async ({
     const rawData = userDataResponse?.items || [];
     if (rawData.length === 0) return { groupedList: [] };
 
+    const updateRawData = await updateScoresWithAi(rawData);
+
     // 1. 원본 데이터 최신순 정렬 (기본 정렬)
-    const sortedData = [...rawData].sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    const sortedData = [...updateRawData].sort(
+      (a, b) => (b.ts || 0) - (a.ts || 0),
+    );
 
     // 2. 도메인별(Domain) 그룹화
     const grouped = sortedData.reduce((acc, item) => {
@@ -433,6 +440,7 @@ export const getUserSeverity = async ({
     }
 
     const rawData = userDataResponse || [];
+    const updateRawData = await updateScoresWithAi(rawData);
 
     // 데이터가 없을 경우 처리
     if (rawData.length === 0) {
@@ -444,7 +452,7 @@ export const getUserSeverity = async ({
 
     // 2. 위험도별 개수 집계
     const counts = { HIGH: 0, MEDIUM: 0, LOW: 0 };
-    rawData.forEach((item) => {
+    updateRawData.forEach((item) => {
       const sev = item.severity?.toUpperCase();
       if (counts.hasOwnProperty(sev)) {
         counts[sev]++;
@@ -499,7 +507,7 @@ export const getUserDomain = async ({
       userDataResponse = response?.items || [];
     }
 
-    const rawData = userDataResponse || [];
+    const rawData = await updateScoresWithAi(userDataResponse) || [];
 
     // 데이터가 없을 경우 처리
     if (rawData.length === 0) {
@@ -563,11 +571,12 @@ export const getUserEventBytime = async ({
     }
 
     let rawData = userDataResponse || [];
+    const updateRawData = await updateScoresWithAi(rawData);
     if (rawData.length === 0) return { sortedData: [] };
 
     // ✅ 2. severity가 'LOW'인 데이터 제거 (필터링)
     // item.severity가 존재하고, 그 값이 'low'가 아닌 것들만 남깁니다.
-    const filteredData = rawData.filter(
+    const filteredData = updateRawData.filter(
       (item) => item.severity?.toUpperCase() !== "LOW",
     );
 
@@ -760,4 +769,79 @@ export const getRuleDescription = async ({ ruleId, locale = "ko" }) => {
       error: error?.message || "Unknown error",
     };
   }
+};
+
+export const getFinalScore = async ({ eventId }) => {
+  try {
+    if (!eventId) return { data: null, error: "No Event ID" };
+
+    const response = await brsQueryApi.eventBody({ eventId });
+
+    // API 응답 구조에 따라 response.ok 혹은 response 자체가 데이터인지 확인 필요
+    if (!response) {
+      throw new Error("데이터를 찾을 수 없습니다.");
+    }
+
+    // 1. payloadJson 파싱
+    let parsedInnerPayload = {};
+    try {
+      parsedInnerPayload = response.payload?.payloadJson
+        ? JSON.parse(response.payload.payloadJson)
+        : {};
+    } catch (e) {
+      console.error("Payload 파싱 실패", e);
+    }
+
+    // 2. ✅ 접근 경로 수정: data 객체 내부의 finalScore를 가져와야 합니다.
+    // 만약 data에 없다면 evidence.finalScore를 차선책으로 확인합니다.
+    const finalScore =
+      parsedInnerPayload.data?.finalScore ??
+      parsedInnerPayload.evidence?.finalScore;
+
+    return {
+      finalScore: finalScore !== undefined ? finalScore : null,
+      error: null,
+    };
+  } catch (error) {
+    console.error(`이벤트(${eventId}) 조회 실패:`, error);
+    return {
+      finalScore: null,
+      error: error?.message || "Unknown error",
+    };
+  }
+};
+
+export const updateScoresWithAi = async (dataArray) => {
+  // 1. 빈 값 및 배열 확인
+  if (!dataArray || !Array.isArray(dataArray) || dataArray.length === 0) {
+    return [];
+  }
+
+  // 2. Promise.all을 사용하여 모든 비동기 처리가 끝날 때까지 기다립니다.
+  const updatedData = await Promise.all(
+    dataArray.map(async (item) => {
+      // 3. eventId가 "AI_"로 시작하는 항목만 점수 업데이트 진행
+      if (item?.eventId?.startsWith("AI_")) {
+        const { finalScore, error } = await getFinalScore({
+          eventId: item.eventId,
+        });
+
+        if (!error && finalScore !== undefined) {
+          console.log(
+            `AI 항목 점수 업데이트: ${item.eventId} -> ${finalScore}`,
+          );
+          return {
+            ...item,
+            // API에서 받아온 finalScore로 교체 (숫자형 보장)
+            scoreDelta: String(finalScore),
+          };
+        }
+      }
+
+      // 4. 일반 항목이거나 에러 발생 시 기존 데이터 그대로 반환
+      return item;
+    }),
+  );
+
+  return updatedData;
 };
