@@ -19,7 +19,7 @@ export function createNotificationSink() {
     },
 
     async send(threat) {
-      const { tabId, severity, reportId } = threat;
+      const { tabId, severity, reportId, data } = threat;
       const currentSeverity = (severity || "LOW").toUpperCase();
       const tabKey = `last_noti_tab_${tabId}`;
       const now = Date.now();
@@ -54,7 +54,7 @@ export function createNotificationSink() {
 
         await chrome.storage.local.set({ [tabKey]: newState });
 
-        const rawMessage = await getThreatMessage(threat.ruleId, "oneLine");
+        const rawMessage = await getThreatMessage(threat.ruleId, "oneLine", data);
 
         const htmlMessage = rawMessage.replace(/\. /g, '.<br/>');
         return new Promise((resolve, reject) => {

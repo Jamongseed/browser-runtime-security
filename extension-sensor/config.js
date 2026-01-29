@@ -4,8 +4,8 @@ export const SYSTEM_CONFIG = {
   API_ENDPOINT: "https://bdct33dfx1.execute-api.ap-northeast-2.amazonaws.com/prod/events",
   DUMPS_ENDPOINT: "https://bdct33dfx1.execute-api.ap-northeast-2.amazonaws.com/prod/dumps",
 
-  USE_SERVER_DASHBOARD: false,
-  AWS_DASHBOARD_URL: "",
+  USE_SERVER_DASHBOARD: true,
+  AWS_DASHBOARD_URL: "https://browser-runtime-security.vercel.app/app/user_front/",
   LOCAL_DASHBOARD_PATH: "local_dashboard/dashboard.html",
 
   // Getter, 일반 변수처럼 사용 가능 (SYSTEM_CONFIG.DASHBOARD_URL)

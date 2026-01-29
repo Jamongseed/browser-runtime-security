@@ -1,5 +1,6 @@
-import { STORAGE_KEYS } from './config.js';
+import { STORAGE_KEYS, SYSTEM_CONFIG } from './config.js';
 import { getThreatMessage } from './utils/threatMessages.js';
+import { getOrCreateInstallId } from './utils/installIdManager.js';
 
 // 시간 표시 함수
 function getRelativeTime(timestamp) {
@@ -18,19 +19,17 @@ function getRelativeTime(timestamp) {
 }
 
 // reportId 파라미터 추가
-function openDashboard(installId, reportId) {
-  const dashboardUrl = chrome.runtime.getURL("local_dashboard/dashboard.html");
-  const params = new URLSearchParams();
+function openDashboard(installId, reportId = null) {
+  const dashboardBase = SYSTEM_CONFIG.DASHBOARD_URL;
 
-  if (installId) params.append("installId", installId);
-
-  // reportId가 있으면 URL 파라미터에 추가
+  let targetUrl;
   if (reportId) {
-    params.append("reportId", reportId);
+    // 상세 페이지
+    targetUrl = `${dashboardBase}detail/${reportId}?installId=${installId}`;
+  } else {
+    // 메인 대시보드
+    targetUrl = `${dashboardBase}dashboard/${installId}`;
   }
-
-  const targetUrl = `${dashboardUrl}?${params.toString()}`;
-
   chrome.tabs.create({ url: targetUrl });
 }
 
@@ -62,10 +61,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 대시보드 버튼 로직 INSTALL_ID만 불러오면 되는 가벼운 작업을 위 쪽으로 올림
   if (dashboardBtn) {
-    dashboardBtn.addEventListener('click', () => {
-      chrome.storage.local.get([STORAGE_KEYS.INSTALL_ID], (res) => {
-        openDashboard(res[STORAGE_KEYS.INSTALL_ID]);
-      });
+    dashboardBtn.addEventListener('click', async () => {
+      const installId = await getOrCreateInstallId();
+      openDashboard(installId);
     });
   }
 
@@ -82,158 +80,161 @@ document.addEventListener('DOMContentLoaded', () => {
 
   chrome.storage.local.get({
     [STORAGE_KEYS.LOGS]: [],
-    [STORAGE_KEYS.INSTALL_ID]: null,
     [STORAGE_KEYS.IS_ENABLED]: true
   }, async (result) => {
-
-    if (chrome.runtime.lastError) {
-      console.error("[BRS] Storage Access Failed:", chrome.runtime.lastError.message);
-      renderEmpty(logArea, "데이터 로드 실패<br>(Storage Error)");
-      return;
-    }
-
-    const logs = result[STORAGE_KEYS.LOGS] || [];
-    const installId = result[STORAGE_KEYS.INSTALL_ID];
-    const isEnabled = result[STORAGE_KEYS.IS_ENABLED];
-
-    // 초기 토글 상태 반영
-    updateStatusUI(isEnabled);
-
-    if (toggle) {
-      toggle.addEventListener('change', (e) => {
-        const newState = e.target.checked;
-
-        toggle.disabled = true;
-
-        chrome.storage.local.set({ [STORAGE_KEYS.IS_ENABLED]: newState }, () => {
-          toggle.disabled = false; // 저장 완료 후 해제
-
-          if (chrome.runtime.lastError) {
-            console.error("[BRS] Toggle Save Failed:", chrome.runtime.lastError.message);
-            // 에러 시 UI를 이전 상태로 복구
-            toggle.checked = !newState;
-            updateStatusUI(!newState);
-          } else {
-            updateStatusUI(newState);
-          }
-        });
-      });
-    }
-
-    if (logs.length === 0) {
-      renderEmpty(logArea);
-      return;
-    }
-
-    let tab;
     try {
-      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      tab = activeTab;
-    } catch (e) {
-      console.error("[BRS] Tab Query Failed:", e);
-    }
-
-    // URL을 못 찾으면 그냥 빈 창 띄우기
-    if (!tab || !tab.url) {
-      renderEmpty(logArea);
-      return;
-    }
-
-    const currentTabId = tab.id;
-    const sessionLogs = logs.filter(log => {
-      const severity = (log.severity || "").toUpperCase();
-      const isTargetSeverity = ['MEDIUM', 'HIGH'].includes(severity);
-
-      return log.tabId === currentTabId && isTargetSeverity;
-    });
-
-    const count = sessionLogs.length;
-    const summaryArea = document.getElementById('status-summary');
-
-    if (summaryArea) {
-      if (count > 0) {
-        summaryArea.textContent = `현재 탭에서 총 ${count}건의 위협이 발견되었습니다.`;
-        summaryArea.style.display = 'block';
-      } else {
-        summaryArea.style.display = 'none';
+      if (chrome.runtime.lastError) {
+        console.error("[BRS] Storage Access Failed:", chrome.runtime.lastError.message);
+        renderEmpty(logArea, "데이터 로드 실패<br>(Storage Error)");
+        return;
       }
-    }
 
-    if (sessionLogs.length === 0) {
-      renderEmpty(logArea, "현재 탭에서 탐지된<br>주요 위협(Medium 이상)이 없습니다.");
-      return;
-    }
+      const installId = await getOrCreateInstallId();
+      const logs = result[STORAGE_KEYS.LOGS] || [];
+      const isEnabled = result[STORAGE_KEYS.IS_ENABLED];
 
-    const logsToDisplay = sessionLogs
-      .sort((a, b) => b.ts - a.ts)
-      .slice(0, 7);
+      // 초기 토글 상태 반영
+      updateStatusUI(isEnabled);
 
-    if (logArea) {
-      logArea.innerHTML = '';
+      if (toggle) {
+        toggle.addEventListener('change', (e) => {
+          const newState = e.target.checked;
 
-      for (const log of logsToDisplay) {
-        const siteInfo = log?.browserUrl || log?.targetOrigin || "Internal/Page";
+          toggle.disabled = true;
 
-        const timeStr = getRelativeTime(log.ts);
+          chrome.storage.local.set({ [STORAGE_KEYS.IS_ENABLED]: newState }, () => {
+            toggle.disabled = false; // 저장 완료 후 해제
 
-        const logTitle = await getThreatMessage(log.ruleId, "title");
-
-        const itemDiv = document.createElement('div');
-        itemDiv.className = `log-item ${log.severity}`;
-
-        itemDiv.addEventListener('click', () => {
-          openDashboard(installId, log.reportId);
+            if (chrome.runtime.lastError) {
+              console.error("[BRS] Toggle Save Failed:", chrome.runtime.lastError.message);
+              // 에러 시 UI를 이전 상태로 복구
+              toggle.checked = !newState;
+              updateStatusUI(!newState);
+            } else {
+              updateStatusUI(newState);
+            }
+          });
         });
-
-        const headerDiv = document.createElement('div');
-        headerDiv.className = 'log-header';
-
-        const typeSpan = document.createElement('span');
-        typeSpan.textContent = logTitle;
-
-        const timeSpan = document.createElement('span');
-        timeSpan.className = 'log-time';
-        timeSpan.textContent = timeStr;
-
-        headerDiv.appendChild(typeSpan);
-        headerDiv.appendChild(timeSpan);
-
-        const originDiv = document.createElement('div');
-        originDiv.style.fontSize = '11px';
-        originDiv.style.marginTop = '4px';
-        originDiv.textContent = `URL: ${siteInfo}`;
-
-        const footerDiv = document.createElement('div');
-        footerDiv.style.marginTop = '5px';
-        footerDiv.style.fontSize = '11px';
-        footerDiv.style.color = '#888';
-
-        footerDiv.appendChild(document.createTextNode("위험도: "));
-
-        const bTag = document.createElement('b');
-        bTag.textContent = log.severity;
-        footerDiv.appendChild(bTag);
-
-        footerDiv.appendChild(document.createTextNode(` (점수: ${log.scoreDelta})`));
-
-        itemDiv.appendChild(headerDiv);
-        itemDiv.appendChild(originDiv);
-        itemDiv.appendChild(footerDiv);
-        logArea.appendChild(itemDiv);
-      };
-
-      if (sessionLogs.length > 7) {
-        const moreLink = document.createElement('div');
-        moreLink.className = 'more-logs-link'; 
-
-        moreLink.textContent = `+ ${sessionLogs.length - 7}개의 위협 더 보기`;
-
-        moreLink.addEventListener('click', () => {
-          openDashboard(installId);
-        });
-
-        logArea.appendChild(moreLink);
       }
+
+      if (logs.length === 0) {
+        renderEmpty(logArea);
+        return;
+      }
+
+      let tab;
+      try {
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        tab = activeTab;
+      } catch (e) {
+        console.error("[BRS] Tab Query Failed:", e);
+      }
+
+      // URL을 못 찾으면 그냥 빈 창 띄우기
+      if (!tab || !tab.url) {
+        renderEmpty(logArea);
+        return;
+      }
+
+      const currentTabId = tab.id;
+      const sessionLogs = logs.filter(log => {
+        const severity = (log.severity || "").toUpperCase();
+        const isTargetSeverity = ['MEDIUM', 'HIGH'].includes(severity);
+
+        return log.tabId === currentTabId && isTargetSeverity;
+      });
+
+      const count = sessionLogs.length;
+      const summaryArea = document.getElementById('status-summary');
+
+      if (summaryArea) {
+        if (count > 0) {
+          summaryArea.textContent = `현재 탭에서 총 ${count}건의 위협이 발견되었습니다.`;
+          summaryArea.style.display = 'block';
+        } else {
+          summaryArea.style.display = 'none';
+        }
+      }
+
+      if (sessionLogs.length === 0) {
+        renderEmpty(logArea, "현재 탭에서 탐지된<br>주요 위협(Medium 이상)이 없습니다.");
+        return;
+      }
+
+      const logsToDisplay = sessionLogs
+        .sort((a, b) => b.ts - a.ts)
+        .slice(0, 7);
+
+      if (logArea) {
+        logArea.innerHTML = '';
+
+        for (const log of logsToDisplay) {
+          const siteInfo = log?.browserUrl || log?.targetOrigin || "Internal/Page";
+
+          const timeStr = getRelativeTime(log.ts);
+
+          const logTitle = await getThreatMessage(log.ruleId, "title");
+
+          const itemDiv = document.createElement('div');
+          itemDiv.className = `log-item ${log.severity}`;
+
+          itemDiv.addEventListener('click', () => {
+            openDashboard(installId, log.reportId);
+          });
+
+          const headerDiv = document.createElement('div');
+          headerDiv.className = 'log-header';
+
+          const typeSpan = document.createElement('span');
+          typeSpan.textContent = logTitle;
+          typeSpan.className = 'log-title';
+
+          const timeSpan = document.createElement('span');
+          timeSpan.className = 'log-time';
+          timeSpan.textContent = timeStr;
+
+          headerDiv.appendChild(typeSpan);
+          headerDiv.appendChild(timeSpan);
+
+          const originDiv = document.createElement('div');
+          originDiv.style.fontSize = '11px';
+          originDiv.style.marginTop = '4px';
+          originDiv.textContent = `URL: ${siteInfo}`;
+
+          const footerDiv = document.createElement('div');
+          footerDiv.style.marginTop = '5px';
+          footerDiv.style.fontSize = '11px';
+          footerDiv.style.color = '#888';
+
+          footerDiv.appendChild(document.createTextNode("위험도: "));
+
+          const bTag = document.createElement('b');
+          bTag.textContent = log.severity;
+          footerDiv.appendChild(bTag);
+
+          footerDiv.appendChild(document.createTextNode(` (점수: ${log.scoreDelta})`));
+
+          itemDiv.appendChild(headerDiv);
+          itemDiv.appendChild(originDiv);
+          itemDiv.appendChild(footerDiv);
+          logArea.appendChild(itemDiv);
+        };
+
+        if (sessionLogs.length > 7) {
+          const moreLink = document.createElement('div');
+          moreLink.className = 'more-logs-link';
+
+          moreLink.textContent = `+ ${sessionLogs.length - 7}개의 위협 더 보기`;
+
+          moreLink.addEventListener('click', () => {
+            openDashboard(installId);
+          });
+
+          logArea.appendChild(moreLink);
+        }
+      }
+    } catch (err) {
+      console.error("[BRS] Fatal error during popup initialization:", err);
     }
   });
 });

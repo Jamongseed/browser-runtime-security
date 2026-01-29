@@ -1,24 +1,68 @@
-let messagesCache = null;
+let loadPromise = null;
+
+const RULESET_FILES = [
+  "rulesets/default-v1.json",
+  "rulesets/scoring-model-v1.json"
+];
 
 // JSON 파일 로드 및 캐싱
 async function ensureMessagesLoaded() {
-  if (messagesCache) return messagesCache;
+  if (loadPromise) return loadPromise;
 
-  try {
-    const url = chrome.runtime.getURL("rulesets/default-v1.json");
-    const response = await fetch(url);
-    const data = await response.json();
+  loadPromise = (async () => {
+    let combinedCache = {};
 
-    // 전체 JSON 중 "messages" 객체만 캐싱
-    messagesCache = data.messages || {};
-  } catch (err) {
-    console.error("[BRS] Failed to load threat messages:", err);
-    messagesCache = {};
-  }
-  return messagesCache;
+    try {
+      const loadPromises = RULESET_FILES.map(async (fileName) => {
+        try {
+          const url = chrome.runtime.getURL(fileName);
+          const response = await fetch(url);
+          if (!response.ok) return null;
+          const data = await response.json();
+          return data.messages || {};
+        } catch (e) {
+          console.warn(`[BRS] Failed to load ruleset: ${fileName}`, e);
+          return null;
+        }
+      });
+
+      const results = await Promise.all(loadPromises);
+      results.forEach(msgObj => {
+        if (msgObj) {
+          combinedCache = { ...combinedCache, ...msgObj };
+        }
+      });
+    } catch (err) {
+      console.error("[BRS] Error while merging rulesets:", err);
+    }
+
+    return combinedCache;
+  })();
+
+  return loadPromise;
 }
 
-export async function getThreatMessage(ruleId, type = "title") {
+export async function getThreatMessage(ruleId, type = "title", data = null) {
+  if (ruleId === "INJECTED_SCRIPT_SCORE" && type === "oneLine" && data) {
+    const { hits = [], comboHits = [] } = data;
+    const totalCount = hits.length + comboHits.length;
+
+    const primary = comboHits[0] || hits[0];
+
+    if (primary) {
+      const match = (primary.category || "").match(/\(([^)]+)\)/);
+      const categoryName = match ? match[1].trim() : "의심 동작";
+
+      return totalCount > 1
+        ? `악성 스크립트 주입. ${categoryName} 외 ${totalCount - 1}가지 위험 행위가 발견되었습니다.`
+        : `$악성 스크립트 주입. {categoryName} 정황이 감지되었습니다.`;
+    }
+  }
+
+    if (ruleId === "INJECTED_SCRIPT_SCORE" && type === "title") {
+      return "악성 스크립트 주입"
+  }
+
   const cache = await ensureMessagesLoaded();
 
   // 브라우저 언어에 따라 한국어 또는 영어 불러오는 로직
@@ -31,9 +75,9 @@ export async function getThreatMessage(ruleId, type = "title") {
   // } catch (_) {}
 
   // const localeSet = msgSet[uiLang] || msgSet["en"] || {};
-  
+
   const lang = 'ko'
-  const msgSet = cache[ruleId] ||  {};
+  const msgSet = cache[ruleId] || {};
 
   const localeSet = msgSet[lang] || {};
   const text = localeSet[type];

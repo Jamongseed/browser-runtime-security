@@ -339,6 +339,33 @@
     .more-logs-link:hover {
       color: #0056b3;
     }
+
+    .log-title {
+      white-space: pre-line;
+      word-break: keep-all;
+    }
+
+    /* 제목과 시간을 감싸는 부모 컨테이너 */
+    .log-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    /* 제목 부분 */
+    .log-header span:first-child {
+      flex: 1;
+      white-space: pre-line;
+      word-break: keep-all;
+    }
+
+    .log-time {
+      white-space: nowrap;
+      flex-shrink: 0;
+      color: #888;
+      font-size: 11px;
+    }
   </style>
 </head>
 
