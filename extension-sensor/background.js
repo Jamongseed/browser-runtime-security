@@ -46,7 +46,7 @@ function extractOriginsFromText(text) {
   const origins = new Set();
   let m;
   while ((m = re.exec(s))) {
-    try { origins.add(new URL(m[0]).origin); } catch (_) {}
+    try { origins.add(new URL(m[0]).origin); } catch (_) { }
   }
   return origins;
 }
@@ -105,7 +105,7 @@ function matchSignal(text, sig) {
 
 function scoreScriptText(text, model) {
   const signals = Array.isArray(model?.signals) ? model.signals : [];
-  const combos  = Array.isArray(model?.combos) ? model.combos : [];
+  const combos = Array.isArray(model?.combos) ? model.combos : [];
 
   const hits = [];
   const hitIds = new Set();
@@ -264,29 +264,47 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // 토스트 알림 클릭 시 대시보드 열기
   if (message.action === "OPEN_DASHBOARD_FROM_TOAST") {
-    const tabId = currentTabId;
-    if (tabId) {
-      chrome.storage.local.remove(`pending_toast_${tabId}`, () => {
-        if (chrome.runtime.lastError) console.debug("[BRS] Pending toast removal failed");
-      });
-    }
+    (async () => {
+      try {
+        const tabId = currentTabId;
+        if (tabId) {
+          chrome.storage.local.remove(`pending_toast_${tabId}`, () => {
+            if (chrome.runtime.lastError) console.debug("[BRS] Pending toast removal failed");
+          });
+        }
 
-    const reportId = message.reportId || "";
-    const dashboardBase = SYSTEM_CONFIG.DASHBOARD_URL;
-    if (!dashboardBase) {
-      sendResponse({ ok: false, error: "Missing Dashboard URL" });
-      return true;
-    }
-    const targetUrl = `${dashboardBase}?reportId=${reportId}`;
+        const reportId = message.reportId || "";
+        const installId = await getOrCreateInstallId();
+        const dashboardBase = SYSTEM_CONFIG.DASHBOARD_URL;
+        if (!dashboardBase) {
+          sendResponse({ ok: false, error: "Missing Dashboard URL" });
+          return;
+        }
 
-    chrome.tabs.create({ url: targetUrl }, (tab) => {
-      if (chrome.runtime.lastError) {
-        console.error("[BRS] Failed to open dashboard:", chrome.runtime.lastError);
-        sendResponse({ ok: false, error: chrome.runtime.lastError.message });
-      } else {
-        sendResponse({ ok: true });
+        let targetUrl;
+
+
+        if (reportId) {
+          targetUrl = `${dashboardBase}detail/${reportId}?installId=${installId}`;
+        } else {
+          // reportId가 없으면 메인 대시보드
+          targetUrl = `${dashboardBase}dashboard/${installId}`;
+        }
+
+        chrome.tabs.create({ url: targetUrl }, (tab) => {
+          if (chrome.runtime.lastError) {
+            console.error("[BRS] Failed to open dashboard:", chrome.runtime.lastError);
+            sendResponse({ ok: false, error: chrome.runtime.lastError.message });
+          } else {
+            sendResponse({ ok: true });
+          }
+        });
+      } catch (err) {
+        console.error("[BRS] Dashboard open error:", err);
+        sendResponse({ ok: false, error: err.message });
       }
-    });
+    })();
+
     return true;
   }
 
@@ -503,11 +521,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         sendResponse({ ok: true, scriptScore });
       } catch (e) {
-          console.error("[BRS] dump transmit failed:", {
-            msg: String(e?.message || e),
-            name: e?.name,
-            dumpsEndpoint: SYSTEM_CONFIG.DUMPS_ENDPOINT,
-          });
+        console.error("[BRS] dump transmit failed:", {
+          msg: String(e?.message || e),
+          name: e?.name,
+          dumpsEndpoint: SYSTEM_CONFIG.DUMPS_ENDPOINT,
+        });
         sendResponse({ ok: false, err: String(e?.message || e) });
       }
     })();
