@@ -1,10 +1,10 @@
 {
-  "schemaVersion": "scoring-model-v1.1",
+  "schemaVersion": "scoring-model-v1.2",
   "modelId": "scoring-model-v1",
-  "modelUpdatedAt": "2026-01-19",
+  "modelUpdatedAt": "2026-01-29",
   "name": "Injected Script Scoring Model (v1)",
   "source": "converted-from-excel",
-  "generatedAt": "2026-01-19",
+  "generatedAt": "2026-01-29",
   "signals": [
     {
       "id": "A_FUNC_CONSTRUCTOR",
@@ -13,7 +13,7 @@
       "signal": "new Function / Function()",
       "score": 25,
       "reason": "Runtime code generation",
-      "match": { "type": "substrAny", "patterns": ["new Function", "Function("] }
+      "match": { "type": "substrAny", "caseSensitive": true, "patterns": ["new Function", "Function("] }
     },
     {
       "id": "A_EVAL",
@@ -40,7 +40,7 @@
       "signal": "Dynamic <script src> injection",
       "score": 15,
       "reason": "Load external code at runtime",
-      "match": { "type": "substrAny", "patterns": ["createElement(\"script\")", "createElement('script')", ".src =", ".setAttribute(\"src\"", ".setAttribute('src'", "appendChild(", "insertBefore("] }
+      "match": { "type": "substrAny", "patterns": ["createElement(\"script\")", "createElement('script')", ".src =", ".setAttribute(\"src\"", ".setAttribute('src'"] }
     },
     {
       "id": "A_DYN_IFRAME_SRC_HIDDEN",
@@ -49,7 +49,7 @@
       "signal": "Dynamic <iframe src> injection (hidden)",
       "score": 5,
       "reason": "Secondary loader / stealth channel",
-      "match": { "type": "substrAny", "patterns": ["createElement(\"iframe\")", "createElement('iframe')", ".src =", "display=\"none\"", "style.display", "style.opacity", "visibility", "width = 0", "height = 0"] }
+      "match": { "type": "substrAny", "patterns": ["createElement(\"iframe\")", "createElement('iframe')", "display=\"none\"", "width = 0", "height = 0"] }
     },
     {
       "id": "A_FORM_ACTION_SWAP",
@@ -76,7 +76,7 @@
       "signal": "form.submit() direct call",
       "score": 10,
       "reason": "Bypass submit event / force submit",
-      "match": { "type": "substrAny", "patterns": [".submit()", ".submit("] }
+      "match": { "type": "substrAny", "patterns": [".submit()"] }
     },
     {
       "id": "A_FORMDATA_CREATE",
@@ -85,7 +85,7 @@
       "signal": "FormData(form) create",
       "score": 15,
       "reason": "Collect field values",
-      "match": { "type": "substrAny", "patterns": ["new FormData(", "FormData("] }
+      "match": { "type": "substrAny", "caseSensitive": true, "patterns": ["new FormData("] }
     },
     {
       "id": "A_FORMDATA_ENTRIES",
@@ -103,7 +103,8 @@
       "signal": "fetch/XHR to cross-origin",
       "score": 12,
       "reason": "Send data to other origin",
-      "match": { "type": "substrAny", "patterns": ["fetch(", "XMLHttpRequest", "http://", "https://", "ws://", "wss://"] }
+      "match": { "type": "substrAny", "patterns": [ "fetch(", "window[\"fetch\"](", "window['fetch'](", "[\"fetch\"](", "['fetch'](", "XMLHttpRequest(", "new XMLHttpRequest"
+    ] }
     },
     {
       "id": "A_SENDBEACON",
@@ -112,7 +113,7 @@
       "signal": "navigator.sendBeacon()",
       "score": 15,
       "reason": "Background exfil",
-      "match": { "type": "substrAny", "patterns": ["sendBeacon("] }
+      "match": { "type": "substrAny", "patterns": ["sendBeacon(", "navigator[\"sendBeacon\"](", "navigator['sendBeacon'](", "[\"sendBeacon\"](", "['sendBeacon']("] }
     },
     {
       "id": "A_WEBSOCKET_SEND",
@@ -121,7 +122,7 @@
       "signal": "WebSocket + ws.send()",
       "score": 18,
       "reason": "Real-time exfil/C2",
-      "match": { "type": "substrAny", "patterns": ["new WebSocket", "WebSocket(", ".send("] }
+      "match": { "type": "substrAny", "caseSensitive": true, "patterns": ["new WebSocket", "WebSocket("] }
     },
     {
       "id": "A_HTMLFORMELEMENT_PROTO_OVERRIDE",
@@ -130,7 +131,7 @@
       "signal": "HTMLFormElement.prototype override",
       "score": 10,
       "reason": "submit hooking",
-      "match": { "type": "substrAny", "patterns": ["HTMLFormElement.prototype", ".submit =", "requestSubmit"] }
+      "match": { "type": "substrAny", "caseSensitive": true, "patterns": ["HTMLFormElement.prototype", ".submit =", "requestSubmit"] }
     },
     {
       "id": "A_FETCH_KEEPALIVE_NOCORS",
@@ -148,7 +149,7 @@
       "signal": "XHR.prototype open/send override",
       "score": 22,
       "reason": "Intercept all XHR requests",
-      "match": { "type": "substrAny", "patterns": ["XMLHttpRequest.prototype.open", "XMLHttpRequest.prototype.send"] }
+      "match": { "type": "substrAny", "caseSensitive": true, "patterns": ["XMLHttpRequest.prototype.open", "XMLHttpRequest.prototype.send"] }
     },
     {
       "id": "A_XHR_SETREQUESTHEADER_OVERRIDE",
@@ -157,7 +158,7 @@
       "signal": "XHR.prototype setRequestHeader override",
       "score": 15,
       "reason": "Capture sensitive headers",
-      "match": { "type": "substrAny", "patterns": ["XMLHttpRequest.prototype.setRequestHeader"] }
+      "match": { "type": "substrAny", "caseSensitive": true, "patterns": ["XMLHttpRequest.prototype.setRequestHeader", "XMLHttpRequest.prototype[\"setRequestHeader\"]", "XMLHttpRequest.prototype['setRequestHeader']"] }
     },
     {
       "id": "A_SW_REGISTER",
@@ -202,7 +203,7 @@
       "signal": "Response rewrite (new Response / json modify)",
       "score": 30,
       "reason": "Tamper with API responses",
-      "match": { "type": "substrAny", "patterns": ["new Response", "Response(", "response.json", "JSON.stringify("] }
+      "match": { "type": "substrAny", "caseSensitive": true, "patterns": ["new Response", "Response(", "response.json", "response.clone", "response.text"] }
     },
     {
       "id": "A_POSTMESSAGE_TRIGGER",
@@ -247,7 +248,7 @@
       "signal": "MutationObserver used as trigger",
       "score": 8,
       "reason": "Condition-based execution (or stealth trigger)",
-      "match": { "type": "substrAny", "patterns": ["new MutationObserver", "MutationObserver("] }
+      "match": { "type": "substrAny", "caseSensitive": true, "patterns": ["new MutationObserver", "MutationObserver("] }
     },
     {
       "id": "A_CACHE_BUSTING_TS",
@@ -310,7 +311,7 @@
       "signal": "Fullscreen/transparent overlay",
       "score": 20,
       "reason": "Clicks redirected (bait)",
-      "match": { "type": "substrAny", "patterns": ["style.position", "fixed", "style.top", "style.left", "style.width", "style.height", "style.opacity", "zIndex"] }
+      "match": { "type": "substrAny", "patterns": ["style.position", "style.top", "style.left", "style.width", "style.height", "style.opacity"] }
     },
     {
       "id": "B_PRECLICK_HREF_SWAP",
@@ -319,7 +320,7 @@
       "signal": "Pre-click href swap (pointerdown/mousedown)",
       "score": 20,
       "reason": "Change destination at last moment",
-      "match": { "type": "substrAny", "patterns": ["pointerdown", "mousedown", ".href =", "setAttribute(\"href\"", "setAttribute('href'"] }
+      "match": { "type": "substrAny", "patterns": ["pointerdown", "mousedown", "setAttribute(\"href\"", "setAttribute('href'"] }
     },
     {
       "id": "B_RESET_HREF_DELAY_REDIRECT",

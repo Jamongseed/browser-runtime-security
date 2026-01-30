@@ -1,36 +1,41 @@
-import { SYSTEM_CONFIG, STORAGE_KEYS, DEFAULT_SETTINGS, SINK_CONFIG, THREAT_MESSAGES } from '../config.js';
+import { STORAGE_KEYS, DEFAULT_SETTINGS, SINK_CONFIG } from '../config.js';
+import { getThreatMessage } from '../utils/threatMessages.js';
 
 const SEVERITY_RANK = { 'LOW': 1, 'MEDIUM': 2, 'HIGH': 3 };
 const tabStateCache = new Map();
 
-// OS별 알림 옵션 빌드
-function buildNotificationOptions(threat, os) {
-  const message = THREAT_MESSAGES[threat.ruleId] || THREAT_MESSAGES["DEFAULT"];
-  const displayUrl = threat.browserUrl || threat.page || "";
-
-  // 공통 옵션
-  const options = {
-    type: 'basic',
-    iconUrl: 'icon/notification_icon.png',
-    title: `보안 위협 알림 (${threat.severity})`,
-    message: message,
-    contextMessage: displayUrl.substring(0, 40) + "...",
-    priority: 2,
-    requireInteraction: true
-  };
-  return options;
+function getEffectiveSeverity(threat) {
+  const v = Number(threat?.data?.finalScore ?? threat?.evidence?.finalScore);
+  if (Number.isFinite(v)) {
+    if (v >= 80) return "HIGH";
+    if (v >= 50) return "MEDIUM";
+    return "LOW";
+  }
+  return (threat?.severity || "LOW").toUpperCase();
 }
 
-chrome.notifications.onClicked.addListener(async (notificationId) => {
-  const targetUrl = `${SYSTEM_CONFIG.DASHBOARD_URL}?reportId=${notificationId}`;
-  try {
-    await chrome.tabs.create({ url: targetUrl });
-    chrome.notifications.clear(notificationId, () => {
-      if (chrome.runtime.lastError) console.debug("[BRS] Notification clear failed");
+chrome.notifications.onClicked.addListener((notificationId) => {
+  // notificationId == reportId 로 사용중
+  // pending_toast_* 중에서 reportId가 같은 항목을 찾아 tabId를 복구
+  chrome.storage.local.get(null, (all) => {
+    let tabId = null;
+    for (const [k, v] of Object.entries(all || {})) {
+      if (!k.startsWith("pending_toast_")) continue;
+      if (v && v.reportId === notificationId) {
+        tabId = Number(k.slice("pending_toast_".length));
+        break;
+      }
+    }
+    chrome.runtime.sendMessage({
+      action: "OPEN_DASHBOARD_FROM_TOAST",
+      reportId: notificationId,
+      tabId
     });
-  } catch (err) {
-    console.error("[BRS] Notification click handler error:", err);
-  }
+  });
+
+  chrome.notifications.clear(notificationId, () => {
+    if (chrome.runtime.lastError) console.debug("[BRS] Notification clear failed");
+  });
 });
 
 export function createNotificationSink() {
@@ -38,12 +43,12 @@ export function createNotificationSink() {
     name: "NotificationSink",
 
     shouldHandle(threat) {
-      return !!threat.severity;
+      return !!threat?.severity || Number.isFinite(Number(threat?.data?.finalScore ?? threat?.evidence?.finalScore));
     },
 
     async send(threat) {
       const { tabId, severity } = threat;
-      const currentSeverity = (severity || "LOW").toUpperCase();
+      const currentSeverity = getEffectiveSeverity(threat);
       const tabKey = `last_noti_tab_${tabId}`;
       const now = Date.now();
 
@@ -83,13 +88,22 @@ export function createNotificationSink() {
 
             const os = info.os;
             const reportId = threat.reportId || `noti_${Date.now()}`;
-            const messageText = THREAT_MESSAGES[threat.ruleId] || THREAT_MESSAGES["DEFAULT"];
+            const messageText = getThreatMessage(threat.ruleId, "oneLine", threat.data);
 
             if (os === 'linux') {
               this._sendLinuxToast(threat, messageText, reportId, resolve);
             } else {
-              // 윈도우, 맥
-              const options = buildNotificationOptions(threat, os);
+              // 윈도우/맥: 네이티브 알림. 클릭 시 background로 OPEN_DASHBOARD_FROM_TOAST 전송됨
+              const displayUrl = threat.browserUrl || threat.page || "";
+              const options = {
+                type: 'basic',
+                iconUrl: 'icon/notification_icon.png',
+                title: `보안 위협 알림 (${currentSeverity})`,
+                message: messageText,
+                contextMessage: (displayUrl ? displayUrl.substring(0, 40) + "..." : ""),
+                priority: 2,
+                requireInteraction: true
+              };
 
               chrome.notifications.create(reportId, options, (id) => {
                 if (chrome.runtime.lastError) {
@@ -116,7 +130,7 @@ export function createNotificationSink() {
       const now = Date.now();
       const pendingData = {
         message: messageText,
-        severity: threat.severity,
+        severity: getEffectiveSeverity(threat),
         reportId: reportId,
         ts: now
       };

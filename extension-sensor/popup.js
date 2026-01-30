@@ -1,21 +1,44 @@
-import { STORAGE_KEYS } from './config.js';
+import { STORAGE_KEYS, SYSTEM_CONFIG } from './config.js';
+import { getThreatMessage } from './utils/threatMessages.js';
+import { getOrCreateInstallId } from './utils/installIdManager.js';
 
+// 시간 표시 함수 (1차 방식)
+function getRelativeTime(timestamp) {
+  const now = Date.now();
+  const diff = now - timestamp;
+
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (seconds < 60) return "방금 전";
+  if (minutes < 60) return `${minutes}분 전`;
+  if (hours < 24) return `${hours}시간 전`;
+  return `${days}일 전`;
+ }
 
 // reportId 파라미터 추가
-function openDashboard(installId, reportId) {
-  const dashboardUrl = chrome.runtime.getURL("local_dashboard/dashboard.html");
-  const params = new URLSearchParams();
+function openDashboard(installId, reportId = null) {
+  const dashboardBase = SYSTEM_CONFIG.DASHBOARD_URL;
+  if (!dashboardBase) {
+    console.error("[BRS] Missing SYSTEM_CONFIG.DASHBOARD_URL");
+    return;
+  }
+  const base = dashboardBase.endsWith("/") ? dashboardBase : `${dashboardBase}/`;
 
-  if (installId) params.append("installId", installId);
-
-  // reportId가 있으면 URL 파라미터에 추가
+  let targetUrl;
   if (reportId) {
-    params.append("reportId", reportId);
+    targetUrl = `${base}detail/${encodeURIComponent(reportId)}?installId=${encodeURIComponent(installId)}`;
+  } else {
+    targetUrl = `${base}dashboard/${encodeURIComponent(installId)}`;
   }
 
-  const targetUrl = `${dashboardUrl}?${params.toString()}`;
-
-  chrome.tabs.create({ url: targetUrl });
+  chrome.tabs.create({ url: targetUrl }, () => {
+    if (chrome.runtime.lastError) {
+      console.error("[BRS] Failed to open dashboard:", chrome.runtime.lastError.message);
+    }
+  });
 }
 
 function renderEmpty(element, msg) {
@@ -46,10 +69,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 대시보드 버튼 로직 INSTALL_ID만 불러오면 되는 가벼운 작업을 위 쪽으로 올림
   if (dashboardBtn) {
-    dashboardBtn.addEventListener('click', () => {
-      chrome.storage.local.get([STORAGE_KEYS.INSTALL_ID], (res) => {
-        openDashboard(res[STORAGE_KEYS.INSTALL_ID]);
-      });
+    dashboardBtn.addEventListener('click', async () => {
+      const installId = await getOrCreateInstallId();
+      openDashboard(installId);
     });
   }
 
@@ -66,7 +88,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   chrome.storage.local.get({
     [STORAGE_KEYS.LOGS]: [],
-    [STORAGE_KEYS.INSTALL_ID]: null,
     [STORAGE_KEYS.IS_ENABLED]: true
   }, async (result) => {
 
@@ -77,8 +98,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const logs = result[STORAGE_KEYS.LOGS] || [];
-    const installId = result[STORAGE_KEYS.INSTALL_ID];
     const isEnabled = result[STORAGE_KEYS.IS_ENABLED];
+    const installId = await getOrCreateInstallId();
 
     // 초기 토글 상태 반영
     updateStatusUI(isEnabled);
@@ -131,6 +152,16 @@ document.addEventListener('DOMContentLoaded', () => {
       return log.tabId === currentTabId && isTargetSeverity;
     });
 
+    const summaryArea = document.getElementById('status-summary');
+    if (summaryArea) {
+      if (sessionLogs.length > 0) {
+        summaryArea.textContent = `현재 탭에서 총 ${sessionLogs.length}건의 위협이 발견되었습니다.`;
+        summaryArea.style.display = 'block';
+      } else {
+        summaryArea.style.display = 'none';
+      }
+    }
+
     if (sessionLogs.length === 0) {
       renderEmpty(logArea, "현재 탭에서 탐지된<br>주요 위협(Medium 이상)이 없습니다.");
       return;
@@ -138,14 +169,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const logsToDisplay = sessionLogs
       .sort((a, b) => b.ts - a.ts)
-      .slice(0, 20);
+      .slice(0, 7);
 
     if (logArea) {
       logArea.innerHTML = '';
-      logsToDisplay.forEach(log => {
-        const siteInfo = log?.browserUrl || log?.targetOrigin || "Internal/Page";
+      for (const log of logsToDisplay) {
+        // SITE 라벨: 이벤트가 들고 있는 page/origin 우선, 없으면 기존 필드 fallback
+        const siteInfo =
+          log?.page ||
+          log?.origin ||
+          log?.browserUrl ||
+          log?.targetOrigin ||
+          "Internal/Page";
 
-        const timeStr = new Date(log.ts).toLocaleTimeString();
+        const timeStr = getRelativeTime(log.ts);
+        const logTitle = await getThreatMessage(log.ruleId, "title");
 
         const itemDiv = document.createElement('div');
         itemDiv.className = `log-item ${log.severity}`;
@@ -158,7 +196,8 @@ document.addEventListener('DOMContentLoaded', () => {
         headerDiv.className = 'log-header';
 
         const typeSpan = document.createElement('span');
-        typeSpan.textContent = log.type;
+        typeSpan.textContent = logTitle;
+        typeSpan.className = 'log-title';
 
         const timeSpan = document.createElement('span');
         timeSpan.className = 'log-time';
@@ -170,7 +209,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const originDiv = document.createElement('div');
         originDiv.style.fontSize = '11px';
         originDiv.style.marginTop = '4px';
-        originDiv.textContent = `SITE: ${siteInfo}`;
+        originDiv.textContent = `URL: ${siteInfo}`;
 
         const footerDiv = document.createElement('div');
         footerDiv.style.marginTop = '5px';
@@ -183,13 +222,31 @@ document.addEventListener('DOMContentLoaded', () => {
         bTag.textContent = log.severity;
         footerDiv.appendChild(bTag);
 
-        footerDiv.appendChild(document.createTextNode(` (점수: ${log.scoreDelta})`));
+        // 점수 표기: 최종점수(finalScore) 우선, 없으면 score/effectiveScore, 마지막에 scoreDelta
+        const scoreShown =
+          (typeof log?.finalScore === "number") ? log.finalScore :
+          (typeof log?.data?.finalScore === "number") ? log.data.finalScore :
+          (typeof log?.effectiveScore === "number") ? log.effectiveScore :
+          (typeof log?.data?.effectiveScore === "number") ? log.data.effectiveScore :
+          (typeof log?.score === "number") ? log.score :
+          (typeof log?.data?.score === "number") ? log.data.score :
+          log.scoreDelta;
+
+        footerDiv.appendChild(document.createTextNode(` (점수: ${scoreShown})`));
 
         itemDiv.appendChild(headerDiv);
         itemDiv.appendChild(originDiv);
         itemDiv.appendChild(footerDiv);
         logArea.appendChild(itemDiv);
-      });
+      }
+
+      if (sessionLogs.length > 7) {
+        const moreLink = document.createElement('div');
+        moreLink.className = 'more-logs-link';
+        moreLink.textContent = `+ ${sessionLogs.length - 7}개의 위협 더 보기`;
+        moreLink.addEventListener('click', () => openDashboard(installId));
+        logArea.appendChild(moreLink);
+      }
     }
   });
 });
