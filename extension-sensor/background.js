@@ -262,65 +262,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // 토스트 알림 클릭 시 대시보드 열기
-  if (message.action === "OPEN_DASHBOARD_FROM_TOAST") {
-    (async () => {
-      try {
-        const tabId = currentTabId;
-        if (tabId) {
-          chrome.storage.local.remove(`pending_toast_${tabId}`, () => {
-            if (chrome.runtime.lastError) console.debug("[BRS] Pending toast removal failed");
-          });
-        }
-
-        const reportId = message.reportId || "";
-        const installId = await getOrCreateInstallId();
-        const dashboardBase = SYSTEM_CONFIG.DASHBOARD_URL;
-        if (!dashboardBase) {
-          sendResponse({ ok: false, error: "Missing Dashboard URL" });
-          return;
-        }
-
-        let targetUrl;
-
-
-        if (reportId) {
-          targetUrl = `${dashboardBase}detail/${reportId}?installId=${installId}`;
-        } else {
-          // reportId가 없으면 메인 대시보드
-          targetUrl = `${dashboardBase}dashboard/${installId}`;
-        }
-
-        chrome.tabs.create({ url: targetUrl }, (tab) => {
-          if (chrome.runtime.lastError) {
-            console.error("[BRS] Failed to open dashboard:", chrome.runtime.lastError);
-            sendResponse({ ok: false, error: chrome.runtime.lastError.message });
-          } else {
-            sendResponse({ ok: true });
-          }
-        });
-      } catch (err) {
-        console.error("[BRS] Dashboard open error:", err);
-        sendResponse({ ok: false, error: err.message });
-      }
-    })();
-
-    return true;
-  }
-
-  if (message.action === "CLEAR_MY_PENDING_TOAST") {
-    if (currentTabId) {
-      chrome.storage.local.remove(`pending_toast_${sender.tab.id}`);
-    }
-    return true;
-  }
-  // --- 토스트 알림 로직 ---
-
-  // 화이트리스트 업데이트 요청 처리
   if (message.action === "UPDATE_WHITELIST") {
     const newWhitelist = message.data || [];
 
-    // 크롬 저장소에 저장
     chrome.storage.local.set({ [STORAGE_KEYS.WHITELIST]: newWhitelist }, () => {
       if (chrome.runtime.lastError) {
         console.error("[BRS] Save error:", chrome.runtime.lastError);
@@ -334,8 +278,63 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // 토스트 알림 클릭 시 대시보드 열기
+  if (message.action === "OPEN_DASHBOARD_FROM_TOAST") {
+    (async () => {
+      try {
+        const tabId = (message && message.tabId != null) ? message.tabId : currentTabId;
+        if (tabId) {
+          chrome.storage.local.remove(`pending_toast_${tabId}`, () => {
+            if (chrome.runtime.lastError) console.debug("[BRS] Pending toast removal failed");
+          });
+        }
+
+        const reportId = message.reportId || "";
+        const installId = await withRetry(() => getOrCreateInstallId());
+        const dashboardBase = SYSTEM_CONFIG.DASHBOARD_URL;
+        if (!dashboardBase) {
+          sendResponse({ ok: false, error: "Missing Dashboard URL" });
+          return;
+        }
+
+        const base = dashboardBase.endsWith("/") ? dashboardBase : `${dashboardBase}/`;
+        const targetUrl = reportId
+          ? `${base}detail/${encodeURIComponent(reportId)}?installId=${encodeURIComponent(installId)}`
+          : `${base}dashboard/${encodeURIComponent(installId)}`;
+
+        chrome.tabs.create({ url: targetUrl }, () => {
+          if (chrome.runtime.lastError) {
+            console.error("[BRS] Failed to open dashboard:", chrome.runtime.lastError);
+            sendResponse({ ok: false, error: chrome.runtime.lastError.message });
+          } else {
+            sendResponse({ ok: true });
+          }
+        });
+      } catch (err) {
+        console.error("[BRS] Dashboard open error:", err);
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
+  if (message.action === "CLEAR_MY_PENDING_TOAST") {
+    if (currentTabId) {
+    chrome.storage.local.remove(`pending_toast_${currentTabId}`, () => {
+      if (chrome.runtime.lastError) console.debug("[BRS] Pending toast removal failed");
+    });
+    }
+    return true;
+  }
+
   // 1) 덤프 저장 (2번 코드 합침)
   if (message.action === "BRS_SAVE_DUMP") {
+    console.log("[BRS] BRS_SAVE_DUMP recv", {
+    hasSha: !!message?.payload?.sha256,
+    textLen: (message?.payload?.text || "").length,
+    norm: message?.payload?.norm,
+    dumpsEndpoint: SYSTEM_CONFIG.DUMPS_ENDPOINT
+  });
     (async () => {
       try {
         const payload = message.payload || {};
@@ -370,6 +369,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // compute SCRIPT_SCORE right before dump transmit
         let scriptScore = null;
         let scoreReportId = null;
+        let scoreHitIds = null;
         try {
           const model = await loadScoringModel();
           const { score, hits, comboBonus, comboHits } = scoreScriptText(clipped, model);
@@ -445,6 +445,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           scoreReportId = scoreEvent.reportId;
           console.log("[BRS] INJECTED_SCRIPT_SCORE dispatched", { score, hitCount: hits.length, sha256, norm });
           scriptScore = { score, hitCount: hits.length, comboBonus: comboBonus || 0, comboHitCount: (comboHits || []).length };
+          scoreHitIds = Array.isArray(hits) ? hits.map(h => h?.id).filter(Boolean) : null;
         } catch (e) {
           console.warn("[BRS] SCRIPT_SCORE skipped:", e?.message || e);
         }
@@ -464,6 +465,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sha256,
             score: scriptScore?.score ?? null,
             scoreReportId: scoreReportId || null,
+            hitIds: scoreHitIds,
             length: payload.length ?? text.length,
             contentType: payload.contentType || "",
             via: payload.via || "",
@@ -475,9 +477,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const dumpResp = await postJsonWithRetry(SYSTEM_CONFIG.DUMPS_ENDPOINT, dumpEvent);
         // AI 결과가 응답에 있으면(중간점수 구간) 로컬에도 verdict 이벤트 발행
         if (dumpResp && dumpResp.aiVerdict) {
-         const bonus = (dumpResp.aiVerdict === "MALICIOUS") ? 40 : 0;
-         const baseScoreNum = Number(scriptScore?.score);
-         const finalScore = Number.isFinite(baseScoreNum) ? (baseScoreNum + bonus) : null;
+        const bonus = (dumpResp.aiVerdict === "MALICIOUS") ? 40 : 0;
+        const baseScoreNum = Number(scriptScore?.score);
+        const serverFinal = Number(dumpResp.finalScore);
+        const finalScore =
+          Number.isFinite(serverFinal) ? serverFinal
+          : Number.isFinite(baseScoreNum) ? (baseScoreNum + bonus)
+          : null;
+
           const aiSeverity =
            (Number.isFinite(finalScore) && finalScore >= 80) ? "HIGH"
            : (Number.isFinite(finalScore) && finalScore < 50) ? "LOW"
@@ -490,7 +497,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sessionId: payload.sessionId || null,
             tabId,
             installId,
-            reportId: scoreReportId ? `AI#${scoreReportId}` : `AI#${sha256}`,
+            reportId: scoreReportId ? `AI_${scoreReportId}` : `AI_${sha256}`,
             page: payload.page || sender?.tab?.url || "",
             origin: payload.origin || "",
             targetOrigin: payload.targetOrigin || "",
@@ -502,6 +509,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               score: scriptScore?.score ?? null,
               bonus,
               finalScore,
+              
               status: dumpResp.status || null,
               aiVerdict: dumpResp.aiVerdict,
               aiConfidence: dumpResp.aiConfidence ?? null,
@@ -512,12 +520,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               score: scriptScore?.score ?? null,
               bonus,
               finalScore,
+              effectiveScore: Number.isFinite(Number(dumpResp.effectiveScore)) ? Number(dumpResp.effectiveScore) : null,
               aiVerdict: dumpResp.aiVerdict,
               aiConfidence: dumpResp.aiConfidence ?? null,
             }
           };
 
-          await Promise.allSettled(dispatcher.sinks.map(s => s.send(aiEvent, { sender })));
+          await Promise.allSettled(
+            dispatcher.sinks
+              .filter(s => s.name !== "HttpSink")
+              .map(s => s.send(aiEvent, { sender }))
+          );
         }
         sendResponse({ ok: true, scriptScore });
       } catch (e) {
@@ -665,6 +678,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+function storageSet(obj) {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.set(obj, () => {
+      const err = chrome.runtime.lastError;
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
+function storageRemove(keys) {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.remove(keys, () => {
+      const err = chrome.runtime.lastError;
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
 // 탭 세션 정보 삭제
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   try {
@@ -679,13 +712,13 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
       `pending_toast_${tabId}`
     ];
 
-    await chrome.storage.local.remove(keysToRemove);
+    await storageRemove(keysToRemove);
   } catch (err) {
     console.warn(`[BRS] Notification cleanup failed for tab ${tabId}:`, err);
   }
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
-  await chrome.storage.local.set({ [STORAGE_KEYS.TAB_SESSIONS]: {} });
+  await storageSet({ [STORAGE_KEYS.TAB_SESSIONS]: {} });
   console.log("[BRS] Extension installed. Session map initialized.");
 });

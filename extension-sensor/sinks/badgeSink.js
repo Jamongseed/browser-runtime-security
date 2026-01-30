@@ -1,10 +1,21 @@
 export function createBadgeSink() {
+  function getEffectiveSeverity(threat) {
+    const v = Number(threat?.data?.finalScore ?? threat?.evidence?.finalScore);
+    if (Number.isFinite(v)) {
+      if (v >= 80) return "HIGH";
+      if (v >= 50) return "MEDIUM";
+      return "LOW";
+    }
+    return (threat?.severity || "LOW").toUpperCase();
+  }
+
   return {
     name: "BadgeSink",
 
     shouldHandle(threat) {
       const isSensorReady = threat.type === "SENSOR_READY";
-      const isImportantSeverity = threat.severity === "HIGH" || threat.severity === "MEDIUM";
+      const sev = getEffectiveSeverity(threat);
+      const isImportantSeverity = sev === "HIGH" || sev === "MEDIUM";
 
       return isSensorReady || isImportantSeverity;
     },
@@ -25,17 +36,19 @@ export function createBadgeSink() {
           }
         }
 
+        const sev = getEffectiveSeverity(threat);
+
         const currentText = await chrome.action.getBadgeText({ tabId });
-        if (currentText === "!!!" && threat.severity === "MEDIUM") {
+        if (currentText === "!!!" && sev === "MEDIUM") {
           return { status: "ignored_due_to_priority" };
         }
 
-        if (threat.severity === "HIGH") {
+        if (sev === "HIGH") {
           await chrome.action.setBadgeText({ text: "!!!", tabId });
           await chrome.action.setBadgeBackgroundColor({ color: "#FF0000", tabId });
           return { status: "updated", color: "red" };
 
-        } else if (threat.severity === "MEDIUM") {
+        } else if (sev === "MEDIUM") {
           await chrome.action.setBadgeText({ text: "!", tabId });
           await chrome.action.setBadgeBackgroundColor({ color: "#FFA500", tabId });
           return { status: "updated", color: "orange" };
