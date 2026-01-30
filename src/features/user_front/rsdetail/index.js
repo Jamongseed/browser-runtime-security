@@ -287,7 +287,6 @@ export default function AdminInjectedScriptRescoreDetailPage() {
   const [err, setErr] = useState("");
   const [data, setData] = useState(null);
 
-  const [tab, setTab] = useState("hits"); // hits | ioc | evidence
   const [axisFilter, setAxisFilter] = useState("ALL"); // ALL | A | B ...
 
   useEffect(() => {
@@ -354,11 +353,6 @@ export default function AdminInjectedScriptRescoreDetailPage() {
     if (from) navigate(from);
     else navigate(-1);
   }
-
-  const tabs = [
-    { key: "hits", label: "추가 히트" },
-    { key: "ioc", label: "지표" },
-  ];
 
   const [hasAiEvent, setHasAiEvent] = useState(false);
   const baseId = baseIdFromEventId(eventId);
@@ -471,24 +465,10 @@ export default function AdminInjectedScriptRescoreDetailPage() {
                   value={hitSummary.topHitText}
                 />
               </div>
-
-              {/* Tabs */}
-              <div className="mt-2 flex items-center gap-2 flex-wrap">
-                {tabs.map((t) => (
-                  <button
-                    key={t.key}
-                    className={`btn btn-sm ${tab === t.key ? "btn-neutral" : "btn-ghost"}`}
-                    onClick={() => setTab(t.key)}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
             </div>
           </div>
 
-          {/* Hits*/}
-          {tab === "hits" && (
+          
             <Section title="추가 히트">
               {/* axis 필터 */}
               <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -562,22 +542,6 @@ export default function AdminInjectedScriptRescoreDetailPage() {
                 )}
               </div>
             </Section>
-          )}
-
-          {/* IOC */}
-          {tab === "ioc" && (
-            <>
-              <Section title="지표(IOC)">
-                <KV k="sha256" v={rs.sha256 || "-"} copy={rs.sha256 || ""} />
-                <KV k="norm" v={rs.norm || "-"} copy={rs.norm || ""} />
-                <KV k="reportId" v={rs.reportId || "-"} copy={rs.reportId || ""} />
-                <KV k="sessionId" v={rs.sessionId || "-"} copy={rs.sessionId || ""} />
-                <KV k="installId" v={rs.installId || "-"} copy={rs.installId || ""} />
-                <KV k="page" v={rs.page || "-"} copy={rs.page || ""} />
-                {pageHost ? <KV k="host" v={pageHost} copy={pageHost} /> : null}
-              </Section>
-            </>
-          )}
         </div>
       ) : null}
     </TitleCard>
