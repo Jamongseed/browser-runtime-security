@@ -101,27 +101,43 @@ function KV({ k, v, copy, link }) {
   );
 }
 function JsonViewer({ title, obj, raw }) {
+  const [mode, setMode] = useState("tree"); // tree | raw
   const pretty = useMemo(() => {
+    if (mode === "raw") return raw || "";
     try {
       return obj ? JSON.stringify(obj, null, 2) : raw || "";
     } catch {
       return raw || "";
     }
-  }, [obj, raw]);
+  }, [mode, obj, raw]);
 
   return (
     <div className="border rounded-xl overflow-hidden">
       <div className="flex items-center justify-between px-3 py-2 bg-base-200 border-b">
         <div className="text-sm font-semibold">{title}</div>
-        <button
-          className="btn btn-xs btn-outline"
-          onClick={async () => {
-            const ok = await copyToClipboard(pretty || "");
-            alert(ok ? "Copied" : "Copy failed");
-          }}
-        >
-          Copy
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            className={`btn btn-xs ${mode === "tree" ? "btn-neutral" : "btn-ghost"}`}
+            onClick={() => setMode("tree")}
+          >
+            Tree
+          </button>
+          <button
+            className={`btn btn-xs ${mode === "raw" ? "btn-neutral" : "btn-ghost"}`}
+            onClick={() => setMode("raw")}
+          >
+            Raw
+          </button>
+          <button
+            className="btn btn-xs btn-outline"
+            onClick={async () => {
+              const ok = await copyToClipboard(pretty || "");
+              alert(ok ? "Copied" : "Copy failed");
+            }}
+          >
+            Copy
+          </button>
+        </div>
       </div>
       <pre className="p-3 text-xs break-all overflow-auto max-h-[520px] bg-base-100">
         {pretty || "-"}
@@ -237,6 +253,7 @@ function pickAiBlock(detail, parsedPayload) {
     findings,
     primaryThreat: endpointFinding?.label || "Data Exfiltration",
     endpoint: endpointFinding?.evidence || null,
+    actions: pick((c) => c?.data?.explain?.ai?.actions,),
 
     rawObj: { payload, det, detail },
   };
@@ -433,9 +450,38 @@ export default function AdminAiEventDetailPage() {
   const riskScoreText =
     ai.finalScore != null ? String(ai.finalScore) : ai.scoreDelta != null ? String(ai.scoreDelta) : "-";
 
-  const pageHost = ai.page ? hostFromUrl(ai.page) : ai.origin ? hostFromUrl(ai.origin) : "";
+  const splitSentences = (text = '') =>
+  text
+    .split('. ')
+    .map((s, idx, arr) =>
+      idx < arr.length - 1 ? `${s}.` : s
+    )
+    .map(s => s.trim())
+    .filter(Boolean);
 
-  const recommendedActions = useMemo(() => buildRecommendedActions(ai), [ai]);
+  const [hasRSevent, setHasRSEvent] = useState(false);
+  const baseId = ai.baseReportId;
+
+  useEffect(() => {
+    let alive = true;
+
+    getEventDetail({ eventId: `RS_${ai.baseReportId}`})
+      .then((res) => {
+        if (!alive) return;
+
+        const d = res?.data;
+
+        const hasRS = !!d && (d?.type || d?.ruleId || d?.details || d?.evidence);
+
+        setHasRSEvent(hasRS);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setHasRSEvent(false);
+      });
+
+    return () => { alive = false; };
+  }, [eventId]);
 
   return (
     <TitleCard title="AI 이벤트 상세" topMargin="mt-2">
@@ -450,6 +496,14 @@ export default function AdminAiEventDetailPage() {
           <button className="btn btn-sm btn-primary" onClick={onBack}>
             ← 뒤로
           </button>
+          <Link className="btn btn-sm btn-primary" to={`/app/admin_front/detail/${baseId}`}>
+            원본
+          </Link>
+          {hasRSevent && (
+            <Link className="btn btn-sm btn-primary" to={`/app/admin_front/detail/RS_${baseId}`}>
+              복호화
+            </Link>
+          )}
           <Link className="btn btn-sm btn-primary" to={`/app/admin_front/admin_search?type=ruleId&query=${ruleIdState || ""}`}>
             룰
           </Link>
@@ -487,7 +541,7 @@ export default function AdminAiEventDetailPage() {
                     <span className="text-sm opacity-70">{sevKo(ai.severity) || "-"}</span>
                   </div>
 
-                  <div className="mt-2 text-lg font-bold">{"AI 분석 기반 데이터 유출 탐지" || "AI 기반 위협 판정 이벤트"}</div>
+                  <div className="mt-2 text-lg font-bold">{"AI 분석 기반 데이터 유출 탐지"}</div>
 
                   <div className="mt-2 text-xs opacity-70 break-all">
                     type: {ai.type}
@@ -545,17 +599,18 @@ export default function AdminAiEventDetailPage() {
                   ) : null}
                 </div>
               </Section>
-
               <Section title="추천 조치 (SOC)">
-                <div className="space-y-1">
-                  {recommendedActions.map((a) => (
-                    <KV
-                        key={a.id}
-                        k={a.title}
-                        v={a.detail}
-                    />
-                  ))}
-                </div>
+                {Array.isArray(ai.actions) && ai.actions.length ? (
+                  <ul className="list-disc pl-5 space-y-1">
+                    {ai.actions.map((line, idx) => (
+                      <li key={idx} className="break-all">
+                        {line}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="text-sm opacity-70">추천 조치 데이터가 없습니다.</div>
+                )}
               </Section>
             </>
           )}
@@ -564,37 +619,21 @@ export default function AdminAiEventDetailPage() {
           {tab === "analysis" && (
             <>
               <Section title="판단 근거">
-                <KV k="AI 설명" v={ai.reasonLong || ai.reasonShort || "-"} />
-
-                {/*<div className="mt-3 text-ms opacity-80">
-                  <div className="font-semibold mb-2">핵심 신호</div>
-
-                  {ai.findings?.length ? (
-                    <ul className="list-disc pl-5 space-y-1">
-                      {ai.findings.slice(0, 8).map((f, idx) => (
-                        <li key={idx} className="break-all">
-                          <span className="font-semibold">
-                            {f.kind || "Finding"}:
-                          </span>{" "}
-                          {f.label || "-"}
-                          {f.evidence && (
-                            <span className="opacity-70">
-                              {" "}
-                              — {f.evidence}
-                            </span>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div className="opacity-70">
-                      findings 데이터가 없습니다.
-                    </div>
-                  )}
-                </div>*/}
+               <div className="flex gap-3 py-2">
+                <div className="text-ms opacity-60 min-w-[140px]">AI 설명</div>
+                  <div className="flex-1 space-y-1">
+                    {splitSentences(ai.reasonLong || ai.reasonShort).map(
+                      (line, idx) => (
+                        <div key={idx} className="break-all">
+                          {line}
+                        </div>
+                      )
+                    )}
+                  </div>
+                </div>
               </Section>
-            
-            <Section title="행위 분석">
+
+              <Section title="행위 분석">
                 {ai.findings?.length ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {ai.findings.map((f, idx) => (

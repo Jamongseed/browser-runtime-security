@@ -1384,6 +1384,7 @@ export default function AdminEventDetailPage() {
   }
 
   const [hasAiEvent, setHasAiEvent] = useState(false);
+  const [hasRSEvent, setHasRSEvent] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -1410,6 +1411,27 @@ export default function AdminEventDetailPage() {
     return () => { alive = false; };
   }, [eventId]);
 
+  useEffect(() => {
+    let alive = true;
+
+    getEventDetail({ eventId: `RS_${eventId}` })
+      .then((res) => {
+        if (!alive) return;
+
+        const d = res?.data;
+
+        const hasRS = !!d && (d?.type || d?.ruleId || d?.details || d?.evidence);
+
+        setHasRSEvent(hasRS);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setHasRSEvent(false);
+      });
+
+    return () => { alive = false; };
+  }, [eventId]);
+
   return (
     <TitleCard title="이벤트 상세" topMargin="mt-2">
       {/* Top bar */}
@@ -1429,7 +1451,11 @@ export default function AdminEventDetailPage() {
           </button>
           {hasAiEvent && (
           <Link className="btn btn-sm btn-primary" to={`/app/user_front/detail/AI_${eventId}`}>
-            AI 이벤트
+            AI 분석
+          </Link>)}
+          {hasRSEvent && (
+          <Link className="btn btn-sm btn-primary" to={`/app/user_front/detail/RS_${eventId}`}>
+            복호화
           </Link>)}
         </div>
       </div>

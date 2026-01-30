@@ -479,7 +479,7 @@ function buildInjectedScriptScoreVM({ detail, summary, parsedPayload, ruleOneLin
       kpiNum("score", "Total Score", score),
       kpiText("model", "Model", `${modelId} (${modelUpdatedAt})`),
       kpiNum("hits", "Signals", hits.length, "hit count"),
-      kpiText("chain", "Chain", comboHits.length ? `+${comboBonus} (${comboHits.length})` : "-", "combo bonus"),
+      kpiText("chain", "Chain", comboHits.length ? `+${comboBonus} (${hits.length})` : "-", "combo bonus"),
     ].filter(k => shouldShowValue(k.value, { hideZero: true, hideDash: true })),
 
     // ✅ Activity는 “근거 목록”을 보여줘야 함
@@ -1508,6 +1508,55 @@ export default function AdminEventDetailPage() {
     { key: "evidence", label: "증거" },
   ];
 
+  const [hasAiEvent, setHasAiEvent] = useState(false);
+  const [hasRSEvent, setHasRSEvent] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+
+    getEventDetail({ eventId: `AI_${eventId}` })
+      .then((res) => {
+        if (!alive) return;
+
+        const d = res?.data;
+
+        const hasAi =
+          !!d?.data?.aiVerdict ||
+          !!d?.evidence?.aiVerdict ||
+          !!d?.details?.data?.aiVerdict ||
+          !!d?.details?.evidence?.aiVerdict;
+
+        setHasAiEvent(hasAi);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setHasAiEvent(false);
+      });
+
+    return () => { alive = false; };
+  }, [eventId]);
+
+  useEffect(() => {
+    let alive = true;
+
+    getEventDetail({ eventId: `RS_${eventId}` })
+      .then((res) => {
+        if (!alive) return;
+
+        const d = res?.data;
+
+        const hasRS = !!d && (d?.type || d?.ruleId || d?.details || d?.evidence);
+
+        setHasRSEvent(hasRS);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setHasRSEvent(false);
+      });
+
+    return () => { alive = false; };
+  }, [eventId]);
+
   return (
     <TitleCard title="이벤트 상세" topMargin="mt-2">
       {/* Top bar */}
@@ -1525,6 +1574,14 @@ export default function AdminEventDetailPage() {
           <button className="btn btn-sm btn-primary" onClick={onBack}>
             ← 뒤로
           </button>
+          {hasAiEvent && (
+          <Link className="btn btn-sm btn-primary" to={`/app/admin_front/detail/AI_${eventId}`}>
+            AI 분석
+          </Link>)}
+          {hasRSEvent && (
+          <Link className="btn btn-sm btn-primary" to={`/app/admin_front/detail/RS_${eventId}`}>
+            복호화
+          </Link>)}
           <Link className="btn btn-sm btn-primary" to={`/app/admin_front/admin_search?type=ruleId&query=${summary.ruleId}`}>
             룰
           </Link>
