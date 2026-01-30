@@ -34,13 +34,6 @@ export const SINK_CONFIG = {
   HTTP_LOG_EXPIRY_MS: 24 * 60 * 60 * 1000,
 };
 
-export const THREAT_MESSAGES = {
-  "PHISHING_FORM_MISMATCH": "피싱 사이트로 의심되는 폼 전송이 감지되었습니다.",
-  "HIDDEN_IFRAME_INSERT": "보이지 않는 프레임 삽입이 탐지되었습니다.",
-  "COOKIE_THEFT": "민감한 쿠키 정보에 대한 접근 시도가 포착되었습니다.",
-  "DEFAULT": "현재 페이지에서 의심스러운 동작이 감지되었습니다."
-};
-
 export const STORAGE_KEYS = {
   WHITELIST: 'whitelist',
   NOTIFICATIONS: 'notification_settings',
@@ -51,7 +44,6 @@ export const STORAGE_KEYS = {
   FAILED_QUEUE: "failed_log_queue",
   IS_ENABLED: "brs_is_enabled"
 };
-
 
 export const DEFAULT_SETTINGS = {
   [STORAGE_KEYS.IS_ENABLED]: true,

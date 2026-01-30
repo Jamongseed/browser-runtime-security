@@ -20,6 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // 데이터 관리 버튼
   const clearLogsBtn = document.getElementById('clearLogsBtn');
   const resetSettingsBtn = document.getElementById('resetSettingsBtn');
+  const checkUpdateBtn = document.getElementById('checkUpdateBtn');
 
   // 취소 기능을 위한 원본 데이터 임시 저장 변수
   let originalWhitelistText = "";
@@ -207,4 +208,26 @@ document.addEventListener('DOMContentLoaded', () => {
   // 설정 초기화
   resetSettingsBtn.addEventListener('click', handleResetSettings);
 
+
+  if (checkUpdateBtn) {
+    checkUpdateBtn.addEventListener('click', () => {
+      const statusText = document.getElementById('updateStatus');
+
+      checkUpdateBtn.disabled = true;
+      const originalText = checkUpdateBtn.textContent;
+      checkUpdateBtn.textContent = "확인 중...";
+      if (statusText) statusText.textContent = "";
+
+      // 가상의 네트워크 지연
+      setTimeout(() => {
+        if (statusText) {
+          statusText.textContent = "(현재 최신 상태입니다)";
+          statusText.style.marginLeft = "8px";
+          statusText.style.fontWeight = "600";
+        }
+        checkUpdateBtn.disabled = false;
+        checkUpdateBtn.textContent = originalText;
+      }, 1000);
+    });
+  }
 });

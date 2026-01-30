@@ -2,7 +2,6 @@ import { STORAGE_KEYS, SYSTEM_CONFIG } from './config.js';
 import { getThreatMessage } from './utils/threatMessages.js';
 import { getOrCreateInstallId } from './utils/installIdManager.js';
 
-// 시간 표시 함수 (1차 방식)
 function getRelativeTime(timestamp) {
   const now = Date.now();
   const diff = now - timestamp;

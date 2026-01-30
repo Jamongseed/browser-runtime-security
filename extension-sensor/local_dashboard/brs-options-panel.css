@@ -10,7 +10,9 @@
   --sidebar-width: 260px;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
 body {
   margin: 0;
@@ -18,7 +20,8 @@ body {
   color: var(--text-main);
   background: var(--bg-content);
   height: 100vh;
-  overflow: hidden; /* 전체 스크롤 방지 */
+  overflow: hidden;
+  /* 전체 스크롤 방지 */
 }
 
 .layout-container {
@@ -44,11 +47,27 @@ body {
   border-bottom: 1px solid var(--border);
   margin-bottom: 10px;
 }
-.brand h1 { font-size: 1.2rem; margin: 0; color: #1e293b; }
-.logo-icon { font-size: 1.5rem; }
 
-.menu { flex: 1; }
-.menu ul { list-style: none; padding: 0; margin: 0; }
+.brand h1 {
+  font-size: 1.2rem;
+  margin: 0;
+  color: #1e293b;
+}
+
+.logo-icon {
+  font-size: 1.5rem;
+}
+
+.menu {
+  flex: 1;
+}
+
+.menu ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
 .menu-item {
   padding: 12px 24px;
   cursor: pointer;
@@ -60,7 +79,12 @@ body {
   transition: all 0.2s;
   border-left: 4px solid transparent;
 }
-.menu-item:hover { background-color: #e2e8f0; color: var(--text-main); }
+
+.menu-item:hover {
+  background-color: #e2e8f0;
+  color: var(--text-main);
+}
+
 .menu-item.active {
   background-color: #eff6ff;
   color: var(--primary);
@@ -78,29 +102,56 @@ body {
 .content-area {
   flex: 1;
   padding: 40px 60px;
-  overflow-y: auto; /* 컨텐츠만 스크롤 */
+  overflow-y: auto;
+  /* 컨텐츠만 스크롤 */
   background-color: var(--bg-content);
 }
 
-.section-header { margin-bottom: 30px; border-bottom: 2px solid #f1f1f1; padding-bottom: 15px; }
-.section-header h2 { margin: 0 0 8px 0; font-size: 1.8rem; }
-.section-header p { margin: 0; font-size: 0.9rem; color: var(--text-sub); }
+.section-header {
+  margin-bottom: 10px;
+  border-bottom: 2px solid #f1f1f1;
+  padding-bottom: 10px;
+}
+
+.section-header h2 {
+  margin: 0 0 8px 0;
+  font-size: 1.8rem;
+}
+
+.section-header p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-sub);
+}
 
 .main-instruction {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: #0f172a;
-    margin-bottom: 15px;
-    display: block;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 15px;
+  display: block;
 }
 
 /* 탭 전환 로직 */
-.tab-content { display: none; animation: fadeIn 0.3s ease; }
-.tab-content.active { display: block; }
+.tab-content {
+  display: none;
+  animation: fadeIn 0.3s ease;
+}
+
+.tab-content.active {
+  display: block;
+}
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(5px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* 설정 리스트 스타일 */
@@ -111,49 +162,148 @@ body {
   padding: 20px 0;
   border-bottom: 1px solid var(--border);
 }
-.setting-info { display: flex; gap: 15px; align-items: flex-start; }
-.badge {
-  padding: 4px 8px; border-radius: 4px; color: white;
-  font-size: 0.75rem; font-weight: bold; min-width: 60px; text-align: center;
-}
-.badge.low { background: #10b981; }
-.badge.medium { background: #f59e0b; }
-.badge.high { background: #ef4444; }
 
-.setting-desc strong { display: block; margin-bottom: 4px; font-size: 1rem; }
-.setting-desc p { margin: 0; font-size: 0.85rem; color: var(--text-sub); }
+.setting-info {
+  display: flex;
+  gap: 15px;
+  align-items: flex-start;
+}
+
+.badge {
+  padding: 4px 8px;
+  border-radius: 4px;
+  color: white;
+  font-size: 0.75rem;
+  font-weight: bold;
+  min-width: 60px;
+  text-align: center;
+}
+
+.badge.low {
+  background: #10b981;
+}
+
+.badge.medium {
+  background: #f59e0b;
+}
+
+.badge.high {
+  background: #ef4444;
+}
+
+.setting-desc strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 1rem;
+}
+
+.setting-desc p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-sub);
+}
 
 /* Danger Zone */
-.danger-box { border-radius: 8px; padding: 20px; background: #fef2f2; background-color: #ffffff;}
-.danger-box h3 { margin-top: 0; }
-.danger-row {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 15px 0; border-bottom: 1px solid;
+.danger-box {
+  border-radius: 8px;
+  padding: 10px;
+  background: #fef2f2;
+  background-color: #ffffff;
 }
-.danger-row:last-child { border-bottom: none; }
-.btn-danger { background: var(--danger); color: white; }
-.btn-danger-outline { background: white; border: 1px solid var(--danger); color: var(--danger); }
+
+.danger-box h3 {
+  margin-top: 0;
+}
+
+.danger-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 0;
+  border-bottom: 1px solid;
+}
+
+.danger-row:last-child {
+  border-bottom: none;
+}
+
+/* '모든 위협 로그 삭제' 같은 주요 제목 */
+.danger-row strong {
+  display: block;
+  font-size: 1rem;
+  margin-bottom: 6px;
+  color: #1e293b;
+}
+
+.danger-row p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: white;
+}
+
+.btn-danger-outline {
+  background: white;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
 
 /* 토글 스위치 CSS */
-.toggle-switch { position: relative; width: 50px; height: 26px; }
-.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-switch {
+  position: relative;
+  width: 50px;
+  height: 26px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
 .slider {
-  position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
-  background-color: #ccc; transition: .4s; border-radius: 34px;
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  transition: .4s;
+  border-radius: 34px;
 }
+
 .slider:before {
-  position: absolute; content: ""; height: 20px; width: 20px;
-  left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%;
+  position: absolute;
+  content: "";
+  height: 20px;
+  width: 20px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .4s;
+  border-radius: 50%;
 }
-input:checked + .slider { background-color: var(--primary); }
-input:checked + .slider:before { transform: translateX(24px); }
+
+input:checked+.slider {
+  background-color: var(--primary);
+}
+
+input:checked+.slider:before {
+  transform: translateX(24px);
+}
 
 /* --- Whitelist Editor Style --- */
 .whitelist-editor-container {
   background: white;
   padding: 20px;
   border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .editor-desc {
@@ -163,7 +313,7 @@ input:checked + .slider:before { transform: translateX(24px); }
 .editor-desc p {
   font-size: 1.05rem;
   line-height: 1.5;
-  color: var(--text-main); 
+  color: var(--text-main);
 }
 
 .editor-desc .sub-text {
@@ -183,7 +333,8 @@ input:checked + .slider:before { transform: translateX(24px); }
   border-radius: 6px;
   background-color: #ffffff;
   color: #1e293b;
-  resize: vertical; /* 세로 크기 조절만 허용 */
+  resize: vertical;
+  /* 세로 크기 조절만 허용 */
   transition: all 0.2s ease;
 }
 
@@ -191,7 +342,8 @@ input:checked + .slider:before { transform: translateX(24px); }
   background-color: #f8fafc;
   color: #94a3b8;
   border-color: #e2e8f0;
-  cursor: default; /* 입력 불가 표시 */
+  cursor: default;
+  /* 입력 불가 표시 */
 }
 
 .styled-textarea:not(:disabled) {
@@ -203,7 +355,8 @@ input:checked + .slider:before { transform: translateX(24px); }
 .editor-controls {
   margin-top: 15px;
   display: flex;
-  justify-content: flex-end; /* 오른쪽 정렬 */
+  justify-content: flex-end;
+  /* 오른쪽 정렬 */
   gap: 10px;
 }
 
@@ -213,15 +366,18 @@ input:checked + .slider:before { transform: translateX(24px); }
 }
 
 .example-box {
-  background-color: #f1f5f9; /* 연한 회색 배경 */
+  background-color: #f1f5f9;
+  /* 연한 회색 배경 */
   padding: 12px 16px;
   border-radius: 6px;
   margin-top: 10px;
-  border-left: 4px solid var(--primary); /* 왼쪽 파란색 강조선 */
+  border-left: 4px solid var(--primary);
+  /* 왼쪽 파란색 강조선 */
 }
 
 .example-box .sub-text {
-  margin: 4px 0; /* 예시 문구 간격 조정 */
+  margin: 4px 0;
+  /* 예시 문구 간격 조정 */
 }
 
 .example-box code {
@@ -262,6 +418,7 @@ input:checked + .slider:before { transform: translateX(24px); }
   color: #334155;
   border: 1px solid #e2e8f0;
 }
+
 .btn-secondary:hover {
   background-color: #e2e8f0;
   color: #0f172a;
@@ -275,6 +432,7 @@ input:checked + .slider:before { transform: translateX(24px); }
   color: white;
   box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
 }
+
 .btn-primary:hover {
   background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
   transform: translateY(-1px);
@@ -287,11 +445,13 @@ input:checked + .slider:before { transform: translateX(24px); }
   color: #64748b;
   border: 1px solid transparent;
 }
+
 .btn-outline:hover {
   background-color: #fee2e2;
   color: #ef4444;
   border-color: #fecaca;
 }
+
 /* 컨텐츠 영역 스크롤바 커스텀 */
 .content-area::-webkit-scrollbar {
   width: 8px;
@@ -310,22 +470,6 @@ input:checked + .slider:before { transform: translateX(24px); }
   background: #94a3b8;
 }
 
-
-/* '모든 위협 로그 삭제' 같은 주요 제목 */
-.danger-row strong {
-  display: block;
-  font-size: 1rem;
-  margin-bottom: 6px;
-  color: #1e293b;
-}
-
-.danger-row p {
-  margin: 0;
-  font-size: 0.9rem;
-  color: #475569;
-  line-height: 1.5;
-}
-
 /* 로그 삭제 버튼용 */
 .btn-slate {
   background-color: #64748b;
@@ -335,4 +479,37 @@ input:checked + .slider:before { transform: translateX(24px); }
 
 .btn-slate:hover {
   background-color: #475569;
+}
+
+.management-box {
+  border-radius: 8px;
+  padding: 10px;
+  background: #fef2f2;
+  background-color: #ffffff;
+}
+
+.management-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 0;
+  border-bottom: 1px solid;
+}
+
+.management-row:last-child {
+  border-bottom: none;
+}
+
+.management-row strong {
+  display: block;
+  font-size: 1rem;
+  margin-bottom: 6px;
+  color: #1e293b;
+}
+
+.management-row p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #475569;
+  line-height: 1.5;
 }

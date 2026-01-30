@@ -1,7 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "Browser-Runtime-Security v0",
-  "version": "0.1.0",
+  "name": "Browser-Runtime-Security",
+  "version": "1.0.0",
+  "icons": {
+    "16": "icon/icon16.png",
+    "48": "icon/icon48.png",
+    "128": "icon/icon128.png"
+  },
   "description": "Real-time client-side threat detection and runtime behavior monitoring system.",
   "permissions": [
     "storage",
@@ -18,6 +23,10 @@
     "type": "module"
   },
   "action": {
+    "default_icon": {
+      "16": "icon/icon16.png",
+      "48": "icon/icon48.png"
+    },
     "default_popup": "popup.html",
     "default_title": "Security Status"
   },

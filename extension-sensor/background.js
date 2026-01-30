@@ -46,7 +46,7 @@ function extractOriginsFromText(text) {
   const origins = new Set();
   let m;
   while ((m = re.exec(s))) {
-    try { origins.add(new URL(m[0]).origin); } catch (_) {}
+    try { origins.add(new URL(m[0]).origin); } catch (_) { }
   }
   return origins;
 }
@@ -105,7 +105,7 @@ function matchSignal(text, sig) {
 
 function scoreScriptText(text, model) {
   const signals = Array.isArray(model?.signals) ? model.signals : [];
-  const combos  = Array.isArray(model?.combos) ? model.combos : [];
+  const combos = Array.isArray(model?.combos) ? model.combos : [];
 
   const hits = [];
   const hitIds = new Set();
@@ -534,11 +534,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         sendResponse({ ok: true, scriptScore });
       } catch (e) {
-          console.error("[BRS] dump transmit failed:", {
-            msg: String(e?.message || e),
-            name: e?.name,
-            dumpsEndpoint: SYSTEM_CONFIG.DUMPS_ENDPOINT,
-          });
+        console.error("[BRS] dump transmit failed:", {
+          msg: String(e?.message || e),
+          name: e?.name,
+          dumpsEndpoint: SYSTEM_CONFIG.DUMPS_ENDPOINT,
+        });
         sendResponse({ ok: false, err: String(e?.message || e) });
       }
     })();
