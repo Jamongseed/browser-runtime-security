@@ -427,15 +427,35 @@ export default function AdminAiEventDetailPage() {
     { key: "evidence", label: "증거" },
   ];
 
+  const [hasRSevent, setHasRSEvent] = useState(false);
+  const baseId = ai.baseReportId;
+
+  useEffect(() => {
+    let alive = true;
+
+    getEventDetail({ eventId: `RS_${ai.baseReportId}`})
+      .then((res) => {
+        if (!alive) return;
+
+        const d = res?.data;
+
+        const hasRS = !!d && (d?.type || d?.ruleId || d?.details || d?.evidence);
+
+        setHasRSEvent(hasRS);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setHasRSEvent(false);
+      });
+
+    return () => { alive = false; };
+  }, [eventId]);
+
   const confidenceText =
     ai.confidence == null ? "-" : ai.confidence > 1 ? `${ai.confidence}%` : `${Math.round(ai.confidence * 100)}%`;
 
   const riskScoreText =
     ai.finalScore != null ? String(ai.finalScore) : ai.scoreDelta != null ? String(ai.scoreDelta) : "-";
-
-  const pageHost = ai.page ? hostFromUrl(ai.page) : ai.origin ? hostFromUrl(ai.origin) : "";
-
-  const recommendedActions = useMemo(() => buildRecommendedActions(ai), [ai]);
 
   return (
     <TitleCard title="AI 이벤트 상세" topMargin="mt-2">
@@ -451,11 +471,13 @@ export default function AdminAiEventDetailPage() {
             ← 뒤로
           </button>
           <Link className="btn btn-sm btn-primary" to={`/app/user_front/detail/${ai.baseReportId || ""}`}>
-            기존 이벤트
+            원본
           </Link>
-          <Link className="btn btn-sm btn-primary" to={`/app/user_front/listpage_session/detail/${ai.sessionId || ""}`}>
-            세션
-          </Link>
+          {hasRSevent && (
+            <Link className="btn btn-sm btn-primary" to={`/app/user_front/detail/RS_${baseId}`}>
+              복호화
+            </Link>
+          )}
         </div>
       </div>
 
