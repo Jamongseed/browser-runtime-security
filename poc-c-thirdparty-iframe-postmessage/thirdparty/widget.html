@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Ad Widget (PoC)</title>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    .box {
+      width: 300px; height: 250px;
+      display: grid; place-items: center;
+      border: 1px solid #ddd;
+      background: #fff7e6;
+    }
+    button { padding: 10px 12px; cursor: pointer; }
+    small { opacity: .7; display:block; margin-top: 8px; text-align:center; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div>
+      <b>Sponsored</b>
+      <div style="margin-top:10px; text-align:center">
+        <button id="adBtn">광고 보기(클릭)</button>
+      </div>
+      <small>PoC: 클릭 시 부모창에 postMessage 전송</small>
+    </div>
+  </div>
+
+  <script>
+    // Ad widget -> parent page signal (PoC)
+    const msg = { type: "AD_INTERACTION", action: "ARM_FORM_SWAP" };
+
+    document.getElementById("adBtn").addEventListener("click", () => {
+      parent.postMessage(msg, "*"); // PoC: "*" (real-world should specify target origin)
+    });
+  </script>
+</body>
+</html>

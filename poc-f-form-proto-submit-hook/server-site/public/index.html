@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PoC-F - HTMLFormElement.prototype submit/requestSubmit</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <div>
+        <h1>PoC-F: HTMLFormElement.prototype.submit / requestSubmit hook</h1>
+        <p class="subtitle">Prototype-level API hook that can bypass event-based submit monitoring</p>
+      </div>
+      <div class="badge">localhost demo</div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="cardHead">
+          <div class="cardHeadTitle">Login</div>
+          <div class="badge">target: /login</div>
+        </div>
+
+        <div class="cardBody">
+          <form id="loginForm" method="POST" action="/login">
+            <div class="field">
+              <label for="username">Username</label>
+              <input id="username" name="u" type="text" value="abc" autocomplete="username" required />
+            </div>
+
+            <div class="field">
+              <label for="password">Password</label>
+              <input id="password" name="p" type="password" value="ef" autocomplete="current-password" required />
+            </div>
+
+            <div class="btnRow">
+              <button id="btnNormal" class="primary" type="submit">Normal Submit</button>
+              <button id="btnSubmit" type="button">JS form.submit()</button>
+              <button id="btnRequestSubmit" type="button">JS form.requestSubmit()</button>
+            </div>
+
+            <div id="status" class="status">Ready.</div>
+          </form>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="cardHead">
+          <div class="cardHeadTitle">What to observe</div>
+          <div class="badge">detector signals</div>
+        </div>
+        <div class="cardBody">
+          <div class="sideList">
+            <div class="kv"><b>PROTO_TAMPER</b><br/>submit/requestSubmit prototype replaced (non-native)</div>
+            <div class="kv"><b>FORM_SUBMIT</b><br/>native_submit/requestSubmit action origin check</div>
+            <div class="kv"><b>DYN_SCRIPT_INSERT</b><br/>cross-site SDK injection visibility</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="http://localhost:4000/sdk_submit_hook.js"></script>
+
+    <script src="./app.js"></script>
+  </div>
+</body>
+</html>

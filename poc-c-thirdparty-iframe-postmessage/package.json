@@ -1,0 +1,14 @@
+{
+  "name": "poc-c-thirdparty-iframe-postmessage",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "concurrently -k -n THIRDPARTY,MAIN \"node server-thirdparty.js\" \"node server-main.js\"",
+    "main": "node server-main.js",
+    "thirdparty": "node server-thirdparty.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "concurrently": "^9.0.0"
+  }
+}

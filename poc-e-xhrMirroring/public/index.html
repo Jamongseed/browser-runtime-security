@@ -1,0 +1,63 @@
+<!doctype html><html lang="ko"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>PoC - XHR Hooking + Mirroring</title>
+<link rel="stylesheet" href="/style.css"/>
+</head><body>
+<header>
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+    <div>
+      <div style="font-weight:700;font-size:18px;">PoC: XHR 후킹 + 멀티 오리진 미러링 (5001~5003)</div>
+      <div style="opacity:.85;font-size:13px;">3000=홈+원본 API, 4000=후킹 번들, 5001~5003=미러링 수집</div>
+    </div>
+    <div class="row">
+      <span class="badge">Origin: <span class="mono" id="originLabel"></span></span>
+      <span class="pill">Session: <span class="mono" id="sidLabel"></span></span>
+    </div>
+  </div>
+</header>
+<main>
+  <div class="grid">
+    <section class="card">
+      <h2>1) GET + QueryString (상품 조회)</h2>
+      <div class="row">
+        <select id="categorySel" style="max-width:220px;"><option value="all">all</option><option value="shoes">shoes</option><option value="tops">tops</option><option value="pants">pants</option></select>
+        <select id="sortSel" style="max-width:220px;"><option value="popular">popular</option><option value="price_asc">price_asc</option><option value="price_desc">price_desc</option><option value="new">new</option></select>
+        <button class="primary" id="btnGetProducts">GET /api/products</button>
+      </div><small>XHR GET 요청 + 쿼리스트링.</small>
+    </section>
+    <section class="card">
+      <h2>2) POST + JSON (장바구니 담기)</h2>
+      <div class="row">
+        <input id="productId" style="max-width:220px;" value="123"/><input id="qty" style="max-width:220px;" value="2"/>
+        <button class="primary" id="btnAddCart">POST /api/cart/add</button>
+      </div><small><span class="mono">application/json</span>.</small>
+    </section>
+    <section class="card">
+      <h2>3) POST + x-www-form-urlencoded (쿠폰 적용)</h2>
+      <div class="row">
+        <input id="coupon" style="max-width:220px;" value="CAT10"/><input id="cartId" style="max-width:220px;" value="abc123"/>
+        <button class="primary" id="btnApplyCoupon">POST /api/coupon/apply</button>
+      </div><small><span class="mono">x-www-form-urlencoded</span>.</small>
+    </section>
+    <section class="card">
+      <h2>4) POST + multipart/form-data (업로드)</h2>
+      <div class="row" style="align-items:flex-start;">
+        <div style="flex:1;min-width:240px;"><input type="file" id="uploadFile"/><small>파일 없으면 더미 파일 전송.</small></div>
+        <button class="primary" id="btnUpload">POST /api/upload</button>
+      </div><small><span class="mono">send(FormData)</span>.</small>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top:16px;">
+    <h2>최근 XHR 요청(페이지 로그)</h2>
+    <small>미러링 수집은 5001~5003 터미널 로그에서 확인.</small>
+    <div style="margin-top:10px;overflow:auto;">
+      <table id="logTable"><thead><tr><th>t</th><th>method</th><th>url</th><th>content-type</th><th>bodyKind</th><th>bodySize</th><th>status</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div class="footer">Network 탭에서 3000 원본 요청과 5001~5003 미러링 전송을 함께 확인.</div>
+  </section>
+</main>
+
+<script src="/client.js"></script>
+<script src="http://localhost:4000/xhr-hook.js"></script>
+</body></html>

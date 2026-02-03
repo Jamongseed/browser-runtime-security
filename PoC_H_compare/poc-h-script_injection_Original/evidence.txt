@@ -1,0 +1,137 @@
+오전 12:02:06  MUTATION_OBSERVER_REGISTER  (LOW)
+{
+  "chain": {
+    "incidentId": "442291e85149b4615a80468ada6b7121",
+    "norm": "",
+    "reinjectCount": 0,
+    "scriptId": null,
+    "startedAt": 1768921326958
+  },
+  "createdAt": 1768921326926,
+  "initiatorCrossSite": false,
+  "initiatorOrigin": "http://localhost:3000",
+  "initiatorUrl": "http://localhost:3000/gate.js:45:7",
+  "observerId": "mo-1768921326926-1",
+  "options": {
+    "attributes": false,
+    "characterData": false,
+    "childList": true,
+    "subtree": true
+  },
+  "stackHead": "at HTMLDocument. (http://localhost:3000/gate.js:45:7)",
+  "targetDesc": "documentElement"
+}
+
+
+오전 12:02:06  DYN_SCRIPT_INSERT  (MEDIUM)
+{
+  "abs": "http://localhost:4000/sdk.js",
+  "chain": {
+    "incidentId": "442291e85149b4615a80468ada6b7121",
+    "norm": "http://localhost:4000/sdk.js",
+    "reinjectCount": 0,
+    "scriptId": "9620d51170cd07dc9eee6d160e2ce371",
+    "startedAt": 1768921326958
+  },
+  "crossSite": true,
+  "initiatorCrossSite": false,
+  "initiatorOrigin": "",
+  "initiatorStack": "",
+  "initiatorUrl": "",
+  "src": "http://localhost:4000/sdk.js"
+}
+
+
+오전 12:02:06  DYN_SCRIPT_INSERT  (LOW)
+{
+  "abs": "http://localhost:3000/gate.js",
+  "chain": {
+    "incidentId": "442291e85149b4615a80468ada6b7121",
+    "norm": "http://localhost:3000/gate.js",
+    "reinjectCount": 0,
+    "scriptId": "29c1116b93868e2ef19293aad0d6183c",
+    "startedAt": 1768921326958
+  },
+  "crossSite": false,
+  "initiatorCrossSite": false,
+  "initiatorOrigin": "",
+  "initiatorStack": "",
+  "initiatorUrl": "",
+  "src": "/gate.js"
+}
+
+
+
+오전 12:02:06  MUTATION_OBSERVER_TRIGGER  (LOW)
+{
+  "chain": {
+    "incidentId": "442291e85149b4615a80468ada6b7121",
+    "norm": "",
+    "reinjectCount": 0,
+    "scriptId": null,
+    "startedAt": 1768921326958
+  },
+  "dtMs": 23,
+  "initiatorCrossSite": false,
+  "initiatorOrigin": "http://localhost:3000",
+  "initiatorUrl": "http://localhost:3000/gate.js:45:7",
+  "observerId": "mo-1768921326926-1",
+  "stackHead": "at HTMLDocument. (http://localhost:3000/gate.js:45:7)",
+  "summary": {
+    "addedIframes": 0,
+    "addedNodes": 1,
+    "addedScripts": 0,
+    "addedWithSrc": 0,
+    "attrNames": [],
+    "mutationCount": 1,
+    "removedNodes": 0,
+    "typeCounts": {
+      "attributes": 0,
+      "characterData": 0,
+      "childList": 1
+    }
+  },
+  "targetDesc": "documentElement"
+}
+
+
+오전 12:02:06  DYN_IFRAME_INSERT  (HIGH)
+{
+  "abs": "http://localhost:4000/widget.html",
+  "chain": {
+    "incidentId": "442291e85149b4615a80468ada6b7121",
+    "norm": "http://localhost:4000/widget.html",
+    "reinjectCount": 0,
+    "scriptId": "e79d04f05c0d2ee5dde8918baf9cebb9",
+    "startedAt": 1768921326958
+  },
+  "crossSite": true,
+  "hidden": true,
+  "initiatorCrossSite": true,
+  "initiatorOrigin": "http://localhost:4000",
+  "initiatorStack": "at HTMLDocument.injectAdWidget (http://localhost:4000/sdk.js:53:16)",
+  "initiatorUrl": "http://localhost:4000/sdk.js:53:16",
+  "src": "http://localhost:4000/widget.html"
+}
+
+
+오전 12:02:06  SENSOR_READY (LOW)---'상세보기'를 누르면 '해당 세션의 로그가 삭제되었거나 존재하지 않습니다.'라고 뜸
+
+
+오전 12:02:12  DYN_SCRIPT_INSERT  (MEDIUM)
+{
+  "abs": "http://localhost:4000/injected.js?ts=1768921332854",
+  "chain": {
+    "incidentId": "442291e85149b4615a80468ada6b7121",
+    "norm": "http://localhost:4000/injected.js",
+    "reinjectCount": 0,
+    "scriptId": "761674390fcc6b4cff7970c0cedf9a1a",
+    "startedAt": 1768921326958
+  },
+  "crossSite": true,
+  "initiatorCrossSite": false,
+  "initiatorOrigin": "http://localhost:3000",
+  "initiatorStack": "at injectOnce (http://localhost:3000/gate.js:20:9)",
+  "initiatorUrl": "http://localhost:3000/gate.js:20:9",
+  "src": "http://localhost:4000/injected.js?ts=1768921332854"
+}

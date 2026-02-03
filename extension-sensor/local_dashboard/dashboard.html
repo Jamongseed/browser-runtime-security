@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>보안 위협 상세 리포트</title>
+  <style>
+    /* 간단한 스타일링 */
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; padding: 20px; color: #333; }
+    .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    
+    /* 헤더 영역 */
+    header { border-bottom: 2px solid #eee; padding-bottom: 20px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+    h1 { margin: 0; font-size: 24px; }
+    
+    /* 뱃지 스타일 */
+    .badge { padding: 5px 15px; border-radius: 20px; color: white; font-weight: bold; font-size: 14px; }
+    .HIGH { background-color: #ff4444; }
+    .MEDIUM { background-color: #ffbb33; }
+    .LOW { background-color: #00C851; }
+
+    /* 데이터 테이블 스타일 */
+    .meta-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+    .meta-table th { text-align: left; width: 120px; color: #666; padding: 8px 0; vertical-align: top; }
+    .meta-table td { padding: 8px 0; font-weight: 500; }
+    .url-text { word-break: break-all; color: #0066cc; }
+
+    /* 코드 블록 스타일 (증거 데이터) */
+    .code-box { background: #282c34; color: #abb2bf; padding: 15px; border-radius: 5px; overflow-x: auto; font-family: monospace; font-size: 13px; line-height: 1.5; }
+    
+    /* 에러 메시지 */
+    #error-msg { text-align: center; color: #888; margin-top: 50px; font-size: 18px; }
+  .timeline-section { margin-top: 40px; border-top: 2px dashed #eee; padding-top: 20px; }
+    .timeline-title { font-size: 18px; margin-bottom: 15px; color: #444; }
+    
+    .log-item { 
+      display: flex; justify-content: space-between; align-items: center;
+      background: #fff; border: 1px solid #ddd; padding: 12px; margin-bottom: 8px; border-radius: 6px;
+      transition: background 0.2s;
+    }
+    .log-item:hover { background: #f9f9f9; }
+    .log-item.active { border: 2px solid #00C851; background: #e8f5e9; } /* 현재 보고 있는 로그 강조 */
+    
+    .log-info { display: flex; gap: 15px; align-items: center; }
+    .log-time { font-size: 12px; color: #888; width: 140px; }
+    .log-type { font-weight: bold; font-size: 14px; color: #333; }
+    
+    .view-btn { 
+      text-decoration: none; color: #0066cc; font-size: 13px; border: 1px solid #0066cc; 
+      padding: 4px 10px; border-radius: 4px; 
+    }
+    .view-btn:hover { background: #0066cc; color: white; }
+</style>
+</head>
+<body>
+
+  <div id="content" class="container">
+    <div id="error-msg">데이터를 불러오는 중입니다...</div>
+  </div>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>
