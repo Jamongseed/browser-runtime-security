@@ -14,12 +14,18 @@ const TABLE_NAME = process.env.TABLE_NAME || "Threat_Events";
 const EVENT_SHARDS = Number(process.env.EVENT_SHARDS || 8);
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || "*";
 
+// Aggregates (/agg/*)
+const AGG_TABLE_NAME = process.env.AGG_TABLE_NAME || "Threat_Aggregates";
+const AGG_SHARDS = Number(process.env.AGG_SHARDS || 4);
+const AGG_MAX_DAYS = Number(process.env.AGG_MAX_DAYS || 120);
+
 // ruleset 전용 추가
 const RULESET_BUCKET = process.env.RULESET_BUCKET || "";
 const RULESET_PREFIX = process.env.RULESET_PREFIX || "rulesets/";
 const RULESET_CACHE_TTL_MS = Number(process.env.RULESET_CACHE_TTL_MS || 300000);
 const RULESET_DEFAULT_LOCALE = String(process.env.RULESET_DEFAULT_LOCALE || "ko");
 const RULESET_FALLBACK_LOCALE = String(process.env.RULESET_FALLBACK_LOCALE || "en");
+const SCORING_MODEL_ID = String(process.env.SCORING_MODEL_ID || "scoring-model-v1");
 
 // Guardrails
 const DEFAULT_LIMIT = 50;
@@ -100,6 +106,91 @@ function clampDayRange(startDay, endDay, maxDays = 90) {
   return { ok: true };
 }
 
+function normAggKindFromPathOrQs(path, qs) {
+
+  if (path.endsWith("/agg/domain")) return "domain";
+  if (path.endsWith("/agg/rule")) return "rule";
+  if (path.endsWith("/agg/sev") || path.endsWith("/agg/severity")) return "sev";
+
+  const k = String(qs?.kind || "").trim().toLowerCase();
+  if (k === "domain" || k === "rule") return k;
+  if (k === "sev" || k === "severity") return "sev";
+  return "";
+}
+
+function aggPrefixForKind(kind) {
+  if (kind === "domain") return "DOMAIN#";
+  if (kind === "rule") return "RULE#";
+  if (kind === "sev") return "SEV#";
+  return "";
+}
+
+async function queryAggOneShardDayPrefix({ day, shard, skPrefix }) {
+  const pkValue = `GLOBAL#DAY#${day}#S#${shard}`;
+  const res = await ddb.send(new QueryCommand({
+    TableName: AGG_TABLE_NAME,
+    KeyConditionExpression: "#pk = :pk AND begins_with(#sk, :pfx)",
+    ExpressionAttributeNames: { "#pk": "pk", "#sk": "sk" },
+    ExpressionAttributeValues: { ":pk": pkValue, ":pfx": skPrefix },
+  }));
+  return res.Items || [];
+}
+
+async function fanoutAggDayPrefix({ day, skPrefix }) {
+  const all = [];
+  for (let s = 0; s < AGG_SHARDS; s++) {
+    const items = await queryAggOneShardDayPrefix({ day, shard: s, skPrefix });
+    all.push(...items);
+  }
+  return all;
+}
+
+async function handleAggGlobal(event) {
+  const qs = event.queryStringParameters || {};
+  const path = getPath(event);
+
+  const kind = normAggKindFromPathOrQs(path, qs);
+  if (!kind) return json(400, { ok: false, reason: "MISSING_or_INVALID_kind" });
+
+  const startDay = normDay(qs.startDay);
+  const endDay = normDay(qs.endDay);
+  if (!startDay || !endDay) return json(400, { ok: false, reason: "MISSING_startDay_or_endDay" });
+
+  const rangeOk = clampDayRange(startDay, endDay, AGG_MAX_DAYS);
+  if (!rangeOk.ok) return json(400, { ok: false, reason: rangeOk.reason });
+
+  const skPrefix = aggPrefixForKind(kind);
+  const acc = new Map(); // sk -> { sk, cnt, scoreSum }
+
+  let cur = startDay;
+  while (cur <= endDay) {
+    const items = await fanoutAggDayPrefix({ day: cur, skPrefix });
+    for (const it of items) {
+      const sk = String(it.sk || "");
+      if (!sk) continue;
+      const prev = acc.get(sk) || { sk, cnt: 0, scoreSum: 0 };
+      prev.cnt += Number(it.cnt || 0);
+      prev.scoreSum += Number(it.scoreSum || 0);
+      acc.set(sk, prev);
+    }
+    cur = addDaysIso(cur, 1);
+  }
+
+  const out = Array.from(acc.values()).sort((a, b) => {
+    const dc = (b.cnt || 0) - (a.cnt || 0);
+    if (dc !== 0) return dc;
+    const ds = (b.scoreSum || 0) - (a.scoreSum || 0);
+    if (ds !== 0) return ds;
+    return String(a.sk).localeCompare(String(b.sk));
+  });
+
+  return json(200, {
+    ok: true,
+    query: { kind, startDay, endDay },
+    items: out,
+  });
+}
+
 function normSeverity(s) {
   // ingest에서 severity 표준화 제거했으므로,
   // query도 raw 값 그대로 받는다(빈 값만 null)
@@ -150,6 +241,11 @@ function detailSkToDay(day) {
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype;
+}
+
+function safeJsonParse(s) {
+  if (!s) return null;
+  try { return JSON.parse(String(s)); } catch { return null; }
 }
 
 // ruleset 전용 추가 [ line 160~330, primaryLocaleFromHeader(h) ~ const entry = pickI18nEntry(meta.i18n, locale) ]
@@ -248,6 +344,16 @@ function buildMessageIndex(doc) {
       const i18n = c?.i18n;
       index.set(String(rid), { display, i18n });
     }
+  }
+
+  // scoring-model style: messages map (id -> { ko:{title,oneLine}, en:{...} })
+  // signals/combos에 display/i18n이 없고 messages에만 있는 케이스 지원
+  if (doc?.messages && isPlainObject(doc.messages)) {
+    for (const [id, msg] of Object.entries(doc.messages)) {
+      if (!id || !msg) continue;
+      const prev = index.get(String(id)) || {};
+      index.set(String(id), { ...prev, i18n: prev.i18n || msg });
+    }
   }  
   return index;
 }
@@ -271,6 +377,44 @@ async function loadRulesetIndex(rulesetId) {
   return index;
 }
 
+function toIdList(v) {
+  if (!v) return [];
+  if (Array.isArray(v)) return v.map(x => String(x)).filter(Boolean);
+  if (typeof v === "string") {
+    // "A_EVAL,A_FUNC_CONSTRUCTOR" 같은 케이스도 방어
+    return v.split(/[\s,]+/g).map(s => s.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function extractInjectedScoreIds(raw) {
+  // raw.payloadJson(JSON string) 안의
+  // data.hits[].id (signal id)
+  // data.comboHits[].comboId (combo id)
+  // (data가 없으면 evidence fallback)
+  const p = safeJsonParse(raw?.payloadJson);
+  if (!p || !isPlainObject(p)) return { signalIds: [], comboIds: [], score: 0 };
+
+  const src =
+    (p.data && isPlainObject(p.data)) ? p.data :
+    (p.evidence && isPlainObject(p.evidence)) ? p.evidence :
+    null;
+
+  const hits = Array.isArray(src?.hits) ? src.hits : [];
+  const comboHits = Array.isArray(src?.comboHits) ? src.comboHits : [];
+
+  const signalIds = hits.map(h => String(h?.id || "")).filter(Boolean);
+  const comboIds = comboHits.map(c => String(c?.comboId || c?.id || "")).filter(Boolean);
+  const score = Number(src?.score || 0);
+
+  return { signalIds, comboIds, score };
+}
+
+function injectedScoreSummary({ score, signalCount, comboCount }) {
+  const s = Number(score || 0);
+  return `${signalCount}개 시그널 히트 / 콤보 ${comboCount}개 / 최종 점수 ${s}`;
+}
+
 async function attachDisplayToItems(event, rawItems, outItems) {
   const locale = resolveRequestLocale(event);
   const needed = new Set();
@@ -286,38 +430,164 @@ async function attachDisplayToItems(event, rawItems, outItems) {
     }
   }
 
+  // INJECTED_SCRIPT_SCORE fallback용 scoring model index (없으면 null)
+  let scoringIdx = null;
+  try {
+    scoringIdx = await loadRulesetIndex(SCORING_MODEL_ID);
+  } catch (e) {
+    console.error("scoring-model load failed:", SCORING_MODEL_ID, e?.message || e);
+  }
+
   for (let i = 0; i < rawItems.length; i++) {
     const raw = rawItems[i];
     const out = outItems[i];
-    if (!out || out.display) continue;
+    if (!out) continue;
+    const isInjectedScore = String(out.type || "") === "INJECTED_SCRIPT_SCORE";
 
-    const rulesetId = pickRulesetIdFromItem(raw);
-    const idx = indexByRuleset.get(rulesetId);
-    if (!idx) continue;
+    // 1) 기본 display는 없을 때만 ruleset에서 채운다.
+    if (!out.display) {
+      const rulesetId = pickRulesetIdFromItem(raw);
+      const idx = indexByRuleset.get(rulesetId);
+      if (!idx) continue;
 
-    const meta = idx.get(String(out.ruleId || ""));
-    if (!meta) continue;
+      const meta = idx.get(String(out.ruleId || ""));
+      if (!meta) continue;
 
-    if (meta.display && (meta.display.title || meta.display.oneLine)) {
-      out.display = {
-        title: String(meta.display.title || ""),
-        oneLine: String(meta.display.oneLine || ""),
-        locale,
-        rulesetId,
-      };
-      continue;
+      if (meta.display && (meta.display.title || meta.display.oneLine)) {
+        out.display = {
+          title: String(meta.display.title || ""),
+          oneLine: String(meta.display.oneLine || ""),
+          locale,
+          rulesetId,
+        };
+      } else {
+        const entry = pickI18nEntry(meta.i18n, locale);
+        if (entry && (entry.title || entry.oneLine)) {
+          out.display = {
+            title: String(entry.title || ""),
+            oneLine: String(entry.oneLine || ""),
+            locale,
+            rulesetId,
+          };
+        }
+      }
     }
 
-    const entry = pickI18nEntry(meta.i18n, locale);
-    if (entry && (entry.title || entry.oneLine)) {
-      out.display = {
-        title: String(entry.title || ""),
-        oneLine: String(entry.oneLine || ""),
-        locale,
-        rulesetId,
+    // 2) INJECTED_SCRIPT_SCORE는 details만 scoring-model에서 추가한다.
+    //    (title/oneLine은 default-v1 등 기존 display를 그대로 유지)
+    if (isInjectedScore && scoringIdx) {
+      const { signalIds, comboIds, score: scoreFromPayload } = extractInjectedScoreIds(raw);
+      const score = Number(scoreFromPayload || out.scoreDelta || raw?.scoreDelta || raw?.score || 0);
+
+      const signalDetails = signalIds.map((id) => {
+        const meta = scoringIdx.get(String(id));
+        const entry = meta ? pickI18nEntry(meta.i18n, locale) : null;
+        return {
+          id: String(id),
+          title: String(entry?.title || meta?.display?.title || id),
+          oneLine: String(entry?.oneLine || meta?.display?.oneLine || ""),
+        };
+      });
+
+      const comboDetails = comboIds.map((id) => {
+        const meta = scoringIdx.get(String(id));
+        const entry = meta ? pickI18nEntry(meta.i18n, locale) : null;
+        return {
+          id: String(id),
+          title: String(entry?.title || meta?.display?.title || id),
+          oneLine: String(entry?.oneLine || meta?.display?.oneLine || ""),
+        };
+      });
+
+      // display가 아예 없다면(비정상 케이스) 최소한의 display는 만들어준다.
+      if (!out.display) {
+        const rulesetId = pickRulesetIdFromItem(raw);
+        out.display = {
+          title: "주입 스크립트 점수 산출",
+          oneLine: injectedScoreSummary({
+            score,
+            signalCount: signalDetails.length,
+            comboCount: comboDetails.length,
+          }),
+          locale,
+          rulesetId,
+        };
+      }
+
+      // title/oneLine은 건드리지 않고 details만 확장
+      out.display.details = {
+        modelId: SCORING_MODEL_ID,
+        score,
+        signals: signalDetails,
+        combos: comboDetails,
       };
     }
   }
+}
+
+// Ruleset meta (ruleId -> oneLine)
+async function handleRulesetRule(event) {
+  const qs = event.queryStringParameters || {};
+  const ruleId = safeStr(qs.ruleId, 200);
+  if (!ruleId) return json(400, { ok: false, reason: "MISSING_ruleId" });
+
+  const reqRulesetId = safeStr(qs.rulesetId, 120);
+  const locale = resolveRequestLocale(event);
+
+  if (!RULESET_BUCKET) {
+    return json(501, { ok: false, reason: "RULESET_DISABLED" });
+  }
+
+  let rulesetId = reqRulesetId || "";
+  let meta = null;
+
+  if (reqRulesetId) {
+    const idx = await loadRulesetIndex(reqRulesetId);
+    if (!idx) return json(404, { ok: false, reason: "RULESET_NOT_FOUND", rulesetId: reqRulesetId });
+    meta = idx.get(String(ruleId));
+    if (!meta) return json(404, { ok: false, reason: "RULE_NOT_FOUND", rulesetId: reqRulesetId, ruleId });
+    rulesetId = reqRulesetId;
+  } else {
+    // rulesetId 미지정이면 서버가 자동 탐색
+    const candidates = ["default-v1", "scoring-model-v1"];
+    for (const rsid of candidates) {
+      const idx = await loadRulesetIndex(rsid);
+      if (!idx) continue;
+      const m = idx.get(String(ruleId));
+      if (m) {
+        rulesetId = rsid;
+        meta = m;
+        break;
+      }
+    }
+    if (!meta) return json(404, { ok: false, reason: "RULE_NOT_FOUND", ruleId });
+  }
+
+  // 1) meta.display 우선
+  let oneLine = "";
+  let title = "";
+  if (meta.display && (meta.display.oneLine || meta.display.title)) {
+    oneLine = String(meta.display.oneLine || "");
+    title = String(meta.display.title || "");
+  } else {
+    // 2) i18n에서 locale/fallback로 선택
+    const entry = pickI18nEntry(meta.i18n, locale);
+    if (entry) {
+      oneLine = String(entry.oneLine || "");
+      title = String(entry.title || "");
+    }
+  }
+
+  // 요구사항: ruleId -> oneLine만 빠르게
+  return json(200, {
+    ok: true,
+    rulesetId,
+    ruleId,
+    locale,
+    oneLine,
+    // 필요하면 프론트에서 title도 쓸 수 있게 남겨둠(제거해도 됨)
+    title,
+  });
 }
 
 // 토큰 검증 및 디코딩
@@ -595,9 +865,14 @@ async function handleBody(event) {
   }
 
   const { payloadJson, payloadTruncated, payloadHash } = mainRes.Item;
+  const rulesetId = pickRulesetIdFromItem(mainRes.Item) || pickRulesetIdFromItem(metaRes.Item);
+  const domain = String(mainRes.Item?.domain || metaRes.Item?.domain || "");
+
   return json(200, {
     ok: true,
     eventId,
+    rulesetId,
+    domain,
     meta: metaRes.Item,
     payload: { payloadJson, payloadTruncated, payloadHash },
   });
@@ -1062,9 +1337,15 @@ export const handler = async (event) => {
     }
 
     const path = getPath(event);
-    // stage prefix가 붙어도 동작하도록 endsWith  
+    // stage prefix가 붙어도 동작하도록 endsWith
+    if (path.endsWith("/agg/global")) return await handleAggGlobal(event);
+    if (path.endsWith("/agg/domain")) return await handleAggGlobal(event);
+    if (path.endsWith("/agg/rule")) return await handleAggGlobal(event);
+    if (path.endsWith("/agg/sev") || path.endsWith("/agg/severity")) return await handleAggGlobal(event);  
     if (path.endsWith("/events")) return await handleEvents(event);  
     if (path.endsWith("/events/body")) return await handleBody(event);
+    if (path.endsWith("/rulemeta")) return await handleRulesetRule(event);
+    if (path.endsWith("/rule")) return await handleRulesetRule(event);
     //if (path.endsWith("/events/search")) return await handleBody(event);
     if (path.endsWith("/events/by-install")) return await handleEventsByInstall(event);
     if (path.endsWith("/events/by-domain")) return await handleEventsByDomain(event);
