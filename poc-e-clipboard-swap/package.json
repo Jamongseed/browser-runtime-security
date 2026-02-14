@@ -1,0 +1,13 @@
+{
+  "name": "clipboard-poc-minimal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Minimal clipboard swap PoC (aaa.com -> bbb.com)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

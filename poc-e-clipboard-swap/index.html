@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clipboard PoC (Minimal)</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <main class="card">
+        <h1>Clipboard PoC</h1>
+
+        <div class="row">
+            <span class="label">표시:</span>
+            <span id="visibleText" class="mono">aaa.com</span>
+            <button id="copyBtn" class="btn" type="button">Copy</button>
+        </div>
+
+        <p class="hint">
+            Copy 버튼을 누르면 클립보드에는 <span class="mono">bbb.com</span> 이 들어갑니다.
+            아래 입력창에서 <span class="mono">Ctrl+V</span>로 붙여넣어 보세요.
+        </p>
+
+        <label class="label-block" for="pasteBox">붙여넣기 테스트</label>
+        <textarea id="pasteBox" class="paste" placeholder="여기에 Ctrl+V로 붙여넣기"></textarea>
+
+        <div id="status" class="status" aria-live="polite"></div>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
